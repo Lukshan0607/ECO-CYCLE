@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
+import PayrollForm from "./PayrollForm";
 
 // Sri Lankan Payroll Configuration (configurable rates)
 const PAYROLL_CONFIG = {
@@ -29,6 +30,12 @@ export default function EmployeePayroll() {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [payrollConfig, setPayrollConfig] = useState(PAYROLL_CONFIG);
   const [searchTerm, setSearchTerm] = useState("");
+  const [showPayrollForm, setShowPayrollForm] = useState(false);
+  const [payrollRuns, setPayrollRuns] = useState([]);
+
+  const handleAddPayroll = (newPayroll) => {
+    setPayrollRuns(prev => [newPayroll, ...prev]);
+  };
 
   const tabs = [
     { id: "overview", name: "Payroll Overview", icon: <DollarSign size={20} /> },
@@ -150,10 +157,12 @@ export default function EmployeePayroll() {
       <Card>
         <CardContent className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-semibold">Recent Payroll Runs</h3>
-            <Button className="bg-green-600 text-white">
-              <Plus size={16} className="mr-2" />
-              New Payroll Run
+            <h2 className="text-2xl font-bold">Recent Payroll Runs</h2>
+            <Button 
+              onClick={() => setShowPayrollForm(true)}
+              className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900"
+            >
+              <Plus className="mr-2 h-4 w-4" /> New Payroll Run
             </Button>
           </div>
           <div className="overflow-x-auto">
@@ -533,6 +542,32 @@ export default function EmployeePayroll() {
       <div>
         {renderContent()}
       </div>
+
+      {/* Payroll Form Modal */}
+      {showPayrollForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold">New Payroll Run</h3>
+                <button 
+                  onClick={() => setShowPayrollForm(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <PayrollForm 
+                onSave={handleAddPayroll}
+                onClose={() => setShowPayrollForm(false)}
+                payrollConfig={payrollConfig}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
