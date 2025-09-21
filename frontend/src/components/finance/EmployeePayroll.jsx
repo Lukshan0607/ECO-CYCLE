@@ -23,10 +23,6 @@ const PAYROLL_CONFIG = {
   WORKING_HOURS_PER_DAY: 8
 };
 
-// Mock data removed - to be replaced with API calls
-const employees = [];
-const payrollRuns = [];
-
 export default function EmployeePayroll() {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -34,9 +30,27 @@ export default function EmployeePayroll() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showPayrollForm, setShowPayrollForm] = useState(false);
   const [payrollRuns, setPayrollRuns] = useState([]);
+  const [employees, setEmployees] = useState({}); // Store employee data by ID
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Fetch employees data
+  const fetchEmployees = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/employees');
+      const data = await response.json();
+      if (data.success) {
+        const employeesMap = {};
+        data.data.forEach(emp => {
+          employeesMap[emp._id] = emp.employeeId; // Map MongoDB _id to employeeId
+        });
+        setEmployees(employeesMap);
+      }
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+    }
+  };
 
   // Fetch payroll runs on component mount
   useEffect(() => {
@@ -53,11 +67,16 @@ export default function EmployeePayroll() {
           employeeName: payroll.employeeName || (payroll.employee?.name || 'Unknown Employee'),
           department: payroll.department || (payroll.employee?.department || ''),
           position: payroll.position || (payroll.employee?.position || ''),
-          // Remove any nested employee object
-          employee: undefined
+          // Store the employee's _id for reference
+          employeeMongoId: payroll.employeeId || payroll.employee?._id || ''
         }));
         
         setPayrollRuns(processedData);
+        
+        // Fetch employees data if we have any payrolls
+        if (data.length > 0) {
+          await fetchEmployees();
+        }
       } catch (err) {
         console.error('Error fetching payrolls:', err);
         setError('Failed to load payroll data');
@@ -68,6 +87,201 @@ export default function EmployeePayroll() {
 
     fetchPayrolls();
   }, []);
+
+  // Validate payroll data before saving
+  const validatePayrollData = (data) => {
+    const errors = {};
+    
+    // Required fields validation
+    if (!data.employeeId) errors.employeeId = 'Employee is required';
+    if (!data.month) errors.month = 'Payroll month is required';
+    
+    // Numeric fields validation
+    const numericFields = [
+      'basicSalary', 'allowances', 'overtimeHours', 
+      'overtimePay', 'deductions'
+    ];
+    
+    numericFields.forEach(field => {
+      const value = parseFloat(data[field] || 0);
+      if (isNaN(value) || value < 0) {
+        errors[field] = `Invalid ${field.replace(/([A-Z])/g, ' $1').toLowerCase().trim()}`;
+      }
+    });
+    
+    // Date validation - ensure month is not in the future
+    if (data.month) {
+      const selectedDate = new Date(data.month);
+      const currentDate = new Date();
+      
+      if (selectedDate > currentDate) {
+        errors.month = 'Payroll date cannot be in the future';
+      }
+    }
+    
+    return Object.keys(errors).length > 0 ? errors : null;
+  };
+
+  // Handle adding/updating a payroll record
+  const handleSavePayroll = async (payrollData) => {
+    try {
+      setIsLoading(true);
+      
+      // Validate the payroll data
+      const validationErrors = validatePayrollData(payrollData);
+      if (validationErrors) {
+        throw new Error(Object.values(validationErrors).join('\n'));
+      }
+      
+      // Format the data before sending
+      const formattedData = {
+        ...payrollData,
+        basicSalary: parseFloat(payrollData.basicSalary) || 0,
+        allowances: parseFloat(payrollData.allowances) || 0,
+        overtimeHours: parseFloat(payrollData.overtimeHours) || 0,
+        overtimePay: parseFloat(payrollData.overtimePay) || 0,
+        deductions: parseFloat(payrollData.deductions) || 0,
+        month: new Date(payrollData.month).toISOString().substring(0, 7)
+      };
+      
+      // If we have an existing payroll ID, it's an update
+      const isUpdate = !!payrollData._id;
+      
+      let response;
+      if (isUpdate) {
+        response = await fetch(`http://localhost:5000/api/payroll/${payrollData._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify(formattedData)
+        });
+      } else {
+        response = await fetch('http://localhost:5000/api/payroll', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify(formattedData)
+        });
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to save payroll');
+      }
+
+      // Update the payroll list
+      const updatedPayrolls = await payrollApi.getPayrolls();
+      setPayrollRuns(updatedPayrolls);
+      
+      setShowPayrollForm(false);
+      setSelectedEmployee(null);
+      toast.success(`Payroll ${isUpdate ? 'updated' : 'created'} successfully!`);
+    } catch (error) {
+      console.error('Error saving payroll:', error);
+      // Show multiple lines in toast if there are multiple errors
+      const errorMessages = error.message.split('\n');
+      if (errorMessages.length > 1) {
+        errorMessages.forEach(msg => {
+          if (msg.trim()) toast.error(msg.trim());
+        });
+      } else {
+        toast.error(error.message || 'Failed to save payroll. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle edit payroll
+  const handleEditPayroll = (payroll) => {
+    setSelectedEmployee({
+      _id: payroll.employeeMongoId || payroll.employeeId,
+      personalInfo: { fullName: payroll.employeeName },
+      employment: { position: payroll.position },
+      salaryInfo: { basicSalary: payroll.basicSalary }
+    });
+    setShowPayrollForm({
+      isOpen: true,
+      payrollData: payroll,
+      isEdit: true
+    });
+  };
+
+  // Handle view/download payslip
+  const handleViewPayslip = async (payrollId) => {
+    try {
+      setIsLoading(true);
+      const response = await fetch(`http://localhost:5000/api/payroll/${payrollId}/payslip`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch payslip');
+      }
+
+      // Get the blob from the response
+      const blob = await response.blob();
+      
+      // Create a blob URL for the PDF
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `payslip-${payrollId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      
+      // Clean up
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+      
+    } catch (error) {
+      console.error('Error downloading payslip:', error);
+      toast.error(error.message || 'Failed to download payslip');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle delete payroll
+  const handleDeletePayroll = async (payrollId) => {
+    if (!window.confirm('Are you sure you want to delete this payroll record? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const response = await fetch(`http://localhost:5000/api/payroll/${payrollId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to delete payroll');
+      }
+
+      // Update the payroll list
+      const updatedPayrolls = await payrollApi.getPayrolls();
+      setPayrollRuns(updatedPayrolls);
+      
+      toast.success('Payroll record deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting payroll:', error);
+      toast.error(error.message || 'Failed to delete payroll. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleAddPayroll = (payrollData) => {
     try {
@@ -184,10 +398,12 @@ export default function EmployeePayroll() {
     };
   };
 
-  const filteredEmployees = employees.filter(emp => 
-    emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    emp.employeeNumber.includes(searchTerm) ||
-    emp.department.toLowerCase().includes(searchTerm.toLowerCase())
+  // Convert employees object to array for filtering
+  const filteredEmployees = Object.entries(employees).map(([id, empId]) => ({
+    _id: id,
+    employeeId: empId
+  })).filter(emp => 
+    emp.employeeId.toString().toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const renderOverview = () => (
@@ -274,13 +490,9 @@ export default function EmployeePayroll() {
                   <th className="p-3 font-semibold">Employee</th>
                   <th className="p-3 font-semibold">Month</th>
                   <th className="p-3 font-semibold">Basic Salary</th>
-                  <th className="p-3 font-semibold">Allowances</th>
-                  <th className="p-3 font-semibold">Overtime</th>
-                  <th className="p-3 font-semibold">EPF (8%)</th>
-                  <th className="p-3 font-semibold">ETF (3%)</th>
                   <th className="p-3 font-semibold">Net Pay</th>
                   <th className="p-3 font-semibold">Status</th>
-                  <th className="p-3 font-semibold">Actions</th>
+                  <th className="p-3 font-semibold text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -291,17 +503,12 @@ export default function EmployeePayroll() {
                     <tr key={uniqueId} className="border-b hover:bg-gray-50">
                       <td className="p-3">
                         <div className="font-medium">{run.employeeName || 'N/A'}</div>
-                        <div className="text-sm text-gray-500">{run.employeeId || 'N/A'}</div>
+                        <div className="text-sm text-gray-500">
+                          {employees[run.employeeMongoId] || run.employeeId || 'N/A'}
+                        </div>
                       </td>
                       <td className="p-3">{run.month || 'N/A'}</td>
                       <td className="p-3">LKR {run.basicSalary ? parseFloat(run.basicSalary).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
-                      <td className="p-3">LKR {run.allowances ? parseFloat(run.allowances).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
-                      <td className="p-3">
-                        <div>{run.overtimeHours || '0'} hrs</div>
-                        <div className="text-sm text-gray-500">LKR {run.overtimePay ? parseFloat(run.overtimePay).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</div>
-                      </td>
-                      <td className="p-3">LKR {run.epfEmployee ? parseFloat(run.epfEmployee).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
-                      <td className="p-3">LKR {run.etfEmployer ? parseFloat(run.etfEmployer).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
                       <td className="p-3 font-medium">LKR {run.netPay ? parseFloat(run.netPay).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -313,20 +520,42 @@ export default function EmployeePayroll() {
                         </span>
                       </td>
                       <td className="p-3">
-                        <div className="flex space-x-2">
+                        <div className="flex items-center justify-center gap-2 w-full mx-auto">
                           <Button 
-                            variant="outline" 
+                            variant="ghost" 
                             size="sm" 
-                            className="h-8"
-                            onClick={() => handleGeneratePayslip(run.id)}
+                            title="Edit Payroll"
+                            onClick={() => handleEditPayroll(run)}
+                            className="p-2 h-8 w-8 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
                           >
-                            <FileText className="h-4 w-4 mr-1" /> Payslip
+                            {isLoading ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Edit className="h-4 w-4" />
+                            )}
                           </Button>
-                          <Button variant="ghost" size="sm" title="View Details">
-                            <Eye size={16} />
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            title="Delete Payroll"
+                            onClick={() => handleDeletePayroll(run._id || run.id)}
+                            disabled={isLoading}
+                            className="p-2 h-8 w-8 flex items-center justify-center text-red-600 hover:bg-red-50 rounded-full transition-colors duration-200"
+                          >
+                            {isLoading ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
                           </Button>
-                          <Button variant="ghost" size="sm" title="Download Payslip">
-                            <Download size={16} />
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            title="View/Download Payslip"
+                            onClick={() => handleViewPayslip(run._id || run.id)}
+                            className="p-2 h-8 w-8 flex items-center justify-center text-green-600 hover:bg-green-50 rounded-full transition-colors duration-200"
+                          >
+                            <FileText className="h-4 w-4" />
                           </Button>
                         </div>
                       </td>
@@ -381,7 +610,7 @@ export default function EmployeePayroll() {
                   <th className="p-3 font-semibold">Department</th>
                   <th className="p-3 font-semibold">Basic Salary</th>
                   <th className="p-3 font-semibold">Status</th>
-                  <th className="p-3 font-semibold">Actions</th>
+                  <th className="p-3 font-semibold text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>

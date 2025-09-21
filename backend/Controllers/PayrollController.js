@@ -219,12 +219,63 @@ const getPayrollSummary = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Delete a payroll record
+// @route   DELETE /api/payroll/:id
+// @access  Private/Admin
+const deletePayroll = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if payroll exists
+    const payroll = await Payroll.findById(id);
+    if (!payroll) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payroll record not found'
+      });
+    }
+
+    // Check if payroll is already processed/paid
+    if (payroll.status === 'paid') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete a paid payroll record. Please void the payment first.'
+      });
+    }
+
+    // Delete the payroll record
+    await Payroll.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Payroll record deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting payroll:', error);
+    
+    // Handle specific error cases
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payroll ID format'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete payroll record',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
 module.exports = {
   processPayroll,
   getPayrolls,
   getPayrollById,
   updatePayrollStatus,
   getPayrollSummary,
+  deletePayroll,
   
   // @desc    Generate payslip PDF
   // @route   GET /api/payroll/:id/payslip
