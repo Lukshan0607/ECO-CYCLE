@@ -1,7 +1,8 @@
 // src/components/finance/EmployeePayroll.jsx
 import React, { useState, useEffect } from "react";
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  PieChart, Pie, Cell
 } from "recharts";
 import { 
   Users, Calculator, FileText, Download, Plus, Search, Edit, Trash2,
@@ -471,10 +472,8 @@ export default function EmployeePayroll() {
   };
 
   const tabs = [
-    { id: "calculations", name: "Payroll Calculations", icon: <Calculator size={20} /> },
-    { id: "payslips", name: "Payslips", icon: <FileText size={20} /> },
-    { id: "reports", name: "Payroll Reports", icon: <BarChart size={20} /> },
-    { id: "settings", name: "Configuration", icon: <Settings size={20} /> }
+    { id: "overview", name: "Overview", icon: <Calculator size={20} /> },
+    { id: "reports", name: "Payroll Reports", icon: <BarChart size={20} /> }
   ];
 
   // Calculate payroll for an employee
@@ -522,6 +521,36 @@ export default function EmployeePayroll() {
     emp.employeeId.toString().toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Calculate payroll statistics
+  const calculatePayrollStats = () => {
+    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
+    
+    const monthlyPayroll = payrollRuns
+      .filter(run => run.month?.startsWith(currentMonth))
+      .reduce((sum, run) => sum + (parseFloat(run.netPay) || 0), 0);
+      
+    const epfContributions = payrollRuns
+      .filter(run => run.month?.startsWith(currentMonth))
+      .reduce((sum, run) => {
+        const employeeEPF = (parseFloat(run.basicSalary) || 0) * 0.08; // 8% employee EPF
+        const employerEPF = (parseFloat(run.basicSalary) || 0) * 0.12; // 12% employer EPF
+        return sum + employeeEPF + employerEPF;
+      }, 0);
+      
+    const overtimeHours = payrollRuns
+      .filter(run => run.month?.startsWith(currentMonth))
+      .reduce((sum, run) => sum + (parseFloat(run.overtimeHours) || 0), 0);
+      
+    return {
+      totalEmployees: Object.keys(employees).length,
+      monthlyPayroll,
+      epfContributions,
+      overtimeHours
+    };
+  };
+
+  const stats = calculatePayrollStats();
+  
   const renderOverview = () => (
     <div className="space-y-8">
       {/* KPI Cards */}
@@ -531,7 +560,7 @@ export default function EmployeePayroll() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-blue-700">Total Employees</p>
-                <p className="text-3xl font-bold text-blue-900">{employees.length}</p>
+                <p className="text-3xl font-bold text-blue-900">{stats.totalEmployees}</p>
                 <p className="text-sm text-blue-600">Active employees</p>
               </div>
               <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
@@ -546,7 +575,13 @@ export default function EmployeePayroll() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-green-700">Monthly Payroll</p>
-                <p className="text-3xl font-bold text-green-900">LKR 3.75M</p>
+                <p className="text-3xl font-bold text-green-900">
+                  {new Intl.NumberFormat('en-LK', { 
+                    style: 'currency', 
+                    currency: 'LKR',
+                    maximumFractionDigits: 0 
+                  }).format(stats.monthlyPayroll || 0)}
+                </p>
                 <p className="text-sm text-green-600">Current month</p>
               </div>
               <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center">
@@ -561,7 +596,13 @@ export default function EmployeePayroll() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-purple-700">EPF Contributions</p>
-                <p className="text-3xl font-bold text-purple-900">LKR 750K</p>
+                <p className="text-3xl font-bold text-purple-900">
+                  {new Intl.NumberFormat('en-LK', { 
+                    style: 'currency', 
+                    currency: 'LKR',
+                    maximumFractionDigits: 0 
+                  }).format(stats.epfContributions || 0)}
+                </p>
                 <p className="text-sm text-purple-600">Employee + Employer</p>
               </div>
               <div className="w-12 h-12 bg-purple-600 rounded-xl flex items-center justify-center">
@@ -576,7 +617,9 @@ export default function EmployeePayroll() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-orange-700">Overtime Hours</p>
-                <p className="text-3xl font-bold text-orange-900">156</p>
+                <p className="text-3xl font-bold text-orange-900">
+                  {Math.round(stats.overtimeHours || 0)}
+                </p>
                 <p className="text-sm text-orange-600">This month</p>
               </div>
               <div className="w-12 h-12 bg-orange-600 rounded-xl flex items-center justify-center">
@@ -912,22 +955,249 @@ export default function EmployeePayroll() {
     </Card>
   );
 
+  // Calculate summary statistics for the reports
+  const calculatePayrollSummary = () => {
+    const summary = {
+      totalGrossPay: 0,
+      totalNetPay: 0,
+      totalEPF: 0,
+      totalETF: 0,
+      totalTax: 0,
+      totalEmployees: 0,
+      byDepartment: {}
+    };
+
+    payrollRuns.forEach(payroll => {
+      const dept = payroll.department || 'Unassigned';
+      const grossPay = parseFloat(payroll.basicSalary || 0) + parseFloat(payroll.allowances || 0);
+      const epf = grossPay * PAYROLL_CONFIG.EMPLOYEE_EPF_RATE;
+      const etf = grossPay * PAYROLL_CONFIG.EMPLOYER_ETF_RATE;
+      const tax = parseFloat(payroll.taxDeduction || 0);
+      const netPay = grossPay - epf - tax;
+
+      // Update totals
+      summary.totalGrossPay += grossPay;
+      summary.totalNetPay += netPay;
+      summary.totalEPF += epf;
+      summary.totalETF += etf;
+      summary.totalTax += tax;
+      summary.totalEmployees++;
+
+      // Update department breakdown
+      if (!summary.byDepartment[dept]) {
+        summary.byDepartment[dept] = {
+          grossPay: 0,
+          netPay: 0,
+          epf: 0,
+          etf: 0,
+          tax: 0,
+          employeeCount: 0
+        };
+      }
+      
+      summary.byDepartment[dept].grossPay += grossPay;
+      summary.byDepartment[dept].netPay += netPay;
+      summary.byDepartment[dept].epf += epf;
+      summary.byDepartment[dept].etf += etf;
+      summary.byDepartment[dept].tax += tax;
+      summary.byDepartment[dept].employeeCount++;
+    });
+
+    return summary;
+  };
+
+  const payrollSummary = calculatePayrollSummary();
+  const departmentData = Object.entries(payrollSummary.byDepartment).map(([dept, data]) => ({
+    name: dept,
+    ...data,
+    avgSalary: data.grossPay / (data.employeeCount || 1)
+  }));
+
   const renderReports = () => (
     <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-700">Total Employees</p>
+                <p className="text-2xl font-bold text-blue-900">{payrollSummary.totalEmployees}</p>
+              </div>
+              <Users className="text-blue-500" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-green-50 border-green-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-green-700">Total Gross Pay</p>
+                <p className="text-2xl font-bold text-green-900">
+                  {new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR', maximumFractionDigits: 0 })
+                    .format(payrollSummary.totalGrossPay)}
+                </p>
+              </div>
+              <DollarSign className="text-green-500" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-purple-50 border-purple-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-purple-700">Total EPF + ETF</p>
+                <p className="text-2xl font-bold text-purple-900">
+                  {new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR', maximumFractionDigits: 0 })
+                    .format(payrollSummary.totalEPF + payrollSummary.totalETF)}
+                </p>
+              </div>
+              <Calculator className="text-purple-500" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-amber-50 border-amber-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-amber-700">Total Tax</p>
+                <p className="text-2xl font-bold text-amber-900">
+                  {new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR', maximumFractionDigits: 0 })
+                    .format(payrollSummary.totalTax)}
+                </p>
+              </div>
+              <FileText className="text-amber-500" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Payroll Trends Chart */}
       <Card>
         <CardContent className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Payroll Analytics</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={payrollRuns}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="totalGrossPay" fill="#3B82F6" name="Gross Pay" />
-              <Bar dataKey="totalNetPay" fill="#10B981" name="Net Pay" />
-            </BarChart>
-          </ResponsiveContainer>
+          <h3 className="text-lg font-semibold mb-4">Payroll Trends</h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={payrollRuns}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis />
+                <Tooltip 
+                  formatter={(value) => new Intl.NumberFormat('en-LK', { 
+                    style: 'currency', 
+                    currency: 'LKR', 
+                    maximumFractionDigits: 0 
+                  }).format(value)}
+                />
+                <Legend />
+                <Bar dataKey="basicSalary" fill="#3B82F6" name="Basic Salary" />
+                <Bar dataKey="allowances" fill="#10B981" name="Allowances" />
+                <Bar dataKey="overtimePay" fill="#F59E0B" name="Overtime" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Department-wise Breakdown */}
+      <Card>
+        <CardContent className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Department-wise Breakdown</h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={departmentData}
+                margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" angle={-45} textAnchor="end" height={70} />
+                <YAxis />
+                <Tooltip 
+                  formatter={(value) => new Intl.NumberFormat('en-LK', { 
+                    style: 'currency', 
+                    currency: 'LKR', 
+                    maximumFractionDigits: 0 
+                  }).format(value)}
+                />
+                <Legend />
+                <Bar dataKey="grossPay" fill="#3B82F6" name="Gross Pay" />
+                <Bar dataKey="netPay" fill="#10B981" name="Net Pay" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Employee Distribution */}
+      <Card>
+        <CardContent className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Employee Distribution</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="h-80">
+              <h4 className="text-md font-medium text-center mb-4">By Department</h4>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={departmentData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="employeeCount"
+                    nameKey="name"
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {departmentData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={`#${Math.floor(Math.random()*16777215).toString(16)}`} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    formatter={(value, name, props) => [
+                      `${name}: ${value} employees`,
+                      `Avg. Salary: ${new Intl.NumberFormat('en-LK', { 
+                        style: 'currency', 
+                        currency: 'LKR',
+                        maximumFractionDigits: 0 
+                      }).format(props.payload.avgSalary)}`
+                    ]}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="h-80">
+              <h4 className="text-md font-medium text-center mb-4">Salary Distribution</h4>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={payrollRuns.slice(0, 10)} // Show top 10 employees
+                  margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                  layout="vertical"
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" />
+                  <YAxis 
+                    type="category" 
+                    dataKey="employeeName" 
+                    width={120}
+                    tick={{ fontSize: 12 }}
+                  />
+                  <Tooltip 
+                    formatter={(value) => new Intl.NumberFormat('en-LK', { 
+                      style: 'currency', 
+                      currency: 'LKR',
+                      maximumFractionDigits: 0 
+                    }).format(value)}
+                  />
+                  <Legend />
+                  <Bar dataKey="netPay" fill="#3B82F6" name="Net Salary" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
