@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, User, DollarSign, Clock, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Plus, User, DollarSign, Clock, AlertCircle, Loader2, Save } from 'lucide-react';
 import { Button } from '../ui/button';
-import { employeeApi } from '../../services/employeeApi';
+import employeeApi from '../../services/employeeApi';
+import payrollApi from '../../services/payrollApi';
 
 const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
   // Default payroll configuration for Sri Lanka
@@ -142,19 +143,57 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
     return (basic + allowances + overtimePay - deductions).toFixed(2);
   };
 
-  const handleSubmit = (e) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const newPayroll = {
-      ...formData,
-      id: `PR-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-      overtimePay: calculateOvertimePay(),
-      netPay: calculateNetPay(),
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    };
     
-    onSave(newPayroll);
-    onClose();
+    if (!formData.employeeId) {
+      setSubmitError('Please select an employee');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      // Ensure we're only sending the necessary data to the parent component
+      // and not trying to pass the entire employee object
+      const newPayroll = {
+        employeeId: formData.employeeId,
+        employeeName: formData.employeeName || 'Unknown Employee',
+        department: formData.department || '',
+        position: formData.position || '',
+        month: formData.month,
+        basicSalary: parseFloat(formData.basicSalary) || 0,
+        allowances: parseFloat(formData.allowances) || 0,
+        overtimeHours: parseFloat(formData.overtimeHours) || 0,
+        overtimePay: parseFloat(calculateOvertimePay()) || 0,
+        deductions: parseFloat(formData.deductions) || 0,
+        epfEmployee: parseFloat(formData.epfEmployee) || 0,
+        epfEmployer: parseFloat(formData.epfEmployer) || 0,
+        etfEmployer: parseFloat(formData.etfEmployer) || 0,
+        grossPay: parseFloat(formData.grossPay) || 0,
+        netPay: parseFloat(calculateNetPay()) || 0,
+        status: 'pending',
+        notes: formData.notes || '',
+        processedAt: new Date().toISOString()
+      };
+
+      // Call the API to process payroll
+      await payrollApi.processPayroll(newPayroll);
+      
+      // Notify parent component about successful save
+      onSave(newPayroll);
+      onClose();
+      
+    } catch (error) {
+      console.error('Error processing payroll:', error);
+      setSubmitError(error.message || 'Failed to process payroll. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

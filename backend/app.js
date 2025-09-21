@@ -13,6 +13,7 @@ const paymentRoutes = require("./Routes/PaymentRoutes");
 const productRoutes = require("./Routes/ProductRoutes");
 const cartRoutes = require("./Routes/CartRoutes");
 const employeeRoutes = require("./Routes/EmployeeRoutes");
+const payrollRoutes = require("./Routes/PayrollRoutes");
 
 // CORS Configuration
 const corsOptions = {
@@ -39,6 +40,7 @@ app.use("/api/finance", paymentRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/employees", employeeRoutes);
+app.use("/api/payroll", payrollRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

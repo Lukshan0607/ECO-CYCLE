@@ -5,11 +5,13 @@ import {
 } from "recharts";
 import { 
   Users, Calculator, FileText, Download, Plus, Search, Edit, Trash2,
-  DollarSign, Clock, Calendar, Settings, Eye, CheckCircle, AlertCircle
+  DollarSign, Clock, Calendar, Settings, Eye, CheckCircle, AlertCircle, Loader2
 } from "lucide-react";
+import { toast } from 'react-hot-toast';
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import PayrollForm from "./PayrollForm";
+import payrollApi from "../../services/payrollApi";
 
 // Sri Lankan Payroll Configuration (configurable rates)
 const PAYROLL_CONFIG = {
@@ -33,8 +35,108 @@ export default function EmployeePayroll() {
   const [showPayrollForm, setShowPayrollForm] = useState(false);
   const [payrollRuns, setPayrollRuns] = useState([]);
 
-  const handleAddPayroll = (newPayroll) => {
-    setPayrollRuns(prev => [newPayroll, ...prev]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Fetch payroll runs on component mount
+  useEffect(() => {
+    const fetchPayrolls = async () => {
+      try {
+        setIsLoading(true);
+        const data = await payrollApi.getPayrolls();
+        
+        // Process the data to ensure no nested objects
+        const processedData = data.map(payroll => ({
+          ...payroll,
+          // Ensure employee data is flattened
+          employeeId: payroll.employeeId || '',
+          employeeName: payroll.employeeName || (payroll.employee?.name || 'Unknown Employee'),
+          department: payroll.department || (payroll.employee?.department || ''),
+          position: payroll.position || (payroll.employee?.position || ''),
+          // Remove any nested employee object
+          employee: undefined
+        }));
+        
+        setPayrollRuns(processedData);
+      } catch (err) {
+        console.error('Error fetching payrolls:', err);
+        setError('Failed to load payroll data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPayrolls();
+  }, []);
+
+  const handleAddPayroll = (payrollData) => {
+    try {
+      // Flatten the employee data to avoid nested objects
+      const newPayroll = {
+        id: `PR-${Date.now()}`,
+        // Spread all the payroll data first
+        ...payrollData,
+        // Ensure we have all required fields with fallbacks
+        status: 'pending',
+        dateProcessed: new Date().toISOString(),
+        // Make sure we're using the employee data directly in the root object
+        employeeId: payrollData.employeeId || '',
+        employeeName: payrollData.employeeName || 'Unknown Employee',
+        department: payrollData.department || '',
+        position: payrollData.position || ''
+      };
+      
+      // Remove any potential nested objects
+      delete newPayroll.employee;
+      
+      // Update the state with the new payroll run
+      setPayrollRuns(prevRuns => [newPayroll, ...prevRuns]);
+      setShowPayrollForm(false);
+      setSelectedEmployee(null);
+      toast.success('Payroll processed successfully!');
+    } catch (error) {
+      console.error('Error adding payroll:', error);
+      toast.error('Failed to process payroll. Please try again.');
+    }
+  };
+
+  // Generate and download payslip
+  const handleGeneratePayslip = async (payrollId) => {
+    const toastId = toast.loading('Generating payslip...');
+    
+    try {
+      // Call the API to generate payslip
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/payroll/${payrollId}/payslip`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate payslip');
+      }
+      
+      // Get the blob from the response
+      const blob = await response.blob();
+      
+      // Create a blob URL for the PDF
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `payslip-${payrollId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      
+      // Clean up
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      // Show success message
+      toast.success('Payslip downloaded successfully!', { id: toastId });
+    } catch (error) {
+      console.error('Error generating payslip:', error);
+      toast.error(error.message || 'Failed to generate payslip. Please try again.', { id: toastId });
+    }
   };
 
   const tabs = [
@@ -169,38 +271,75 @@ export default function EmployeePayroll() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-100">
-                  <th className="p-3 font-semibold">Run ID</th>
+                  <th className="p-3 font-semibold">Employee</th>
                   <th className="p-3 font-semibold">Month</th>
-                  <th className="p-3 font-semibold">Employees</th>
-                  <th className="p-3 font-semibold">Gross Pay</th>
-                  <th className="p-3 font-semibold">Deductions</th>
+                  <th className="p-3 font-semibold">Basic Salary</th>
+                  <th className="p-3 font-semibold">Allowances</th>
+                  <th className="p-3 font-semibold">Overtime</th>
+                  <th className="p-3 font-semibold">EPF (8%)</th>
+                  <th className="p-3 font-semibold">ETF (3%)</th>
                   <th className="p-3 font-semibold">Net Pay</th>
                   <th className="p-3 font-semibold">Status</th>
                   <th className="p-3 font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {payrollRuns.map(run => (
-                  <tr key={run.id} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-medium">{run.id}</td>
-                    <td className="p-3">{run.month}</td>
-                    <td className="p-3">{run.totalEmployees}</td>
-                    <td className="p-3">LKR {run.totalGrossPay.toLocaleString()}</td>
-                    <td className="p-3">LKR {run.totalDeductions.toLocaleString()}</td>
-                    <td className="p-3">LKR {run.totalNetPay.toLocaleString()}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-600">
-                        {run.status}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex space-x-2">
-                        <Button variant="ghost" size="sm"><Eye size={16} /></Button>
-                        <Button variant="ghost" size="sm"><Download size={16} /></Button>
-                      </div>
+                {payrollRuns.map((run, index) => {
+                  // Generate a unique ID for each row using employeeId, month, and a random string
+                  const uniqueId = `payroll-${run.employeeId || 'emp'}-${run.month || 'date'}-${index}`;
+                  return (
+                    <tr key={uniqueId} className="border-b hover:bg-gray-50">
+                      <td className="p-3">
+                        <div className="font-medium">{run.employeeName || 'N/A'}</div>
+                        <div className="text-sm text-gray-500">{run.employeeId || 'N/A'}</div>
+                      </td>
+                      <td className="p-3">{run.month || 'N/A'}</td>
+                      <td className="p-3">LKR {run.basicSalary ? parseFloat(run.basicSalary).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
+                      <td className="p-3">LKR {run.allowances ? parseFloat(run.allowances).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
+                      <td className="p-3">
+                        <div>{run.overtimeHours || '0'} hrs</div>
+                        <div className="text-sm text-gray-500">LKR {run.overtimePay ? parseFloat(run.overtimePay).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</div>
+                      </td>
+                      <td className="p-3">LKR {run.epfEmployee ? parseFloat(run.epfEmployee).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
+                      <td className="p-3">LKR {run.etfEmployer ? parseFloat(run.etfEmployer).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
+                      <td className="p-3 font-medium">LKR {run.netPay ? parseFloat(run.netPay).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          run.status === 'completed' ? 'bg-green-100 text-green-600' :
+                          run.status === 'pending' ? 'bg-yellow-100 text-yellow-600' :
+                          'bg-red-100 text-red-600'
+                        }`}>
+                          {run.status || 'Pending'}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex space-x-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8"
+                            onClick={() => handleGeneratePayslip(run.id)}
+                          >
+                            <FileText className="h-4 w-4 mr-1" /> Payslip
+                          </Button>
+                          <Button variant="ghost" size="sm" title="View Details">
+                            <Eye size={16} />
+                          </Button>
+                          <Button variant="ghost" size="sm" title="Download Payslip">
+                            <Download size={16} />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {payrollRuns.length === 0 && (
+                  <tr>
+                    <td colSpan="10" className="p-4 text-center text-gray-500">
+                      No payroll records found. Click "New Payroll Run" to get started.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
