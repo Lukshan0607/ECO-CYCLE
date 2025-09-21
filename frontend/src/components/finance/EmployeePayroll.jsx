@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { 
   Users, Calculator, FileText, Download, Plus, Search, Edit, Trash2,
-  DollarSign, Clock, Calendar, Settings, Eye, CheckCircle, AlertCircle, Loader2
+  DollarSign, Clock, Calendar, Settings, Eye, CheckCircle, AlertCircle, Loader2, X, RefreshCw
 } from "lucide-react";
 import { toast } from 'react-hot-toast';
 import { Card, CardContent } from "../ui/card";
@@ -35,10 +35,19 @@ export default function EmployeePayroll() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch employees data
+  // Fetch employees data with authentication
   const fetchEmployees = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/employees');
+      const response = await fetch('http://localhost:5000/api/employees', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch employees');
+      }
+      
       const data = await response.json();
       if (data.success) {
         const employeesMap = {};
@@ -46,10 +55,13 @@ export default function EmployeePayroll() {
           employeesMap[emp._id] = emp.employeeId; // Map MongoDB _id to employeeId
         });
         setEmployees(employeesMap);
+        return data.data; // Return the employees data for potential use
       }
     } catch (error) {
       console.error('Error fetching employees:', error);
+      toast.error('Failed to load employee data');
     }
+    return [];
   };
 
   // Fetch payroll runs on component mount
@@ -57,26 +69,30 @@ export default function EmployeePayroll() {
     const fetchPayrolls = async () => {
       try {
         setIsLoading(true);
-        const data = await payrollApi.getPayrolls();
+        // Fetch both payrolls and employees in parallel
+        const [payrollsData, employeesData] = await Promise.all([
+          payrollApi.getPayrolls(),
+          fetchEmployees()
+        ]);
         
         // Process the data to ensure no nested objects
-        const processedData = data.map(payroll => ({
-          ...payroll,
-          // Ensure employee data is flattened
-          employeeId: payroll.employeeId || '',
-          employeeName: payroll.employeeName || (payroll.employee?.name || 'Unknown Employee'),
-          department: payroll.department || (payroll.employee?.department || ''),
-          position: payroll.position || (payroll.employee?.position || ''),
-          // Store the employee's _id for reference
-          employeeMongoId: payroll.employeeId || payroll.employee?._id || ''
-        }));
+        const processedData = payrollsData.map(payroll => {
+          // Find the employee data for this payroll
+          const employee = employeesData.find(emp => emp._id === payroll.employeeId);
+          
+          return {
+            ...payroll,
+            // Ensure employee data is flattened
+            employeeId: payroll.employeeId || '',
+            employeeName: payroll.employeeName || employee?.name || 'Unknown Employee',
+            department: payroll.department || employee?.department || '',
+            position: payroll.position || employee?.position || '',
+            // Store the employee's _id for reference
+            employeeMongoId: payroll.employeeId || employee?._id || ''
+          };
+        });
         
         setPayrollRuns(processedData);
-        
-        // Fetch employees data if we have any payrolls
-        if (data.length > 0) {
-          await fetchEmployees();
-        }
       } catch (err) {
         console.error('Error fetching payrolls:', err);
         setError('Failed to load payroll data');
@@ -122,7 +138,40 @@ export default function EmployeePayroll() {
     return Object.keys(errors).length > 0 ? errors : null;
   };
 
+  // Fetch payroll data from the API
+  const fetchPayrollData = async () => {
+    try {
+      setIsLoading(true);
+      const [payrollsData, employeesData] = await Promise.all([
+        payrollApi.getPayrolls(),
+        fetchEmployees()
+      ]);
+      
+      const processedData = payrollsData.map(payroll => {
+        const employee = employeesData.find(emp => emp._id === payroll.employeeId);
+        return {
+          ...payroll,
+          employeeId: payroll.employeeId || '',
+          employeeName: payroll.employeeName || employee?.name || 'Unknown Employee',
+          department: payroll.department || employee?.department || '',
+          position: payroll.position || employee?.position || '',
+          employeeMongoId: payroll.employeeId || employee?._id || ''
+        };
+      });
+      
+      setPayrollRuns(processedData);
+      return processedData;
+    } catch (error) {
+      console.error('Error fetching payroll data:', error);
+      toast.error('Failed to refresh payroll data');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle adding/updating a payroll record
+
   const handleSavePayroll = async (payrollData) => {
     try {
       setIsLoading(true);
@@ -174,12 +223,43 @@ export default function EmployeePayroll() {
         throw new Error(data.message || 'Failed to save payroll');
       }
 
-      // Update the payroll list
-      const updatedPayrolls = await payrollApi.getPayrolls();
-      setPayrollRuns(updatedPayrolls);
+      // For new records, get the latest employee data first
+      const updatedEmployees = await fetchEmployees();
+      
+      // If this is a new record, add it to the list with the latest employee info
+      if (!isUpdate) {
+        const employee = updatedEmployees.find(emp => emp._id === payrollData.employeeId);
+        const newPayroll = {
+          ...formattedData,
+          employeeId: employee?._id || payrollData.employeeId,
+          employeeName: employee?.name || payrollData.employeeName || 'Unknown Employee',
+          department: employee?.department || payrollData.department || '',
+          position: employee?.position || payrollData.position || '',
+          employeeMongoId: employee?._id || payrollData.employeeId || ''
+        };
+        
+        // Add the new payroll to the beginning of the list
+        setPayrollRuns(prev => [newPayroll, ...prev]);
+      } else {
+        // For updates, refresh the entire list
+        const updatedPayrolls = await payrollApi.getPayrolls();
+        const processedData = updatedPayrolls.map(payroll => {
+          const emp = updatedEmployees.find(e => e._id === payroll.employeeId);
+          return {
+            ...payroll,
+            employeeId: payroll.employeeId || emp?._id || '',
+            employeeName: payroll.employeeName || emp?.name || 'Unknown Employee',
+            department: payroll.department || emp?.department || '',
+            position: payroll.position || emp?.position || '',
+            employeeMongoId: payroll.employeeId || emp?._id || ''
+          };
+        });
+        setPayrollRuns(processedData);
+      }
       
       setShowPayrollForm(false);
       setSelectedEmployee(null);
+      
       toast.success(`Payroll ${isUpdate ? 'updated' : 'created'} successfully!`);
     } catch (error) {
       console.error('Error saving payroll:', error);
@@ -212,41 +292,99 @@ export default function EmployeePayroll() {
     });
   };
 
-  // Handle view/download payslip
-  const handleViewPayslip = async (payrollId) => {
+  // Handle view payslip in modal
+  const handleViewPayslip = async (payroll) => {
     try {
-      setIsLoading(true);
-      const response = await fetch(`http://localhost:5000/api/payroll/${payrollId}/payslip`, {
+      setViewPayslip(prev => ({ ...prev, isLoading: true, isOpen: true }));
+      
+      const response = await fetch(`http://localhost:5000/api/payroll/${payroll._id}/payslip`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Accept': 'application/json'
         }
       });
 
+      const data = await response.json();
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch payslip');
+        throw new Error(data.message || 'Failed to load payslip');
       }
-
-      // Get the blob from the response
-      const blob = await response.blob();
       
-      // Create a blob URL for the PDF
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `payslip-${payrollId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
+      if (!data.success || !data.data) {
+        throw new Error('Invalid response from server');
+      }
       
-      // Clean up
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      setViewPayslip({
+        isOpen: true,
+        payslipUrl: data.data,
+        isLoading: false,
+        employeeName: payroll.employeeName,
+        month: payroll.month
+      });
       
     } catch (error) {
+      console.error('Error viewing payslip:', error);
+      toast.error(error.message || 'Failed to load payslip');
+      setViewPayslip(prev => ({ ...prev, isOpen: false, isLoading: false }));
+    }
+  };
+  
+  // Clean up payslip URL when modal is closed
+  const handleClosePayslip = () => {
+    if (viewPayslip.payslipUrl) {
+      window.URL.revokeObjectURL(viewPayslip.payslipUrl);
+    }
+    setViewPayslip({ isOpen: false, payslipUrl: null, isLoading: false });
+  };
+
+  // Handle download salary slip
+  const handleDownloadPayslip = async (payroll) => {
+    const toastId = toast.loading('Generating payslip...');
+    try {
+      // If we already have the payslip URL in view mode, use it directly
+      if (viewPayslip.isOpen && viewPayslip.payslipUrl) {
+        const a = document.createElement('a');
+        a.href = viewPayslip.payslipUrl;
+        a.download = `payslip-${viewPayslip.employeeName || 'employee'}-${viewPayslip.month || 'date'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        toast.success('Payslip downloaded successfully!', { id: toastId });
+        return;
+      }
+
+      // Otherwise, fetch the payslip
+      const response = await fetch(`http://localhost:5000/api/payroll/${payroll._id}/payslip`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to download payslip');
+      }
+
+      if (!data.success || !data.data) {
+        throw new Error('Invalid response from server');
+      }
+
+      // Create a download link for the base64 data
+      const a = document.createElement('a');
+      a.href = data.data;
+      a.download = data.filename || `payslip-${payroll.employeeName || 'employee'}-${payroll.month || 'date'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      
+      toast.success('Payslip downloaded successfully!', { id: toastId });
+    } catch (error) {
       console.error('Error downloading payslip:', error);
-      toast.error(error.message || 'Failed to download payslip');
-    } finally {
-      setIsLoading(false);
+      toast.error(error.message || 'Failed to download payslip', { id: toastId });
     }
   };
 
@@ -270,10 +408,26 @@ export default function EmployeePayroll() {
         throw new Error(data.message || 'Failed to delete payroll');
       }
 
-      // Update the payroll list
-      const updatedPayrolls = await payrollApi.getPayrolls();
-      setPayrollRuns(updatedPayrolls);
+      // Update the payroll list and refresh employees
+      const [updatedPayrolls, updatedEmployees] = await Promise.all([
+        payrollApi.getPayrolls(),
+        fetchEmployees() // Refresh the employees list
+      ]);
       
+      // Process the data to ensure we have the latest employee information
+      const processedData = updatedPayrolls.map(payroll => {
+        const employee = updatedEmployees.find(emp => emp._id === payroll.employeeId);
+        return {
+          ...payroll,
+          employeeId: payroll.employeeId || '',
+          employeeName: payroll.employeeName || employee?.name || 'Unknown Employee',
+          department: payroll.department || employee?.department || '',
+          position: payroll.position || employee?.position || '',
+          employeeMongoId: payroll.employeeId || employee?._id || ''
+        };
+      });
+      
+      setPayrollRuns(processedData);
       toast.success('Payroll record deleted successfully!');
     } catch (error) {
       console.error('Error deleting payroll:', error);
@@ -310,51 +464,13 @@ export default function EmployeePayroll() {
       toast.success('Payroll processed successfully!');
     } catch (error) {
       console.error('Error adding payroll:', error);
-      toast.error('Failed to process payroll. Please try again.');
-    }
-  };
-
-  // Generate and download payslip
-  const handleGeneratePayslip = async (payrollId) => {
-    const toastId = toast.loading('Generating payslip...');
-    
-    try {
-      // Call the API to generate payslip
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/payroll/${payrollId}/payslip`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to generate payslip');
-      }
-      
-      // Get the blob from the response
-      const blob = await response.blob();
-      
-      // Create a blob URL for the PDF
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `payslip-${payrollId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      
-      // Clean up
-      link.parentNode.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      // Show success message
-      toast.success('Payslip downloaded successfully!', { id: toastId });
-    } catch (error) {
-      console.error('Error generating payslip:', error);
-      toast.error(error.message || 'Failed to generate payslip. Please try again.', { id: toastId });
+      toast.error(error.message || 'Failed to add payroll. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const tabs = [
-    { id: "overview", name: "Payroll Overview", icon: <DollarSign size={20} /> },
     { id: "calculations", name: "Payroll Calculations", icon: <Calculator size={20} /> },
     { id: "payslips", name: "Payslips", icon: <FileText size={20} /> },
     { id: "reports", name: "Payroll Reports", icon: <BarChart size={20} /> },
@@ -475,13 +591,25 @@ export default function EmployeePayroll() {
       <Card>
         <CardContent className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold">Recent Payroll Runs</h2>
-            <Button 
-              onClick={() => setShowPayrollForm(true)}
-              className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900"
-            >
-              <Plus className="mr-2 h-4 w-4" /> New Payroll Run
-            </Button>
+            <h2 className="text-2xl font-bold">Payroll Management</h2>
+            <div className="flex space-x-2">
+              <Button 
+                variant="outline"
+                onClick={fetchPayrollData}
+                className="flex items-center"
+                disabled={isLoading}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button 
+                onClick={() => setShowPayrollForm(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                New Payroll Run
+              </Button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -534,6 +662,18 @@ export default function EmployeePayroll() {
                               <Edit className="h-4 w-4" />
                             )}
                           </Button>
+                          <button
+                            onClick={() => handleViewPayslip(run)}
+                            className="text-blue-600 hover:text-blue-900 mr-3"
+                            title="View Payslip"
+                            disabled={isLoading}
+                          >
+                            {isLoading ? (
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : (
+                              <Eye className="w-5 h-5" />
+                            )}
+                          </button>
                           <Button 
                             variant="ghost" 
                             size="sm" 
@@ -551,11 +691,11 @@ export default function EmployeePayroll() {
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            title="View/Download Payslip"
-                            onClick={() => handleViewPayslip(run._id || run.id)}
+                            title="Download Payslip"
+                            onClick={() => handleDownloadPayslip(run)}
                             className="p-2 h-8 w-8 flex items-center justify-center text-green-600 hover:bg-green-50 rounded-full transition-colors duration-200"
                           >
-                            <FileText className="h-4 w-4" />
+                            <Download className="h-4 w-4" />
                           </Button>
                         </div>
                       </td>
@@ -884,6 +1024,12 @@ export default function EmployeePayroll() {
     }
   };
 
+  const [viewPayslip, setViewPayslip] = useState({
+    isOpen: false,
+    payslipUrl: null,
+    isLoading: false
+  });
+
   return (
     <div className="space-y-6">
       {/* Navigation Tabs */}
@@ -928,10 +1074,73 @@ export default function EmployeePayroll() {
                 </button>
               </div>
               <PayrollForm 
-                onSave={handleAddPayroll}
-                onClose={() => setShowPayrollForm(false)}
-                payrollConfig={payrollConfig}
+                employee={selectedEmployee}
+                onSave={handleSavePayroll}
+                onClose={() => {
+                  setShowPayrollForm(false);
+                  setSelectedEmployee(null);
+                }}
+                payrollData={showPayrollForm.payrollData}
+                isEdit={showPayrollForm.isEdit}
               />
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Payslip Viewer Modal */}
+      {viewPayslip.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="text-lg font-semibold">
+                {viewPayslip.employeeName} - {viewPayslip.month} Payslip
+              </h3>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => handleDownloadPayslip({ _id: viewPayslip.payslipUrl.split('/').pop() })}
+                  className="p-2 text-gray-600 hover:text-gray-900"
+                  title="Download"
+                >
+                  <Download className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={handleClosePayslip}
+                  className="p-2 text-gray-600 hover:text-gray-900"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {viewPayslip.isLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                  <span className="ml-2">Loading payslip...</span>
+                </div>
+              ) : viewPayslip.payslipUrl ? (
+                <div className="w-full h-[70vh]">
+                  <object
+                    data={viewPayslip.payslipUrl}
+                    type="application/pdf"
+                    className="w-full h-full border rounded"
+                  >
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="mx-auto h-12 w-12 text-gray-400" />
+                      <p className="mt-2">Unable to display PDF. You can still <a 
+                        href={viewPayslip.payslipUrl} 
+                        download={`payslip-${viewPayslip.employeeName || 'employee'}-${viewPayslip.month || 'date'}.pdf`}
+                        className="text-blue-600 hover:underline"
+                      >download it here</a>.</p>
+                    </div>
+                  </object>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FileText className="mx-auto h-12 w-12 text-gray-400" />
+                  <p className="mt-2">Unable to load payslip</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

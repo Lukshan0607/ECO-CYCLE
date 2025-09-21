@@ -280,89 +280,117 @@ module.exports = {
   // @desc    Generate payslip PDF
   // @route   GET /api/payroll/:id/payslip
   // @access  Private/Admin
-  generatePayslip: asyncHandler(async (req, res) => {
+  generatePayslip: async (req, res) => {
     try {
-      const payroll = await Payroll.findById(req.params.id)
-        .populate('employeeId', 'fullName employeeId department position')
-        .populate('createdBy', 'name email');
+      const payroll = await Payroll.findById(req.params.id);
 
       if (!payroll) {
-        res.status(404).json({ success: false, message: 'Payroll not found' });
-        return;
+        return res.status(404).json({ success: false, message: 'Payroll not found' });
       }
 
-      // Create a new PDF document
-      const doc = new PDFDocument({ margin: 50 });
-      
-      // Set response headers
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="payslip-${payroll.employeeId.employeeId}-${payroll.month}.pdf"`);
-      
-      // Pipe PDF to response
-      doc.pipe(res);
-      
-      // Add company header
-      doc
-        .fontSize(20)
-        .text('EcoCycle', { align: 'center' })
-        .fontSize(16)
-        .text('PAYSLIP', { align: 'center', underline: true })
-        .moveDown();
-      
-      // Add payslip details
-      doc
-        .fontSize(10)
-        .text(`Employee: ${payroll.employeeId.fullName}`, { continued: true })
-        .text(`ID: ${payroll.employeeId.employeeId}`, { align: 'right' })
-        .text(`Department: ${payroll.department}`, { continued: true })
-        .text(`Position: ${payroll.position}`, { align: 'right' })
-        .text(`Pay Period: ${new Date(payroll.month).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}`)
-        .moveDown();
-      
-      // Add earnings section
-      doc
-        .fontSize(12)
-        .text('Earnings', { underline: true })
-        .fontSize(10)
-        .text(`Basic Salary: LKR ${parseFloat(payroll.basicSalary).toFixed(2)}`)
-        .text(`Allowances: LKR ${parseFloat(payroll.allowances).toFixed(2)}`)
-        .text(`Overtime (${payroll.overtimeHours} hrs): LKR ${parseFloat(payroll.overtimePay).toFixed(2)}`)
-        .moveDown();
-      
-      // Add deductions section
-      doc
-        .fontSize(12)
-        .text('Deductions', { underline: true })
-        .fontSize(10)
-        .text(`EPF (Employee 8%): LKR ${parseFloat(payroll.epfEmployee).toFixed(2)}`)
-        .text(`EPF (Employer 12%): LKR ${parseFloat(payroll.epfEmployer).toFixed(2)}`)
-        .text(`ETF (Employer 3%): LKR ${parseFloat(payroll.etfEmployer).toFixed(2)}`)
-        .text(`Other Deductions: LKR ${parseFloat(payroll.deductions).toFixed(2)}`)
-        .moveDown();
-      
-      // Add totals
-      doc
-        .fontSize(12)
-        .text('Summary', { underline: true })
-        .fontSize(10)
-        .text(`Gross Pay: LKR ${parseFloat(payroll.grossPay).toFixed(2)}`)
-        .text(`Total Deductions: LKR ${(parseFloat(payroll.epfEmployee) + parseFloat(payroll.deductions)).toFixed(2)}`)
-        .font('Helvetica-Bold')
-        .text(`Net Pay: LKR ${parseFloat(payroll.netPay).toFixed(2)}`)
-        .moveDown();
-      
-      // Add footer
-      doc
-        .font('Helvetica')
-        .fontSize(8)
-        .text('This is a computer-generated payslip. No signature is required.', { align: 'center' })
-        .text(`Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, { align: 'center' });
-      
-      // Finalize the PDF and end the response
-      doc.end();
+      return new Promise((resolve, reject) => {
+        // Create a new PDF document
+        const doc = new PDFDocument({ margin: 50 });
+        
+        // Create a buffer to store the PDF
+        const chunks = [];
+        
+        // Collect PDF chunks
+        doc.on('data', (chunk) => chunks.push(chunk));
+        
+        // When PDF generation is done
+        doc.on('end', () => {
+          try {
+            const pdfBuffer = Buffer.concat(chunks);
+            const base64Pdf = pdfBuffer.toString('base64');
+            res.json({
+              success: true,
+              filename: `payslip-${payroll.employeeId || 'employee'}-${payroll.month || 'date'}.pdf`,
+              data: `data:application/pdf;base64,${base64Pdf}`
+            });
+            resolve();
+          } catch (error) {
+            console.error('Error processing PDF:', error);
+            if (!res.headersSent) {
+              res.status(500).json({ success: false, message: 'Error processing PDF' });
+            }
+            reject(error);
+          }
+        });
+        
+        // Handle errors
+        doc.on('error', (err) => {
+          console.error('PDF generation error:', err);
+          if (!res.headersSent) {
+            res.status(500).json({ success: false, message: 'Error generating PDF' });
+          }
+          reject(err);
+        });
+        
+        // Generate PDF content
+        doc
+          .fontSize(20)
+          .text('EcoCycle', { align: 'center' })
+          .fontSize(16)
+          .text('PAYSLIP', { align: 'center', underline: true })
+          .moveDown()
+          
+          // Employee details
+          .fontSize(10)
+          .text(`Employee: ${payroll.employeeName || 'N/A'}`, { continued: true })
+          .text(`ID: ${payroll.employeeId || 'N/A'}`, { align: 'right' })
+          .text(`Department: ${payroll.department || 'N/A'}`, { continued: true })
+          .text(`Position: ${payroll.position || 'N/A'}`, { align: 'right' })
+          .text(`Pay Period: ${payroll.month ? new Date(payroll.month).toLocaleDateString('en-US', { year: 'numeric', month: 'long' }) : 'N/A'}`)
+          .moveDown()
+          
+          // Earnings section
+          .fontSize(12)
+          .text('Earnings', { underline: true })
+          .fontSize(10)
+          .text(`Basic Salary: LKR ${parseFloat(payroll.basicSalary || 0).toFixed(2)}`)
+          .text(`Allowances: LKR ${parseFloat(payroll.allowances || 0).toFixed(2)}`)
+          .text(`Overtime (${payroll.overtimeHours || 0} hrs): LKR ${parseFloat(payroll.overtimePay || 0).toFixed(2)}`)
+          .moveDown()
+          
+          // Deductions section
+          .fontSize(12)
+          .text('Deductions', { underline: true })
+          .fontSize(10)
+          .text(`EPF (Employee 8%): LKR ${parseFloat(payroll.epfEmployee || 0).toFixed(2)}`)
+          .text(`EPF (Employer 12%): LKR ${parseFloat(payroll.epfEmployer || 0).toFixed(2)}`)
+          .text(`ETF (Employer 3%): LKR ${parseFloat(payroll.etfEmployer || 0).toFixed(2)}`)
+          .text(`Other Deductions: LKR ${parseFloat(payroll.deductions || 0).toFixed(2)}`)
+          .moveDown()
+          
+          // Summary
+          .fontSize(12)
+          .text('Summary', { underline: true })
+          .fontSize(10)
+          .text(`Gross Pay: LKR ${parseFloat(payroll.grossPay || 0).toFixed(2)}`)
+          .text(`Total Deductions: LKR ${(parseFloat(payroll.epfEmployee || 0) + parseFloat(payroll.deductions || 0)).toFixed(2)}`)
+          .font('Helvetica-Bold')
+          .text(`Net Pay: LKR ${parseFloat(payroll.netPay || 0).toFixed(2)}`)
+          .moveDown()
+          
+          // Footer
+          .font('Helvetica')
+          .fontSize(8)
+          .text('This is a computer-generated payslip. No signature is required.', { align: 'center' })
+          .text(`Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, { align: 'center' });
+        
+        // Finalize the PDF
+        doc.end();
+      });
     } catch (error) {
-      console.error('Error generating payslip:', error);
-      res.status(500).json({ success: false, message: 'Error generating payslip' });
+      console.error('Error in payslip generation:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ 
+          success: false, 
+          message: 'Error generating payslip', 
+          error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+      }
     }
-  })
+  }
 };
