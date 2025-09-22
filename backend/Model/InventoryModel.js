@@ -6,7 +6,7 @@ const inventorySchema = new mongoose.Schema(
     name: { type: String, required: true },
     color: { type: String, required: true },
     type: { type: String, required: true }, // processed form
-    weight: { type: Number, required: true },
+    weight: { type: Number },
     stock: { type: Number, required: true },
     lastUpdated: { type: String, default: () => new Date().toISOString() },
     imageUrl: { type: String, default: null }, // Optional image
