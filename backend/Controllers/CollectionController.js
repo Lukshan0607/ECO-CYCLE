@@ -14,7 +14,19 @@ const createCollection = async (req, res) => {
       return res.status(400).json({ success: false, message: 'quantity must be a positive number' });
     }
 
+    // Generate next sequential ID: COL0001, COL0002, ... (zero-padded to 4)
+    const pad4 = (n) => String(n).padStart(4, '0');
+    // Find the latest collectionId with COL prefix (zero-padded lexicographic sort works)
+    const last = await Collection.findOne({ collectionId: /^COL\d{4}$/ }).sort({ collectionId: -1 }).select('collectionId');
+    let nextNum = 1;
+    if (last && last.collectionId) {
+      const m = last.collectionId.match(/COL(\d{4})/);
+      if (m) nextNum = Number(m[1]) + 1;
+    }
+    const nextId = `COL${pad4(nextNum)}`;
+
     const collection = await Collection.create({
+      collectionId: nextId,
       collectorName,
       bottleType,
       quantity: qty,
