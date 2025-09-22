@@ -6,8 +6,10 @@ import {
   ChartBarIcon,
   DocumentChartBarIcon,
   ArrowTrendingUpIcon,
+  ClipboardDocumentListIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router-dom";
+import LogoutButton from "../common/LogoutButton";
 
 export default function InventoryMaterials() {
   const [inventory, setInventory] = useState([]);
@@ -220,19 +222,40 @@ export default function InventoryMaterials() {
             to="/inventory"
             className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
           >
-            <ChartBarIcon className="w-5 h-5" />
-            <span className="font-medium">Dashboard</span>
+            <CubeIcon className="w-5 h-5" />
+            <span className="font-medium">Inventory Overview</span>
           </Link>
           <Link
-            to="/inventory/forms"
+            to="/inventory/stock"
             className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
           >
-            <CubeIcon className="w-5 h-5" />
-            <span className="font-medium">Inventory Forms</span>
+            <ChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Stock Management</span>
+          </Link>
+          <Link
+            to="/inventory/requests"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <DocumentChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Production Requests</span>
+          </Link>
+          <Link
+            to="/inventory/deliveries"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ClipboardDocumentListIcon className="w-5 h-5" />
+            <span className="font-medium">Delivery Records</span>
+          </Link>
+          <Link
+            to="/inventory/analytics"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ArrowTrendingUpIcon className="w-5 h-5" />
+            <span className="font-medium">Analytics</span>
           </Link>
           <Link
             to="/inventory/materials"
-            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
           >
             <ArrowTrendingUpIcon className="w-5 h-5" />
             <span className="font-medium">Raw Materials</span>
@@ -244,6 +267,7 @@ export default function InventoryMaterials() {
             <DocumentChartBarIcon className="w-5 h-5" />
             <span className="font-medium">Reports</span>
           </Link>
+          <LogoutButton />
         </nav>
       </aside>
 

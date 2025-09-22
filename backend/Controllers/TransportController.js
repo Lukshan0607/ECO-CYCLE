@@ -1,4 +1,5 @@
 const { Collection, Vehicle, Driver, TransportRoute, TransportAnalytics } = require('../Model/TransportModel');
+const bcrypt = require('bcryptjs');
 
 // Collection Management
 const getAllCollections = async (req, res) => {
@@ -166,8 +167,55 @@ const getAllDrivers = async (req, res) => {
 
 const createDriver = async (req, res) => {
   try {
-    const newDriver = new Driver(req.body);
+    const b = req.body || {};
+    // Build driver document mapping
+    const driverDoc = {
+      employeeId: b.employeeId,
+      personalInfo: {
+        firstName: b.firstName || b.personalInfo?.firstName,
+        lastName: b.lastName || b.personalInfo?.lastName,
+        email: b.email || b.personalInfo?.email,
+        phone: b.phone || b.personalInfo?.phone,
+        address: {
+          street: b.address?.street || b.personalInfo?.address?.street,
+          city: b.address?.city || b.personalInfo?.address?.city,
+          state: b.address?.state || b.personalInfo?.address?.state,
+          zipCode: b.address?.zipCode || b.personalInfo?.address?.zipCode
+        },
+        dateOfBirth: b.dateOfBirth || b.personalInfo?.dateOfBirth
+      },
+      license: {
+        number: b.licenseNumber || b.license?.number,
+        type: b.licenseType || b.license?.type,
+        expiryDate: b.licenseExpiry || b.license?.expiryDate,
+        isValid: b.license?.isValid
+      },
+      employment: {
+        hireDate: b.hireDate || b.employment?.hireDate,
+        status: b.employmentStatus || b.employment?.status,
+        shift: b.shift || b.employment?.shift
+      },
+      currentStatus: b.currentStatus || 'Available',
+      performance: b.performance
+    };
+
+    // Account credentials: username/password (hash)
+    const username = b.username || b.account?.username;
+    const password = b.password || b.account?.password;
+    if (username) {
+      driverDoc.account = { username };
+    }
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+      driverDoc.account = driverDoc.account || {};
+      driverDoc.account.passwordHash = passwordHash;
+    }
+
+    const newDriver = new Driver(driverDoc);
     const savedDriver = await newDriver.save();
+    // Do not leak passwordHash
+    if (savedDriver?.account) savedDriver.account.passwordHash = undefined;
     res.status(201).json(savedDriver);
   } catch (error) {
     res.status(400).json({ message: error.message });

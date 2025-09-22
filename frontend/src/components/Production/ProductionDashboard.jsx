@@ -42,6 +42,7 @@ const ProductionDashboard = () => {
   const [activeTab, setActiveTab] = useState("overview");
   const [inventoryItems, setInventoryItems] = useState([]);
   const [acceptedMaterials, setAcceptedMaterials] = useState([]);
+  const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -183,7 +184,8 @@ const ProductionDashboard = () => {
         inventoryItemId: selectedItem._id,
         requestedQty: parseInt(requestForm.requestedQty),
         notes: requestForm.notes,
-        priority: requestForm.priority
+        priority: requestForm.priority,
+        status: 'Pending'
       };
 
       console.log('Sending request data:', requestData);
@@ -250,6 +252,16 @@ const ProductionDashboard = () => {
     }
   };
 
+  // Fetch ALL production requests (for table display)
+  const fetchProductionRequests = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/production-requests');
+      setRequests(Array.isArray(response.data) ? response.data : (response.data?.requests || []));
+    } catch (error) {
+      console.error('Error fetching production requests:', error);
+    }
+  };
+
   // Fetch products from database
   const fetchProducts = async () => {
     try {
@@ -278,6 +290,7 @@ const ProductionDashboard = () => {
     } else if (activeTab === 'materials') {
       fetchInventoryData();
       fetchAcceptedMaterials();
+      fetchProductionRequests();
     }
   }, [activeTab]);
 
@@ -1005,7 +1018,9 @@ const ProductionDashboard = () => {
                 <>
                   {/* Inventory Items Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {inventoryItems.map((item) => (
+                    {[...inventoryItems]
+                      .sort((a, b) => (a.itemCode || "").localeCompare(b.itemCode || "", undefined, { numeric: true, sensitivity: 'base' }))
+                      .map((item) => (
                       <div key={item._id} className="bg-white shadow-lg rounded-2xl p-6 hover:shadow-xl transition-shadow">
                         <div className="flex justify-between items-start mb-4">
                           <div>
@@ -1059,69 +1074,60 @@ const ProductionDashboard = () => {
                     </div>
                   )}
 
-                  {/* Accepted Materials Section */}
-                  {acceptedMaterials.length > 0 && (
-                    <div className="bg-white shadow-lg rounded-2xl p-6 mt-6">
-                      <h3 className="text-xl font-bold text-green-700 mb-4 flex items-center">
-                        <CheckCircle className="mr-2" size={24} />
-                        Approved Materials Ready for Production
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {acceptedMaterials.map((material) => (
-                          <div key={material._id} className="bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-shadow">
-                            <div className="flex justify-between items-start mb-3">
-                              <div>
-                                <h4 className="font-bold text-gray-900">{material.inventoryItemId?.name || 'Unknown Item'}</h4>
-                                <p className="text-sm text-gray-600">Request ID: {material.requestId}</p>
-                              </div>
-                              <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-semibold">
-                                Approved
-                              </span>
-                            </div>
-                            
-                            <div className="space-y-2 text-sm">
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Team:</span>
-                                <span className="font-medium">{material.team}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Quantity:</span>
-                                <span className="font-medium">{material.requestedQty} units</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Priority:</span>
-                                <span className={`font-medium ${
-                                  material.priority === 'High' ? 'text-red-600' :
-                                  material.priority === 'Medium' ? 'text-yellow-600' :
-                                  'text-green-600'
-                                }`}>
-                                  {material.priority}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Approved:</span>
-                                <span className="font-medium text-green-600">
-                                  {new Date(material.approvedDate).toLocaleDateString()} at{' '}
-                                  {new Date(material.approvedDate).toLocaleTimeString()}
-                                </span>
-                              </div>
-                              {material.approvedBy && (
-                                <div className="flex justify-between">
-                                  <span className="text-gray-600">Approved by:</span>
-                                  <span className="font-medium">{material.approvedBy}</span>
-                                </div>
-                              )}
-                              {material.notes && (
-                                <div className="mt-2 pt-2 border-t border-green-200">
-                                  <p className="text-xs text-gray-600"><strong>Notes:</strong> {material.notes}</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
+                  {/* Production Requests Table */}
+                  <div className="bg-white shadow-lg rounded-2xl p-6 mt-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Production Requests</h3>
+                    {requests.length === 0 ? (
+                      <div className="text-gray-600">No production requests found.</div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full">
+                          <thead>
+                            <tr className="bg-gray-50 text-left text-sm text-gray-700">
+                              <th className="py-3 px-4 font-semibold">Request ID</th>
+                              <th className="py-3 px-4 font-semibold">Team</th>
+                              <th className="py-3 px-4 font-semibold">Item</th>
+                              <th className="py-3 px-4 font-semibold">Quantity</th>
+                              <th className="py-3 px-4 font-semibold">Priority</th>
+                              <th className="py-3 px-4 font-semibold">Status</th>
+                              <th className="py-3 px-4 font-semibold">Request Time</th>
+                              <th className="py-3 px-4 font-semibold">Approved/Reject Timedate</th>
+                              <th className="py-3 px-4 font-semibold">Approved By</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {requests.map((req) => (
+                              <tr key={req._id} className="border-t text-sm">
+                                <td className="py-3 px-4 text-gray-900">{req._id?.slice(-8) || '-'}</td>
+                                <td className="py-3 px-4">{req.team}</td>
+                                <td className="py-3 px-4">{req.inventoryItemId?.name || 'Unknown Item'}</td>
+                                <td className="py-3 px-4">{req.requestedQty}</td>
+                                <td className="py-3 px-4">{req.priority}</td>
+                                <td className="py-3 px-4">
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    req.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
+                                    req.status === 'Approved' ? 'bg-green-100 text-green-700' :
+                                    'bg-red-100 text-red-700'
+                                  }`}>
+                                    {req.status}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4">{(req.createdAt || req.createdDate) ? new Date(req.createdAt || req.createdDate).toLocaleString() : '-'}</td>
+                                <td className="py-3 px-4">{
+                                  req.status === 'Pending'
+                                    ? '-'
+                                    : ((req.approvedAt || req.approvedDate)
+                                        ? new Date(req.approvedAt || req.approvedDate).toLocaleString()
+                                        : '-')
+                                }</td>
+                                <td className="py-3 px-4">{req.approvedBy || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </>
               )}
             </div>

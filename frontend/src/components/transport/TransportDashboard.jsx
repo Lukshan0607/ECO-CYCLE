@@ -1,5 +1,7 @@
 // src/components/transport/TransportDashboard.jsx
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from "recharts";
@@ -49,10 +51,51 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 export default function TransportDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedCollection, setSelectedCollection] = useState(null);
+  // Deliveries workflow state
+  const [deliveries, setDeliveries] = useState([]);
+  const [loadingDeliveries, setLoadingDeliveries] = useState(false);
+  const [createForm, setCreateForm] = useState({ collectorId: "", bottleType: "PET", quantity: "" });
+  const [assignForm, setAssignForm] = useState({}); // { [deliveryId]: transportStaffId }
+  const [error, setError] = useState("");
+  // Transport Requests (Pending list)
+  const [requests, setRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  // Assign modal state
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignRequestId, setAssignRequestId] = useState(null);
+  const [drivers, setDrivers] = useState([]);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
+  const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [assignNotice, setAssignNotice] = useState({ type: "", text: "" }); // {type: 'success'|'error'|'', text}
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
+  // Driver management state
+  const [driversList, setDriversList] = useState([]);
+  const [loadingDriversList, setLoadingDriversList] = useState(false);
+  const [showAddDriver, setShowAddDriver] = useState(false);
+  const [addDriverForm, setAddDriverForm] = useState({
+    employeeId: "",
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    address: { street: "", city: "", state: "", zipCode: "" },
+    dateOfBirth: "",
+    licenseNumber: "",
+    licenseType: "Class C",
+    licenseExpiry: "",
+    hireDate: "",
+    employmentStatus: "Active",
+    shift: "Morning",
+    username: "",
+    password: "",
+  });
 
   const menuItems = [
     { name: "Transport Overview", key: "overview", icon: <Truck size={20} /> },
-    { name: "Active Collections", key: "collections", icon: <Package size={20} /> },
+    { name: "Requests", key: "requests", icon: <Package size={20} /> },
+    { name: "Assigned", key: "assigned", icon: <Package size={20} /> },
+    { name: "Deliveries", key: "deliveries", icon: <Package size={20} /> },
     { name: "Route Management", key: "routes", icon: <MapPin size={20} /> },
     { name: "Vehicle Fleet", key: "vehicles", icon: <Truck size={20} /> },
     { name: "Driver Management", key: "drivers", icon: <Users size={20} /> },
@@ -69,6 +112,38 @@ export default function TransportDashboard() {
       case "Maintenance": return "text-orange-600 bg-orange-100";
       default: return "text-gray-600 bg-gray-100";
     }
+  };
+
+  const fetchDriversList = async () => {
+    try {
+      setLoadingDriversList(true);
+      const res = await axios.get('http://localhost:5000/api/transport/drivers');
+      setDriversList(Array.isArray(res.data) ? res.data : []);
+    } catch (err) { console.error('Failed to fetch drivers', err); }
+    finally { setLoadingDriversList(false); }
+  };
+
+  const fetchRequests = async () => {
+    try {
+      setLoadingRequests(true);
+      const res = await axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Pending' } });
+      const arr = res?.data?.requests || [];
+      setRequests(arr);
+    } catch (err) { console.error('Failed to fetch requests', err); }
+    finally { setLoadingRequests(false); }
+  };
+
+  // Assigned Requests
+  const [assigned, setAssigned] = useState([]);
+  const [loadingAssigned, setLoadingAssigned] = useState(false);
+  const fetchAssigned = async () => {
+    try {
+      setLoadingAssigned(true);
+      const res = await axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Assigned' } });
+      const arr = res?.data?.requests || [];
+      setAssigned(arr);
+    } catch (err) { console.error('Failed to fetch assigned requests', err); }
+    finally { setLoadingAssigned(false); }
   };
 
   const getStatusIcon = (status) => {
@@ -169,72 +244,333 @@ export default function TransportDashboard() {
     </>
   );
 
-  const renderCollections = () => (
+  const renderAssigned = () => (
     <Card className="p-4 shadow-lg rounded-2xl">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-bold">Active Collections</h2>
-        <div className="flex space-x-2">
-          <Button variant="outline" size="sm"><Search size={16} className="mr-2" />Search</Button>
-          <Button variant="outline" size="sm"><Filter size={16} className="mr-2" />Filter</Button>
-          <Button className="bg-green-600 text-white"><Plus size={16} className="mr-2" />New Collection</Button>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-bold">Assigned Transport Requests</h2>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={fetchAssigned}>Refresh</Button>
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-200">
-              <th className="p-3">Collection ID</th>
-              <th className="p-3">Location</th>
-              <th className="p-3">Driver</th>
-              <th className="p-3">Vehicle</th>
-              <th className="p-3">Bottles</th>
-              <th className="p-3">Status</th>
-              <th className="p-3">Time</th>
-              <th className="p-3">Progress</th>
-              <th className="p-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activeCollections.map(collection => (
-              <tr key={collection.id} className="border-b hover:bg-gray-50">
-                <td className="p-3 font-medium">{collection.id}</td>
-                <td className="p-3">{collection.location}</td>
-                <td className="p-3">{collection.driver}</td>
-                <td className="p-3">{collection.vehicle}</td>
-                <td className="p-3 font-bold">{collection.bottles}</td>
-                <td className="p-3">
-                  <div className="flex items-center space-x-2">
-                    {getStatusIcon(collection.status)}
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(collection.status)}`}>
-                      {collection.status}
-                    </span>
-                  </div>
-                </td>
-                <td className="p-3">
-                  <div>
-                    <p className="text-sm">Start: {collection.startTime}</p>
-                    <p className="text-sm text-gray-500">ETA: {collection.estimatedCompletion}</p>
-                  </div>
-                </td>
-                <td className="p-3">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full" 
-                      style={{ width: `${collection.progress}%` }}
-                    ></div>
-                  </div>
-                  <span className="text-xs text-gray-500">{collection.progress}%</span>
-                </td>
-                <td className="p-3">
-                  <div className="flex space-x-2">
-                    <Button variant="outline" size="sm"><Navigation size={16} /></Button>
-                    <Button variant="outline" size="sm">Update</Button>
-                  </div>
-                </td>
+        {loadingAssigned ? (
+          <div className="text-gray-600 p-3">Loading assigned...</div>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-200">
+                <th className="p-3">Request ID</th>
+                <th className="p-3">Scheduled Time</th>
+                <th className="p-3">Driver</th>
+                <th className="p-3">Collector</th>
+                <th className="p-3">Bottle Type</th>
+                <th className="p-3">Quantity</th>
+                <th className="p-3">Location</th>
+                <th className="p-3">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {assigned.map(r => (
+                <tr key={r._id} className="border-b hover:bg-gray-50">
+                  <td className="p-3 font-mono text-xs">{r._id?.slice(-6) || '-'}</td>
+                  <td className="p-3">{r.scheduledAt ? new Date(r.scheduledAt).toLocaleString() : '-'}</td>
+                  <td className="p-3 font-mono text-xs">{r.assignedDriverId ? r.assignedDriverId.slice(-6) : '-'}</td>
+                  <td className="p-3">{r.collectorName}</td>
+                  <td className="p-3">{r.bottleType}</td>
+                  <td className="p-3 font-semibold">{r.quantity}</td>
+                  <td className="p-3">{r.location || '-'}</td>
+                  <td className="p-3"><span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{r.status}</span></td>
+                </tr>
+              ))}
+              {assigned.length === 0 && (
+                <tr><td className="p-3 text-gray-500" colSpan={8}>No assigned requests</td></tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </Card>
+  );
+
+  // Modal to select driver and schedule time
+  const AssignModal = () => {
+    if (!showAssignModal) return null;
+    return (
+      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+        <div className="bg-white w-[760px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
+          <div className="px-5 py-3 border-b flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Assign Driver & Schedule Pickup</h3>
+            <button className="text-gray-500 hover:text-gray-700" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setAssignNotice({type:'', text:''}); }}>✕</button>
+          </div>
+          <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2">
+              <h4 className="font-medium mb-2">Select a Driver</h4>
+              {assignNotice.text && (
+                <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${assignNotice.type==='error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>{assignNotice.text}</div>
+              )}
+              {loadingDrivers ? (
+                <div className="text-gray-600">Loading drivers...</div>
+              ) : (
+                <div className="max-h-72 overflow-auto border rounded-xl">
+                  {drivers.map((d)=>{
+                    const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+                    const status = d.currentStatus;
+                    const selected = selectedDriverId === d._id;
+                    return (
+                      <button key={d._id} onClick={()=>setSelectedDriverId(d._id)} className={`w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium">{name}</div>
+                            <div className="text-xs text-gray-500">Employee ID: {d.employeeId}</div>
+                          </div>
+                          <span className={`text-xs px-2 py-1 rounded-full ${status==='Available'?'bg-green-100 text-green-700': 'bg-gray-100 text-gray-700'}`}>{status}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {drivers.length === 0 && (
+                    <div className="p-4 text-gray-600">No drivers found</div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="md:col-span-1">
+              <label className="block text-sm font-medium mb-1">Pickup Time</label>
+              <input type="datetime-local" className="border rounded-lg px-3 py-2 w-full" value={scheduledAt} onChange={(e)=>setScheduledAt(e.target.value)} />
+              <div className="text-xs text-gray-500 mt-1">Schedule when the driver should pick bottles at the collector location.</div>
+            </div>
+          </div>
+          <div className="px-5 pb-5 flex justify-end gap-2">
+            <button className="border px-4 py-2 rounded-lg" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setAssignNotice({type:'', text:''}); }}>Cancel</button>
+            <button disabled={assignSubmitting} className={`px-4 py-2 rounded-lg ${assignSubmitting ? 'bg-blue-300 text-white' : 'bg-blue-600 text-white'}`} onClick={async ()=>{
+              try {
+                setAssignNotice({ type: '', text: '' });
+                if (!assignRequestId) { setAssignNotice({ type:'error', text:'Invalid request selected' }); return; }
+                if (!selectedDriverId) { setAssignNotice({ type:'error', text:'Please select a driver' }); return; }
+                if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup time' }); return; }
+                setAssignSubmitting(true);
+                await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/assign-driver`, {
+                  driverId: selectedDriverId,
+                  scheduledAt,
+                });
+                setAssignNotice({ type:'success', text:'Assigned successfully' });
+                // brief delay to show success
+                setTimeout(()=>{
+                  setShowAssignModal(false);
+                  setAssignRequestId(null);
+                  setSelectedDriverId("");
+                  setAssignSubmitting(false);
+                  fetchRequests();
+                }, 600);
+              } catch (err) {
+                console.error('Assign failed', err);
+                setAssignSubmitting(false);
+                setAssignNotice({ type:'error', text: err?.response?.data?.message || 'Failed to assign. Please try again.' });
+              }
+            }}>{assignSubmitting ? 'Assigning...' : 'Confirm'}</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRequests = () => (
+    <Card className="p-4 shadow-lg rounded-2xl">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-bold">Pending Transport Requests</h2>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={fetchRequests}>Refresh</Button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        {loadingRequests ? (
+          <div className="text-gray-600 p-3">Loading requests...</div>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-200">
+                <th className="p-3">Request ID</th>
+                <th className="p-3">Requested At</th>
+                <th className="p-3">Collector</th>
+                <th className="p-3">Bottle Type</th>
+                <th className="p-3">Quantity</th>
+                <th className="p-3">Location</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {requests.map(r => (
+                <tr key={r._id} className="border-b hover:bg-gray-50">
+                  <td className="p-3 font-mono text-xs">{r._id?.slice(-6) || '-'}</td>
+                  <td className="p-3">{new Date(r.createdAt).toLocaleString()}</td>
+                  <td className="p-3">{r.collectorName}</td>
+                  <td className="p-3">{r.bottleType}</td>
+                  <td className="p-3 font-semibold">{r.quantity}</td>
+                  <td className="p-3">{r.location || '-'}</td>
+                  <td className="p-3"><span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{r.status}</span></td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={async ()=>{
+                        // Open modal to choose driver and schedule
+                        setAssignRequestId(r._id);
+                        setShowAssignModal(true);
+                        // Initialize default schedule time (next hour)
+                        try {
+                          const now = new Date();
+                          now.setMinutes(0,0,0);
+                          now.setHours(now.getHours() + 1);
+                          const pad = (n)=>String(n).padStart(2,'0');
+                          const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+                          setScheduledAt(local);
+                        } catch {}
+                        // Fetch drivers list
+                        try {
+                          setLoadingDrivers(true);
+                          const res = await axios.get('http://localhost:5000/api/transport/drivers');
+                          setDrivers(res?.data || []);
+                        } catch (err) { console.error('Failed to load drivers', err); }
+                        finally { setLoadingDrivers(false); }
+                      }}>Assign</Button>
+                      <Button size="sm" variant="outline" onClick={async ()=>{
+                        try {
+                          await axios.post(`http://localhost:5000/api/transport-requests/${r._id}/status`, { status: 'Cancelled' });
+                          fetchRequests();
+                        } catch (err) { console.error(err); }
+                      }}>Reject</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {requests.length === 0 && (
+                <tr><td className="p-3 text-gray-500" colSpan={7}>No pending requests</td></tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </Card>
+  );
+
+  const renderCollections = () => (
+    <Card className="p-4 shadow-lg rounded-2xl">
+      <div className="mb-4">
+        <h2 className="text-lg font-bold mb-2">Create Collection</h2>
+        {error && <div className="mb-2 text-red-600 text-sm">{error}</div>}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+          <input
+            className="border rounded-lg px-3 py-2"
+            placeholder="Collector ID"
+            value={createForm.collectorId}
+            onChange={(e) => setCreateForm({ ...createForm, collectorId: e.target.value })}
+          />
+          <select
+            className="border rounded-lg px-3 py-2"
+            value={createForm.bottleType}
+            onChange={(e) => setCreateForm({ ...createForm, bottleType: e.target.value })}
+          >
+            <option value="PET">PET</option>
+            <option value="HDPE">HDPE</option>
+            <option value="GlassGreen">GlassGreen</option>
+            <option value="GlassBrown">GlassBrown</option>
+            <option value="GlassClear">GlassClear</option>
+          </select>
+          <input
+            className="border rounded-lg px-3 py-2"
+            type="number"
+            placeholder="Quantity"
+            min="1"
+            value={createForm.quantity}
+            onChange={(e) => setCreateForm({ ...createForm, quantity: e.target.value })}
+          />
+          <Button className="bg-green-600 text-white" onClick={async () => {
+            try {
+              setError("");
+              if (!createForm.collectorId || !createForm.quantity) { setError('Collector ID and quantity required'); return; }
+              await axios.post('http://localhost:5000/api/collections', {
+                collectorId: createForm.collectorId,
+                bottleType: createForm.bottleType,
+                quantity: Number(createForm.quantity)
+              });
+              setCreateForm({ collectorId: "", bottleType: "PET", quantity: "" });
+              fetchDeliveries();
+            } catch (err) { setError('Failed to create collection'); console.error(err); }
+          }}>Add</Button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <h2 className="text-lg font-bold mb-2">Delivery Records</h2>
+        {loadingDeliveries ? (
+          <div className="text-gray-600 p-3">Loading deliveries...</div>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-200">
+                <th className="p-3">Collector</th>
+                <th className="p-3">Bottle Type</th>
+                <th className="p-3">Quantity</th>
+                <th className="p-3">Transport Staff ID</th>
+                <th className="p-3">Collected</th>
+                <th className="p-3">Assigned</th>
+                <th className="p-3">Delivered</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deliveries.map((d) => (
+                <tr key={d._id} className="border-b hover:bg-gray-50">
+                  <td className="p-3">{d.collectorId?.name || d.collectorId || '-'}</td>
+                  <td className="p-3">{d.bottleType}</td>
+                  <td className="p-3 font-bold">{d.quantity}</td>
+                  <td className="p-3">{d.transportStaffId || '-'}</td>
+                  <td className="p-3">{d.collectedAt ? new Date(d.collectedAt).toLocaleString() : '-'}</td>
+                  <td className="p-3">{d.assignedAt ? new Date(d.assignedAt).toLocaleString() : '-'}</td>
+                  <td className="p-3">{d.deliveredAt ? new Date(d.deliveredAt).toLocaleString() : '-'}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(d.status)}`}>
+                      {d.status}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      {(d.status === 'Collected' || d.status === 'Assigned') && (
+                        <>
+                          <input
+                            className="border rounded-lg px-2 py-1 w-40"
+                            placeholder="Transport Staff ID"
+                            value={assignForm[d._id] || ''}
+                            onChange={(e) => setAssignForm({ ...assignForm, [d._id]: e.target.value })}
+                          />
+                          <Button variant="outline" size="sm" onClick={async () => {
+                            try {
+                              const id = assignForm[d._id];
+                              if (!id) return;
+                              await axios.post(`http://localhost:5000/api/deliveries/${d._id}/assign`, { transportStaffId: id });
+                              fetchDeliveries();
+                            } catch (err) { console.error(err); }
+                          }}>Assign</Button>
+                        </>
+                      )}
+                      {d.status !== 'Delivered' && d.transportStaffId && (
+                        <Button className="bg-blue-600 text-white" size="sm" onClick={async () => {
+                          try {
+                            await axios.post(`http://localhost:5000/api/deliveries/${d._id}/deliver`);
+                            fetchDeliveries();
+                          } catch (err) { console.error(err); }
+                        }}>Mark Delivered</Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {deliveries.length === 0 && (
+                <tr><td className="p-3 text-gray-500" colSpan={9}>No records</td></tr>
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
     </Card>
   );
@@ -316,7 +652,7 @@ export default function TransportDashboard() {
                   <p className="text-xs text-gray-500">Fuel Level</p>
                   <div className="flex items-center space-x-2">
                     <div className="w-16 bg-gray-200 rounded-full h-2">
-                      <div 
+                      <div
                         className={`h-2 rounded-full ${vehicle.fuel > 50 ? 'bg-green-600' : vehicle.fuel > 25 ? 'bg-yellow-600' : 'bg-red-600'}`}
                         style={{ width: `${vehicle.fuel}%` }}
                       ></div>
@@ -372,58 +708,206 @@ export default function TransportDashboard() {
     <Card className="p-4 shadow-lg rounded-2xl">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-bold">Driver Management</h2>
-        <Button className="bg-indigo-600 text-white"><Plus size={16} className="mr-2" />Add Driver</Button>
+        <Button className="bg-indigo-600 text-white" onClick={()=>setShowAddDriver(true)}><Plus size={16} className="mr-2" />Add Driver</Button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {vehicles.map(vehicle => (
-          <div key={vehicle.id} className="border rounded-lg p-4">
-            <div className="flex items-center space-x-3 mb-3">
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                <Users size={20} className="text-blue-600" />
+      {loadingDriversList ? (
+        <div className="p-4 text-gray-600">Loading drivers...</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {driversList.map(d => {
+            const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+            return (
+              <div key={d._id} className="border rounded-lg p-4">
+                <div className="flex items-center space-x-3 mb-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Users size={20} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">{name}</h3>
+                    <p className="text-sm text-gray-500">Employee: {d.employeeId}</p>
+                  </div>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-gray-500">Email</span><span>{d.personalInfo?.email || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Phone</span><span>{d.personalInfo?.phone || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Status</span><span className={`font-medium ${d.currentStatus==='Available'?'text-green-600':'text-gray-700'}`}>{d.currentStatus}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Shift</span><span>{d.employment?.shift || '-'}</span></div>
+                </div>
+              </div>
+            );
+          })}
+          {driversList.length === 0 && (
+            <div className="p-4 text-gray-600">No drivers found</div>
+          )}
+        </div>
+      )}
+      {showAddDriver && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white w-[900px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
+            <div className="px-5 py-3 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Add Driver</h3>
+              <button className="text-gray-500 hover:text-gray-700" onClick={()=>setShowAddDriver(false)}>✕</button>
+            </div>
+            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
+              <div className="md:col-span-1">
+                <label className="block text-sm font-medium mb-1">Employee ID</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.employeeId} onChange={(e)=>setAddDriverForm({...addDriverForm, employeeId: e.target.value})} />
               </div>
               <div>
-                <h3 className="font-medium">{vehicle.driver}</h3>
-                <p className="text-sm text-gray-500">Vehicle: {vehicle.id}</p>
+                <label className="block text-sm font-medium mb-1">First Name</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.firstName} onChange={(e)=>setAddDriverForm({...addDriverForm, firstName: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Last Name</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.lastName} onChange={(e)=>setAddDriverForm({...addDriverForm, lastName: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Email</label>
+                <input type="email" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.email} onChange={(e)=>setAddDriverForm({...addDriverForm, email: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Phone</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.phone} onChange={(e)=>setAddDriverForm({...addDriverForm, phone: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Date of Birth</label>
+                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.dateOfBirth} onChange={(e)=>setAddDriverForm({...addDriverForm, dateOfBirth: e.target.value})} />
+              </div>
+              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Street</label>
+                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.street} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, street: e.target.value}})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">City</label>
+                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.city} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, city: e.target.value}})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">State</label>
+                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.state} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, state: e.target.value}})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Zip Code</label>
+                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.zipCode} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, zipCode: e.target.value}})} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">License Number</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseNumber} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseNumber: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">License Type</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseType} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseType: e.target.value})}>
+                  <option>Class A</option>
+                  <option>Class B</option>
+                  <option>Class C</option>
+                  <option>CDL</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">License Expiry</label>
+                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseExpiry} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseExpiry: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Hire Date</label>
+                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.hireDate} onChange={(e)=>setAddDriverForm({...addDriverForm, hireDate: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Employment Status</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.employmentStatus} onChange={(e)=>setAddDriverForm({...addDriverForm, employmentStatus: e.target.value})}>
+                  <option>Active</option>
+                  <option>Inactive</option>
+                  <option>On Leave</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Shift</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.shift} onChange={(e)=>setAddDriverForm({...addDriverForm, shift: e.target.value})}>
+                  <option>Morning</option>
+                  <option>Afternoon</option>
+                  <option>Night</option>
+                  <option>Flexible</option>
+                </select>
+              </div>
+              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Username</label>
+                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.username} onChange={(e)=>setAddDriverForm({...addDriverForm, username: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Password</label>
+                  <input type="password" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.password} onChange={(e)=>setAddDriverForm({...addDriverForm, password: e.target.value})} />
+                </div>
               </div>
             </div>
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Status</span>
-                <span className={`text-sm font-medium ${vehicle.status === 'Active' ? 'text-green-600' : 'text-orange-600'}`}>
-                  {vehicle.status === 'Maintenance' ? 'Off Duty' : 'On Duty'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Current Location</span>
-                <span className="text-sm">{vehicle.location}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Collections Today</span>
-                <span className="text-sm font-medium">
-                  {vehicle.status === 'Active' ? Math.floor(Math.random() * 5) + 1 : 0}
-                </span>
-              </div>
-            </div>
-            <div className="flex space-x-2 mt-3">
-              <Button variant="outline" size="sm">Contact</Button>
-              <Button variant="outline" size="sm">Schedule</Button>
+            <div className="px-5 pb-5 flex justify-end gap-2">
+              <button className="border px-4 py-2 rounded-lg" onClick={()=>setShowAddDriver(false)}>Cancel</button>
+              <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg" onClick={async ()=>{
+                try {
+                  const payload = {
+                    employeeId: addDriverForm.employeeId,
+                    firstName: addDriverForm.firstName,
+                    lastName: addDriverForm.lastName,
+                    email: addDriverForm.email,
+                    phone: addDriverForm.phone,
+                    dateOfBirth: addDriverForm.dateOfBirth,
+                    address: addDriverForm.address,
+                    licenseNumber: addDriverForm.licenseNumber,
+                    licenseType: addDriverForm.licenseType,
+                    licenseExpiry: addDriverForm.licenseExpiry,
+                    hireDate: addDriverForm.hireDate,
+                    employmentStatus: addDriverForm.employmentStatus,
+                    shift: addDriverForm.shift,
+                    username: addDriverForm.username,
+                    password: addDriverForm.password,
+                  };
+                  await axios.post('http://localhost:5000/api/transport/drivers', payload);
+                  setShowAddDriver(false);
+                  setAddDriverForm({
+                    employeeId: "", firstName: "", lastName: "", email: "", phone: "",
+                    address: { street: "", city: "", state: "", zipCode: "" }, dateOfBirth: "",
+                    licenseNumber: "", licenseType: "Class C", licenseExpiry: "", hireDate: "",
+                    employmentStatus: "Active", shift: "Morning", username: "", password: "",
+                  });
+                  fetchDriversList();
+                } catch (err) { console.error('Create driver failed', err); }
+              }}>Save Driver</button>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </Card>
   );
 
   const renderContent = () => {
     switch (activeTab) {
       case "overview": return renderOverview();
-      case "collections": return renderCollections();
+      case "requests": return renderRequests();
+      case "assigned": return renderAssigned();
+      case "deliveries": return renderCollections();
       case "routes": return renderRoutes();
       case "vehicles": return renderVehicles();
       case "drivers": return renderDrivers();
       default: return renderOverview();
     }
   };
+
+  // Fetch deliveries when entering the tab
+  const fetchDeliveries = async () => {
+    try {
+      setLoadingDeliveries(true);
+      const res = await axios.get('http://localhost:5000/api/deliveries');
+      setDeliveries(Array.isArray(res.data) ? res.data : []);
+    } catch (err) { console.error('Failed to fetch deliveries', err); }
+    finally { setLoadingDeliveries(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'deliveries') fetchDeliveries();
+    if (activeTab === 'requests') fetchRequests();
+    if (activeTab === 'assigned') fetchAssigned();
+    if (activeTab === 'drivers') fetchDriversList();
+  }, [activeTab]);
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -481,6 +965,8 @@ export default function TransportDashboard() {
         <div className="p-6">
           {renderContent()}
         </div>
+        {/* Global modals */}
+        <AssignModal />
       </div>
     </div>
   );

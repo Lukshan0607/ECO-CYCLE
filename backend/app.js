@@ -10,6 +10,11 @@ const userRoutes = require("./Routes/UserRoutes");
 const inventoryRoutes = require("./Routes/InventoryRoutes");
 const productionRequestRoutes = require("./Routes/ProductionRequestRoutes");
 const paymentRoutes = require("./Routes/PaymentRoutes");
+const collectionRoutes = require("./Routes/CollectionRoutes");
+const pointsRoutes = require("./Routes/PointsRoutes");
+const deliveryRoutes = require("./Routes/DeliveryRoutes");
+const transportRoutes = require("./Routes/TransportRoutes");
+const transportRequestRoutes = require("./Routes/TransportRequestRoutes");
 const productRoutes = require("./Routes/ProductRoutes");
 const cartRoutes = require("./Routes/CartRoutes");
 
@@ -37,6 +42,12 @@ app.use("/api/production-requests", productionRequestRoutes);
 app.use("/api/finance", paymentRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
+// IMPORTANT: mount specific routes BEFORE generic /api routes
+app.use("/api/collections", collectionRoutes);
+app.use("/api/points", pointsRoutes);
+app.use("/api", deliveryRoutes);
+app.use("/api/transport-requests", transportRequestRoutes);
+app.use("/api/transport", transportRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
