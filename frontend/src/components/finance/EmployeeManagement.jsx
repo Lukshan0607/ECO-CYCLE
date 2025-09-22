@@ -79,22 +79,90 @@ const EmployeeManagement = () => {
         }
       }));
     } else {
-      // Format phone numbers as user types
-      let formattedValue = value;
-      if (name === 'phone' || name === 'emergencyContact.phone') {
-        // Remove all non-digit characters
-        const digits = value.replace(/\D/g, '');
-        // Format as 071-234-5678 for local numbers
-        if (digits.length <= 10) {
-          formattedValue = digits.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
-        } else {
-          formattedValue = digits.replace(/(\d{2})(\d{3})(\d{4})/, '$1-$2-$3');
-        }
+      let processedValue = value;
+      
+      // Apply restrictions based on field type
+      switch (name) {
+        case 'fullName':
+          // Only allow letters, spaces, and dots
+          processedValue = value.replace(/[^A-Za-z\s.]/g, '');
+          // Limit to 100 characters
+          if (processedValue.length > 100) {
+            processedValue = processedValue.substring(0, 100);
+          }
+          break;
+          
+        case 'email':
+          // No special restrictions, but limit length
+          if (value.length > 100) {
+            processedValue = value.substring(0, 100);
+          }
+          break;
+          
+        case 'phone':
+        case 'emergencyContact.phone':
+          // Only allow digits and format as user types
+          let digits = value.replace(/\D/g, '');
+          // Limit to 10 digits (Sri Lankan phone numbers)
+          if (digits.length > 10) {
+            digits = digits.substring(0, 10);
+          }
+          // Format as 071-234-5678
+          if (digits.length > 6) {
+            processedValue = `${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6)}`;
+          } else if (digits.length > 3) {
+            processedValue = `${digits.substring(0, 3)}-${digits.substring(3)}`;
+          } else {
+            processedValue = digits;
+          }
+          break;
+          
+        case 'position':
+          // Only allow letters and spaces
+          processedValue = value.replace(/[^A-Za-z\s]/g, '');
+          // Limit to 50 characters
+          if (processedValue.length > 50) {
+            processedValue = processedValue.substring(0, 50);
+          }
+          break;
+          
+        case 'basicSalary':
+          // Allow only numbers and up to 2 decimal places
+          processedValue = value.replace(/[^0-9.]/g, '')
+            .replace(/(\..*?)\./g, '$1') // Remove extra decimal points
+            .replace(/^(\d{1,9})(\.\d{0,2})?.*$/, '$1$2'); // Limit to 2 decimal places
+          // Ensure it's within the allowed range
+          const numValue = parseFloat(processedValue) || 0;
+          if (numValue > 1000000) {
+            processedValue = '1000000';
+          }
+          break;
+          
+        case 'bankName':
+          // Only allow letters and spaces
+          processedValue = value.replace(/[^A-Za-z\s]/g, '');
+          // Limit to 50 characters
+          if (processedValue.length > 50) {
+            processedValue = processedValue.substring(0, 50);
+          }
+          break;
+          
+        case 'accountNumber':
+          // Only allow digits
+          processedValue = value.replace(/\D/g, '');
+          // Limit to 12 digits
+          if (processedValue.length > 12) {
+            processedValue = processedValue.substring(0, 12);
+          }
+          break;
+          
+        default:
+          processedValue = value;
       }
       
       setFormData(prev => ({
         ...prev,
-        [name]: formattedValue || value
+        [name]: processedValue
       }));
     }
     
@@ -111,52 +179,96 @@ const EmployeeManagement = () => {
   const validateForm = () => {
     const errors = {};
     const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
-    const phoneRegex = /^[0-9\+\-\s()]*$/;
-    const sriLankanPhoneRegex = /^(?:0|94|\+94)?(?:(11|21|23|24|25|26|27|31|32|33|34|35|36|37|38|41|45|47|51|52|54|55|57|63|65|66|67|81|91)(-|\s)?\d{3}\s?\d{4}|\d{2,3}-?\d{6,7})$/;
+    const sriLankanPhoneRegex = /^0[1-9][0-9]{8}$/; // Matches 10 digits starting with 07
+    const nameRegex = /^[A-Za-z\s.]{3,100}$/; // Only letters, spaces, and dots, 3-100 chars
+    const positionRegex = /^[A-Za-z\s]{2,50}$/; // Only letters and spaces, 2-50 chars
+    const bankNameRegex = /^[A-Za-z\s]{1,50}$/; // Only letters and spaces, max 50 chars
+    const accountNumberRegex = /^\d{10,12}$/; // 10-12 digits only
+    const today = new Date();
+    const joinDate = new Date(formData.joinDate);
     
-    // Basic validations
+    // Full Name Validation
     if (!formData.fullName.trim()) {
       errors.fullName = 'Full name is required';
-    } else if (formData.fullName.trim().length < 3) {
-      errors.fullName = 'Name must be at least 3 characters';
+    } else if (!nameRegex.test(formData.fullName.trim())) {
+      errors.fullName = 'Name must contain only letters, spaces, and dots (3-100 characters)';
     }
     
+    // Email Validation
     if (!formData.email.trim()) {
       errors.email = 'Email is required';
     } else if (!emailRegex.test(formData.email)) {
       errors.email = 'Please enter a valid email address';
     }
     
+    // Phone Number Validation
     if (!formData.phone.trim()) {
       errors.phone = 'Phone number is required';
-    } else if (!sriLankanPhoneRegex.test(formData.phone.trim())) {
-      errors.phone = 'Please enter a valid Sri Lankan phone number';
+    } else {
+      const digitsOnly = formData.phone.replace(/[^0-9]/g, '');
+      if (!sriLankanPhoneRegex.test(digitsOnly)) {
+        errors.phone = 'Please enter a valid Sri Lankan phone number (10 digits, starting with 07)';
+      }
     }
     
+    // Position Validation
     if (!formData.position.trim()) {
       errors.position = 'Position is required';
+    } else if (!positionRegex.test(formData.position.trim())) {
+      errors.position = 'Position must contain only letters and spaces (2-50 characters)';
     }
     
+    // Join Date Validation
+    const foundingYear = 2024; // Company founding year
+    const minJoinDate = new Date(foundingYear, 0, 1); // January 1st of founding year
+    
+    if (joinDate > today) {
+      errors.joinDate = 'Join date cannot be in the future';
+    } else if (joinDate < minJoinDate) {
+      errors.joinDate = `Join date cannot be before company founding year (${foundingYear})`;
+    }
+    
+    // Basic Salary Validation
     if (!formData.basicSalary) {
       errors.basicSalary = 'Basic salary is required';
-    } else if (isNaN(formData.basicSalary) || formData.basicSalary <= 0) {
-      errors.basicSalary = 'Please enter a valid salary amount';
+    } else {
+      const salary = parseFloat(formData.basicSalary);
+      if (isNaN(salary) || salary <= 0) {
+        errors.basicSalary = 'Please enter a valid salary amount';
+      } else if (salary < 20000) {
+        errors.basicSalary = 'Salary must be at least Rs. 20,000';
+      } else if (salary > 1000000) {
+        errors.basicSalary = 'Salary cannot exceed Rs. 1,000,000';
+      } else if (!/^\d+(\.\d{1,2})?$/.test(formData.basicSalary)) {
+        errors.basicSalary = 'Salary can have maximum 2 decimal places';
+      }
     }
     
-    // Bank account validation if provided
-    if (formData.accountNumber && !/^[0-9\-\s]+$/.test(formData.accountNumber)) {
-      errors.accountNumber = 'Please enter a valid account number';
+    // Bank Name Validation
+    if (formData.bankName && !bankNameRegex.test(formData.bankName.trim())) {
+      errors.bankName = 'Bank name can only contain letters and spaces (max 50 characters)';
+    }
+    
+    // Account Number Validation
+    if (formData.accountNumber) {
+      const accountNumber = formData.accountNumber.replace(/[^0-9]/g, '');
+      if (!accountNumberRegex.test(accountNumber)) {
+        errors.accountNumber = 'Account number must be 10-12 digits';
+      }
     }
     
     // Emergency contact validation if any field is filled
-    if (formData.emergencyContact.name || formData.emergencyContact.phone) {
-      if (!formData.emergencyContact.name.trim()) {
+    if (formData.emergencyContact?.name || formData.emergencyContact?.phone) {
+      if (!formData.emergencyContact?.name?.trim()) {
         errors['emergencyContact.name'] = 'Emergency contact name is required';
       }
-      if (!formData.emergencyContact.phone.trim()) {
+      if (!formData.emergencyContact?.phone?.trim()) {
         errors['emergencyContact.phone'] = 'Emergency contact phone is required';
-      } else if (!sriLankanPhoneRegex.test(formData.emergencyContact.phone.trim())) {
-        errors['emergencyContact.phone'] = 'Please enter a valid Sri Lankan phone number';
+      } else {
+        const emergencyDigits = formData.emergencyContact.phone.replace(/[^0-9]/g, '');
+        if (!sriLankanPhoneRegex.test(emergencyDigits)) {
+          errors['emergencyContact.phone'] = 'Please enter a valid Sri Lankan phone number (10 digits, starting with 07)';
+        }
       }
     }
     
@@ -602,6 +714,8 @@ const EmployeeManagement = () => {
                     type="date"
                     name="joinDate"
                     value={formData.joinDate}
+                    min="2024-01-01"
+                    max={new Date().toISOString().split('T')[0]}
                     onChange={handleInputChange}
                     className="w-full p-2 border rounded-md"
                   />
