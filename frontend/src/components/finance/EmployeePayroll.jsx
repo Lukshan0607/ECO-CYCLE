@@ -1,14 +1,18 @@
 // src/components/finance/EmployeePayroll.jsx
 import React, { useState, useEffect } from "react";
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  PieChart, Pie, Cell
 } from "recharts";
 import { 
   Users, Calculator, FileText, Download, Plus, Search, Edit, Trash2,
-  DollarSign, Clock, Calendar, Settings, Eye, CheckCircle, AlertCircle
+  DollarSign, Clock, Calendar, Settings, Eye, CheckCircle, AlertCircle, Loader2, X, RefreshCw
 } from "lucide-react";
+import { toast } from 'react-hot-toast';
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
+import PayrollForm from "./PayrollForm";
+import payrollApi from "../../services/payrollApi";
 
 // Sri Lankan Payroll Configuration (configurable rates)
 const PAYROLL_CONFIG = {
@@ -20,22 +24,456 @@ const PAYROLL_CONFIG = {
   WORKING_HOURS_PER_DAY: 8
 };
 
-// Mock data removed - to be replaced with API calls
-const employees = [];
-const payrollRuns = [];
-
 export default function EmployeePayroll() {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [payrollConfig, setPayrollConfig] = useState(PAYROLL_CONFIG);
   const [searchTerm, setSearchTerm] = useState("");
+  const [showPayrollForm, setShowPayrollForm] = useState(false);
+  const [payrollRuns, setPayrollRuns] = useState([]);
+  const [employees, setEmployees] = useState({}); // Store employee data by ID
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Fetch employees data with authentication
+  const fetchEmployees = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/employees', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch employees');
+      }
+      
+      const data = await response.json();
+      if (data.success) {
+        const employeesMap = {};
+        data.data.forEach(emp => {
+          employeesMap[emp._id] = emp.employeeId; // Map MongoDB _id to employeeId
+        });
+        setEmployees(employeesMap);
+        return data.data; // Return the employees data for potential use
+      }
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      toast.error('Failed to load employee data');
+    }
+    return [];
+  };
+
+  // Fetch payroll runs on component mount
+  useEffect(() => {
+    const fetchPayrolls = async () => {
+      try {
+        setIsLoading(true);
+        // Fetch both payrolls and employees in parallel
+        const [payrollsData, employeesData] = await Promise.all([
+          payrollApi.getPayrolls(),
+          fetchEmployees()
+        ]);
+        
+        // Process the data to ensure no nested objects
+        const processedData = payrollsData.map(payroll => {
+          // Find the employee data for this payroll
+          const employee = employeesData.find(emp => emp._id === payroll.employeeId);
+          
+          return {
+            ...payroll,
+            // Ensure employee data is flattened
+            employeeId: payroll.employeeId || '',
+            employeeName: payroll.employeeName || employee?.name || 'Unknown Employee',
+            department: payroll.department || employee?.department || '',
+            position: payroll.position || employee?.position || '',
+            // Store the employee's _id for reference
+            employeeMongoId: payroll.employeeId || employee?._id || ''
+          };
+        });
+        
+        setPayrollRuns(processedData);
+      } catch (err) {
+        console.error('Error fetching payrolls:', err);
+        setError('Failed to load payroll data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPayrolls();
+  }, []);
+
+  // Validate payroll data before saving
+  const validatePayrollData = (data) => {
+    const errors = {};
+    
+    // Required fields validation
+    if (!data.employeeId) errors.employeeId = 'Employee is required';
+    if (!data.month) errors.month = 'Payroll month is required';
+    
+    // Numeric fields validation
+    const numericFields = [
+      'basicSalary', 'allowances', 'overtimeHours', 
+      'overtimePay', 'deductions'
+    ];
+    
+    numericFields.forEach(field => {
+      const value = parseFloat(data[field] || 0);
+      if (isNaN(value) || value < 0) {
+        errors[field] = `Invalid ${field.replace(/([A-Z])/g, ' $1').toLowerCase().trim()}`;
+      }
+    });
+    
+    // Date validation - ensure month is not in the future
+    if (data.month) {
+      const selectedDate = new Date(data.month);
+      const currentDate = new Date();
+      
+      if (selectedDate > currentDate) {
+        errors.month = 'Payroll date cannot be in the future';
+      }
+    }
+    
+    return Object.keys(errors).length > 0 ? errors : null;
+  };
+
+  // Fetch payroll data from the API
+  const fetchPayrollData = async () => {
+    try {
+      setIsLoading(true);
+      const [payrollsData, employeesData] = await Promise.all([
+        payrollApi.getPayrolls(),
+        fetchEmployees()
+      ]);
+      
+      const processedData = payrollsData.map(payroll => {
+        const employee = employeesData.find(emp => emp._id === payroll.employeeId);
+        return {
+          ...payroll,
+          employeeId: payroll.employeeId || '',
+          employeeName: payroll.employeeName || employee?.name || 'Unknown Employee',
+          department: payroll.department || employee?.department || '',
+          position: payroll.position || employee?.position || '',
+          employeeMongoId: payroll.employeeId || employee?._id || ''
+        };
+      });
+      
+      setPayrollRuns(processedData);
+      return processedData;
+    } catch (error) {
+      console.error('Error fetching payroll data:', error);
+      toast.error('Failed to refresh payroll data');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle adding/updating a payroll record
+
+  const handleSavePayroll = async (payrollData) => {
+    try {
+      setIsLoading(true);
+      
+      // Validate the payroll data
+      const validationErrors = validatePayrollData(payrollData);
+      if (validationErrors) {
+        throw new Error(Object.values(validationErrors).join('\n'));
+      }
+      
+      // Format the data before sending
+      const formattedData = {
+        ...payrollData,
+        basicSalary: parseFloat(payrollData.basicSalary) || 0,
+        allowances: parseFloat(payrollData.allowances) || 0,
+        overtimeHours: parseFloat(payrollData.overtimeHours) || 0,
+        overtimePay: parseFloat(payrollData.overtimePay) || 0,
+        deductions: parseFloat(payrollData.deductions) || 0,
+        month: new Date(payrollData.month).toISOString().substring(0, 7)
+      };
+      
+      // If we have an existing payroll ID, it's an update
+      const isUpdate = !!payrollData._id;
+      
+      let response;
+      if (isUpdate) {
+        response = await fetch(`http://localhost:5000/api/payroll/${payrollData._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify(formattedData)
+        });
+      } else {
+        response = await fetch('http://localhost:5000/api/payroll', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify(formattedData)
+        });
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to save payroll');
+      }
+
+      // For new records, get the latest employee data first
+      const updatedEmployees = await fetchEmployees();
+      
+      // If this is a new record, add it to the list with the latest employee info
+      if (!isUpdate) {
+        const employee = updatedEmployees.find(emp => emp._id === payrollData.employeeId);
+        const newPayroll = {
+          ...formattedData,
+          employeeId: employee?._id || payrollData.employeeId,
+          employeeName: employee?.name || payrollData.employeeName || 'Unknown Employee',
+          department: employee?.department || payrollData.department || '',
+          position: employee?.position || payrollData.position || '',
+          employeeMongoId: employee?._id || payrollData.employeeId || ''
+        };
+        
+        // Add the new payroll to the beginning of the list
+        setPayrollRuns(prev => [newPayroll, ...prev]);
+      } else {
+        // For updates, refresh the entire list
+        const updatedPayrolls = await payrollApi.getPayrolls();
+        const processedData = updatedPayrolls.map(payroll => {
+          const emp = updatedEmployees.find(e => e._id === payroll.employeeId);
+          return {
+            ...payroll,
+            employeeId: payroll.employeeId || emp?._id || '',
+            employeeName: payroll.employeeName || emp?.name || 'Unknown Employee',
+            department: payroll.department || emp?.department || '',
+            position: payroll.position || emp?.position || '',
+            employeeMongoId: payroll.employeeId || emp?._id || ''
+          };
+        });
+        setPayrollRuns(processedData);
+      }
+      
+      setShowPayrollForm(false);
+      setSelectedEmployee(null);
+      
+      toast.success(`Payroll ${isUpdate ? 'updated' : 'created'} successfully!`);
+    } catch (error) {
+      console.error('Error saving payroll:', error);
+      // Show multiple lines in toast if there are multiple errors
+      const errorMessages = error.message.split('\n');
+      if (errorMessages.length > 1) {
+        errorMessages.forEach(msg => {
+          if (msg.trim()) toast.error(msg.trim());
+        });
+      } else {
+        toast.error(error.message || 'Failed to save payroll. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle edit payroll
+  const handleEditPayroll = (payroll) => {
+    setSelectedEmployee({
+      _id: payroll.employeeMongoId || payroll.employeeId,
+      personalInfo: { fullName: payroll.employeeName },
+      employment: { position: payroll.position },
+      salaryInfo: { basicSalary: payroll.basicSalary }
+    });
+    setShowPayrollForm({
+      isOpen: true,
+      payrollData: payroll,
+      isEdit: true
+    });
+  };
+
+  // Handle view payslip in modal
+  const handleViewPayslip = async (payroll) => {
+    try {
+      setViewPayslip(prev => ({ ...prev, isLoading: true, isOpen: true }));
+      
+      const response = await fetch(`http://localhost:5000/api/payroll/${payroll._id}/payslip`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to load payslip');
+      }
+      
+      if (!data.success || !data.data) {
+        throw new Error('Invalid response from server');
+      }
+      
+      setViewPayslip({
+        isOpen: true,
+        payslipUrl: data.data,
+        isLoading: false,
+        employeeName: payroll.employeeName,
+        month: payroll.month
+      });
+      
+    } catch (error) {
+      console.error('Error viewing payslip:', error);
+      toast.error(error.message || 'Failed to load payslip');
+      setViewPayslip(prev => ({ ...prev, isOpen: false, isLoading: false }));
+    }
+  };
+  
+  // Clean up payslip URL when modal is closed
+  const handleClosePayslip = () => {
+    if (viewPayslip.payslipUrl) {
+      window.URL.revokeObjectURL(viewPayslip.payslipUrl);
+    }
+    setViewPayslip({ isOpen: false, payslipUrl: null, isLoading: false });
+  };
+
+  // Handle download salary slip
+  const handleDownloadPayslip = async (payroll) => {
+    const toastId = toast.loading('Generating payslip...');
+    try {
+      // If we already have the payslip URL in view mode, use it directly
+      if (viewPayslip.isOpen && viewPayslip.payslipUrl) {
+        const a = document.createElement('a');
+        a.href = viewPayslip.payslipUrl;
+        a.download = `payslip-${viewPayslip.employeeName || 'employee'}-${viewPayslip.month || 'date'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        toast.success('Payslip downloaded successfully!', { id: toastId });
+        return;
+      }
+
+      // Otherwise, fetch the payslip
+      const response = await fetch(`http://localhost:5000/api/payroll/${payroll._id}/payslip`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to download payslip');
+      }
+
+      if (!data.success || !data.data) {
+        throw new Error('Invalid response from server');
+      }
+
+      // Create a download link for the base64 data
+      const a = document.createElement('a');
+      a.href = data.data;
+      a.download = data.filename || `payslip-${payroll.employeeName || 'employee'}-${payroll.month || 'date'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      
+      toast.success('Payslip downloaded successfully!', { id: toastId });
+    } catch (error) {
+      console.error('Error downloading payslip:', error);
+      toast.error(error.message || 'Failed to download payslip', { id: toastId });
+    }
+  };
+
+  // Handle delete payroll
+  const handleDeletePayroll = async (payrollId) => {
+    if (!window.confirm('Are you sure you want to delete this payroll record? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const response = await fetch(`http://localhost:5000/api/payroll/${payrollId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to delete payroll');
+      }
+
+      // Update the payroll list and refresh employees
+      const [updatedPayrolls, updatedEmployees] = await Promise.all([
+        payrollApi.getPayrolls(),
+        fetchEmployees() // Refresh the employees list
+      ]);
+      
+      // Process the data to ensure we have the latest employee information
+      const processedData = updatedPayrolls.map(payroll => {
+        const employee = updatedEmployees.find(emp => emp._id === payroll.employeeId);
+        return {
+          ...payroll,
+          employeeId: payroll.employeeId || '',
+          employeeName: payroll.employeeName || employee?.name || 'Unknown Employee',
+          department: payroll.department || employee?.department || '',
+          position: payroll.position || employee?.position || '',
+          employeeMongoId: payroll.employeeId || employee?._id || ''
+        };
+      });
+      
+      setPayrollRuns(processedData);
+      toast.success('Payroll record deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting payroll:', error);
+      toast.error(error.message || 'Failed to delete payroll. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAddPayroll = (payrollData) => {
+    try {
+      // Flatten the employee data to avoid nested objects
+      const newPayroll = {
+        id: `PR-${Date.now()}`,
+        // Spread all the payroll data first
+        ...payrollData,
+        // Ensure we have all required fields with fallbacks
+        status: 'pending',
+        dateProcessed: new Date().toISOString(),
+        // Make sure we're using the employee data directly in the root object
+        employeeId: payrollData.employeeId || '',
+        employeeName: payrollData.employeeName || 'Unknown Employee',
+        department: payrollData.department || '',
+        position: payrollData.position || ''
+      };
+      
+      // Remove any potential nested objects
+      delete newPayroll.employee;
+      
+      // Update the state with the new payroll run
+      setPayrollRuns(prevRuns => [newPayroll, ...prevRuns]);
+      setShowPayrollForm(false);
+      setSelectedEmployee(null);
+      toast.success('Payroll processed successfully!');
+    } catch (error) {
+      console.error('Error adding payroll:', error);
+      toast.error(error.message || 'Failed to add payroll. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const tabs = [
-    { id: "overview", name: "Payroll Overview", icon: <DollarSign size={20} /> },
-    { id: "calculations", name: "Payroll Calculations", icon: <Calculator size={20} /> },
-    { id: "payslips", name: "Payslips", icon: <FileText size={20} /> },
-    { id: "reports", name: "Payroll Reports", icon: <BarChart size={20} /> },
-    { id: "settings", name: "Configuration", icon: <Settings size={20} /> }
+    { id: "overview", name: "Overview", icon: <Calculator size={20} /> },
+    { id: "reports", name: "Payroll Reports", icon: <BarChart size={20} /> }
   ];
 
   // Calculate payroll for an employee
@@ -75,12 +513,44 @@ export default function EmployeePayroll() {
     };
   };
 
-  const filteredEmployees = employees.filter(emp => 
-    emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    emp.employeeNumber.includes(searchTerm) ||
-    emp.department.toLowerCase().includes(searchTerm.toLowerCase())
+  // Convert employees object to array for filtering
+  const filteredEmployees = Object.entries(employees).map(([id, empId]) => ({
+    _id: id,
+    employeeId: empId
+  })).filter(emp => 
+    emp.employeeId.toString().toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Calculate payroll statistics
+  const calculatePayrollStats = () => {
+    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
+    
+    const monthlyPayroll = payrollRuns
+      .filter(run => run.month?.startsWith(currentMonth))
+      .reduce((sum, run) => sum + (parseFloat(run.netPay) || 0), 0);
+      
+    const epfContributions = payrollRuns
+      .filter(run => run.month?.startsWith(currentMonth))
+      .reduce((sum, run) => {
+        const employeeEPF = (parseFloat(run.basicSalary) || 0) * 0.08; // 8% employee EPF
+        const employerEPF = (parseFloat(run.basicSalary) || 0) * 0.12; // 12% employer EPF
+        return sum + employeeEPF + employerEPF;
+      }, 0);
+      
+    const overtimeHours = payrollRuns
+      .filter(run => run.month?.startsWith(currentMonth))
+      .reduce((sum, run) => sum + (parseFloat(run.overtimeHours) || 0), 0);
+      
+    return {
+      totalEmployees: Object.keys(employees).length,
+      monthlyPayroll,
+      epfContributions,
+      overtimeHours
+    };
+  };
+
+  const stats = calculatePayrollStats();
+  
   const renderOverview = () => (
     <div className="space-y-8">
       {/* KPI Cards */}
@@ -90,7 +560,7 @@ export default function EmployeePayroll() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-blue-700">Total Employees</p>
-                <p className="text-3xl font-bold text-blue-900">{employees.length}</p>
+                <p className="text-3xl font-bold text-blue-900">{stats.totalEmployees}</p>
                 <p className="text-sm text-blue-600">Active employees</p>
               </div>
               <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
@@ -105,7 +575,13 @@ export default function EmployeePayroll() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-green-700">Monthly Payroll</p>
-                <p className="text-3xl font-bold text-green-900">LKR 3.75M</p>
+                <p className="text-3xl font-bold text-green-900">
+                  {new Intl.NumberFormat('en-LK', { 
+                    style: 'currency', 
+                    currency: 'LKR',
+                    maximumFractionDigits: 0 
+                  }).format(stats.monthlyPayroll || 0)}
+                </p>
                 <p className="text-sm text-green-600">Current month</p>
               </div>
               <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center">
@@ -120,7 +596,13 @@ export default function EmployeePayroll() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-purple-700">EPF Contributions</p>
-                <p className="text-3xl font-bold text-purple-900">LKR 750K</p>
+                <p className="text-3xl font-bold text-purple-900">
+                  {new Intl.NumberFormat('en-LK', { 
+                    style: 'currency', 
+                    currency: 'LKR',
+                    maximumFractionDigits: 0 
+                  }).format(stats.epfContributions || 0)}
+                </p>
                 <p className="text-sm text-purple-600">Employee + Employer</p>
               </div>
               <div className="w-12 h-12 bg-purple-600 rounded-xl flex items-center justify-center">
@@ -135,7 +617,9 @@ export default function EmployeePayroll() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-orange-700">Overtime Hours</p>
-                <p className="text-3xl font-bold text-orange-900">156</p>
+                <p className="text-3xl font-bold text-orange-900">
+                  {Math.round(stats.overtimeHours || 0)}
+                </p>
                 <p className="text-sm text-orange-600">This month</p>
               </div>
               <div className="w-12 h-12 bg-orange-600 rounded-xl flex items-center justify-center">
@@ -150,48 +634,124 @@ export default function EmployeePayroll() {
       <Card>
         <CardContent className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-semibold">Recent Payroll Runs</h3>
-            <Button className="bg-green-600 text-white">
-              <Plus size={16} className="mr-2" />
-              New Payroll Run
-            </Button>
+            <h2 className="text-2xl font-bold">Payroll Management</h2>
+            <div className="flex space-x-2">
+              <Button 
+                variant="outline"
+                onClick={fetchPayrollData}
+                className="flex items-center"
+                disabled={isLoading}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button 
+                onClick={() => setShowPayrollForm(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                New Payroll Run
+              </Button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-100">
-                  <th className="p-3 font-semibold">Run ID</th>
+                  <th className="p-3 font-semibold">Employee</th>
                   <th className="p-3 font-semibold">Month</th>
-                  <th className="p-3 font-semibold">Employees</th>
-                  <th className="p-3 font-semibold">Gross Pay</th>
-                  <th className="p-3 font-semibold">Deductions</th>
+                  <th className="p-3 font-semibold">Basic Salary</th>
                   <th className="p-3 font-semibold">Net Pay</th>
                   <th className="p-3 font-semibold">Status</th>
-                  <th className="p-3 font-semibold">Actions</th>
+                  <th className="p-3 font-semibold text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {payrollRuns.map(run => (
-                  <tr key={run.id} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-medium">{run.id}</td>
-                    <td className="p-3">{run.month}</td>
-                    <td className="p-3">{run.totalEmployees}</td>
-                    <td className="p-3">LKR {run.totalGrossPay.toLocaleString()}</td>
-                    <td className="p-3">LKR {run.totalDeductions.toLocaleString()}</td>
-                    <td className="p-3">LKR {run.totalNetPay.toLocaleString()}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-600">
-                        {run.status}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex space-x-2">
-                        <Button variant="ghost" size="sm"><Eye size={16} /></Button>
-                        <Button variant="ghost" size="sm"><Download size={16} /></Button>
-                      </div>
+                {payrollRuns.map((run, index) => {
+                  // Generate a unique ID for each row using employeeId, month, and a random string
+                  const uniqueId = `payroll-${run.employeeId || 'emp'}-${run.month || 'date'}-${index}`;
+                  return (
+                    <tr key={uniqueId} className="border-b hover:bg-gray-50">
+                      <td className="p-3">
+                        <div className="font-medium">{run.employeeName || 'N/A'}</div>
+                        <div className="text-sm text-gray-500">
+                          {employees[run.employeeMongoId] || run.employeeId || 'N/A'}
+                        </div>
+                      </td>
+                      <td className="p-3">{run.month || 'N/A'}</td>
+                      <td className="p-3">LKR {run.basicSalary ? parseFloat(run.basicSalary).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
+                      <td className="p-3 font-medium">LKR {run.netPay ? parseFloat(run.netPay).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          run.status === 'completed' ? 'bg-green-100 text-green-600' :
+                          run.status === 'pending' ? 'bg-yellow-100 text-yellow-600' :
+                          'bg-red-100 text-red-600'
+                        }`}>
+                          {run.status || 'Pending'}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center justify-center gap-2 w-full mx-auto">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            title="Edit Payroll"
+                            onClick={() => handleEditPayroll(run)}
+                            className="p-2 h-8 w-8 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
+                          >
+                            {isLoading ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Edit className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <button
+                            onClick={() => handleViewPayslip(run)}
+                            className="text-blue-600 hover:text-blue-900 mr-3"
+                            title="View Payslip"
+                            disabled={isLoading}
+                          >
+                            {isLoading ? (
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : (
+                              <Eye className="w-5 h-5" />
+                            )}
+                          </button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            title="Delete Payroll"
+                            onClick={() => handleDeletePayroll(run._id || run.id)}
+                            disabled={isLoading}
+                            className="p-2 h-8 w-8 flex items-center justify-center text-red-600 hover:bg-red-50 rounded-full transition-colors duration-200"
+                          >
+                            {isLoading ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            title="Download Payslip"
+                            onClick={() => handleDownloadPayslip(run)}
+                            className="p-2 h-8 w-8 flex items-center justify-center text-green-600 hover:bg-green-50 rounded-full transition-colors duration-200"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {payrollRuns.length === 0 && (
+                  <tr>
+                    <td colSpan="10" className="p-4 text-center text-gray-500">
+                      No payroll records found. Click "New Payroll Run" to get started.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -233,7 +793,7 @@ export default function EmployeePayroll() {
                   <th className="p-3 font-semibold">Department</th>
                   <th className="p-3 font-semibold">Basic Salary</th>
                   <th className="p-3 font-semibold">Status</th>
-                  <th className="p-3 font-semibold">Actions</th>
+                  <th className="p-3 font-semibold text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -395,22 +955,249 @@ export default function EmployeePayroll() {
     </Card>
   );
 
+  // Calculate summary statistics for the reports
+  const calculatePayrollSummary = () => {
+    const summary = {
+      totalGrossPay: 0,
+      totalNetPay: 0,
+      totalEPF: 0,
+      totalETF: 0,
+      totalTax: 0,
+      totalEmployees: 0,
+      byDepartment: {}
+    };
+
+    payrollRuns.forEach(payroll => {
+      const dept = payroll.department || 'Unassigned';
+      const grossPay = parseFloat(payroll.basicSalary || 0) + parseFloat(payroll.allowances || 0);
+      const epf = grossPay * PAYROLL_CONFIG.EMPLOYEE_EPF_RATE;
+      const etf = grossPay * PAYROLL_CONFIG.EMPLOYER_ETF_RATE;
+      const tax = parseFloat(payroll.taxDeduction || 0);
+      const netPay = grossPay - epf - tax;
+
+      // Update totals
+      summary.totalGrossPay += grossPay;
+      summary.totalNetPay += netPay;
+      summary.totalEPF += epf;
+      summary.totalETF += etf;
+      summary.totalTax += tax;
+      summary.totalEmployees++;
+
+      // Update department breakdown
+      if (!summary.byDepartment[dept]) {
+        summary.byDepartment[dept] = {
+          grossPay: 0,
+          netPay: 0,
+          epf: 0,
+          etf: 0,
+          tax: 0,
+          employeeCount: 0
+        };
+      }
+      
+      summary.byDepartment[dept].grossPay += grossPay;
+      summary.byDepartment[dept].netPay += netPay;
+      summary.byDepartment[dept].epf += epf;
+      summary.byDepartment[dept].etf += etf;
+      summary.byDepartment[dept].tax += tax;
+      summary.byDepartment[dept].employeeCount++;
+    });
+
+    return summary;
+  };
+
+  const payrollSummary = calculatePayrollSummary();
+  const departmentData = Object.entries(payrollSummary.byDepartment).map(([dept, data]) => ({
+    name: dept,
+    ...data,
+    avgSalary: data.grossPay / (data.employeeCount || 1)
+  }));
+
   const renderReports = () => (
     <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-700">Total Employees</p>
+                <p className="text-2xl font-bold text-blue-900">{payrollSummary.totalEmployees}</p>
+              </div>
+              <Users className="text-blue-500" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-green-50 border-green-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-green-700">Total Gross Pay</p>
+                <p className="text-2xl font-bold text-green-900">
+                  {new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR', maximumFractionDigits: 0 })
+                    .format(payrollSummary.totalGrossPay)}
+                </p>
+              </div>
+              <DollarSign className="text-green-500" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-purple-50 border-purple-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-purple-700">Total EPF + ETF</p>
+                <p className="text-2xl font-bold text-purple-900">
+                  {new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR', maximumFractionDigits: 0 })
+                    .format(payrollSummary.totalEPF + payrollSummary.totalETF)}
+                </p>
+              </div>
+              <Calculator className="text-purple-500" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-amber-50 border-amber-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-amber-700">Total Tax</p>
+                <p className="text-2xl font-bold text-amber-900">
+                  {new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR', maximumFractionDigits: 0 })
+                    .format(payrollSummary.totalTax)}
+                </p>
+              </div>
+              <FileText className="text-amber-500" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Payroll Trends Chart */}
       <Card>
         <CardContent className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Payroll Analytics</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={payrollRuns}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="totalGrossPay" fill="#3B82F6" name="Gross Pay" />
-              <Bar dataKey="totalNetPay" fill="#10B981" name="Net Pay" />
-            </BarChart>
-          </ResponsiveContainer>
+          <h3 className="text-lg font-semibold mb-4">Payroll Trends</h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={payrollRuns}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis />
+                <Tooltip 
+                  formatter={(value) => new Intl.NumberFormat('en-LK', { 
+                    style: 'currency', 
+                    currency: 'LKR', 
+                    maximumFractionDigits: 0 
+                  }).format(value)}
+                />
+                <Legend />
+                <Bar dataKey="basicSalary" fill="#3B82F6" name="Basic Salary" />
+                <Bar dataKey="allowances" fill="#10B981" name="Allowances" />
+                <Bar dataKey="overtimePay" fill="#F59E0B" name="Overtime" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Department-wise Breakdown */}
+      <Card>
+        <CardContent className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Department-wise Breakdown</h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={departmentData}
+                margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" angle={-45} textAnchor="end" height={70} />
+                <YAxis />
+                <Tooltip 
+                  formatter={(value) => new Intl.NumberFormat('en-LK', { 
+                    style: 'currency', 
+                    currency: 'LKR', 
+                    maximumFractionDigits: 0 
+                  }).format(value)}
+                />
+                <Legend />
+                <Bar dataKey="grossPay" fill="#3B82F6" name="Gross Pay" />
+                <Bar dataKey="netPay" fill="#10B981" name="Net Pay" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Employee Distribution */}
+      <Card>
+        <CardContent className="p-6">
+          <h3 className="text-lg font-semibold mb-4">Employee Distribution</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="h-80">
+              <h4 className="text-md font-medium text-center mb-4">By Department</h4>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={departmentData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="employeeCount"
+                    nameKey="name"
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {departmentData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={`#${Math.floor(Math.random()*16777215).toString(16)}`} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    formatter={(value, name, props) => [
+                      `${name}: ${value} employees`,
+                      `Avg. Salary: ${new Intl.NumberFormat('en-LK', { 
+                        style: 'currency', 
+                        currency: 'LKR',
+                        maximumFractionDigits: 0 
+                      }).format(props.payload.avgSalary)}`
+                    ]}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="h-80">
+              <h4 className="text-md font-medium text-center mb-4">Salary Distribution</h4>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={payrollRuns.slice(0, 10)} // Show top 10 employees
+                  margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                  layout="vertical"
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" />
+                  <YAxis 
+                    type="category" 
+                    dataKey="employeeName" 
+                    width={120}
+                    tick={{ fontSize: 12 }}
+                  />
+                  <Tooltip 
+                    formatter={(value) => new Intl.NumberFormat('en-LK', { 
+                      style: 'currency', 
+                      currency: 'LKR',
+                      maximumFractionDigits: 0 
+                    }).format(value)}
+                  />
+                  <Legend />
+                  <Bar dataKey="netPay" fill="#3B82F6" name="Net Salary" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -507,6 +1294,12 @@ export default function EmployeePayroll() {
     }
   };
 
+  const [viewPayslip, setViewPayslip] = useState({
+    isOpen: false,
+    payslipUrl: null,
+    isLoading: false
+  });
+
   return (
     <div className="space-y-6">
       {/* Navigation Tabs */}
@@ -533,6 +1326,95 @@ export default function EmployeePayroll() {
       <div>
         {renderContent()}
       </div>
+
+      {/* Payroll Form Modal */}
+      {showPayrollForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold">New Payroll Run</h3>
+                <button 
+                  onClick={() => setShowPayrollForm(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <PayrollForm 
+                employee={selectedEmployee}
+                onSave={handleSavePayroll}
+                onClose={() => {
+                  setShowPayrollForm(false);
+                  setSelectedEmployee(null);
+                }}
+                payrollData={showPayrollForm.payrollData}
+                isEdit={showPayrollForm.isEdit}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Payslip Viewer Modal */}
+      {viewPayslip.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="text-lg font-semibold">
+                {viewPayslip.employeeName} - {viewPayslip.month} Payslip
+              </h3>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => handleDownloadPayslip({ _id: viewPayslip.payslipUrl.split('/').pop() })}
+                  className="p-2 text-gray-600 hover:text-gray-900"
+                  title="Download"
+                >
+                  <Download className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={handleClosePayslip}
+                  className="p-2 text-gray-600 hover:text-gray-900"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {viewPayslip.isLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                  <span className="ml-2">Loading payslip...</span>
+                </div>
+              ) : viewPayslip.payslipUrl ? (
+                <div className="w-full h-[70vh]">
+                  <object
+                    data={viewPayslip.payslipUrl}
+                    type="application/pdf"
+                    className="w-full h-full border rounded"
+                  >
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="mx-auto h-12 w-12 text-gray-400" />
+                      <p className="mt-2">Unable to display PDF. You can still <a 
+                        href={viewPayslip.payslipUrl} 
+                        download={`payslip-${viewPayslip.employeeName || 'employee'}-${viewPayslip.month || 'date'}.pdf`}
+                        className="text-blue-600 hover:underline"
+                      >download it here</a>.</p>
+                    </div>
+                  </object>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FileText className="mx-auto h-12 w-12 text-gray-400" />
+                  <p className="mt-2">Unable to load payslip</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

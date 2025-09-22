@@ -7,6 +7,10 @@ const collectionSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
+  account: {
+    username: { type: String, unique: true, sparse: true },
+    passwordHash: { type: String },
+  },
   location: {
     name: {
       type: String,
@@ -440,14 +444,16 @@ const transportAnalyticsSchema = new mongoose.Schema({
   timestamps: true
 });
 
-const Collection = mongoose.model('Collection', collectionSchema);
-const Vehicle = mongoose.model('Vehicle', vehicleSchema);
-const Driver = mongoose.model('Driver', driverSchema);
-const TransportRoute = mongoose.model('TransportRoute', transportRouteSchema);
-const TransportAnalytics = mongoose.model('TransportAnalytics', transportAnalyticsSchema);
+// IMPORTANT: Avoid clashing with the main app's 'Collection' model (bottle collections)
+// Register this transport-specific collection schema under a unique name
+const TransportCollection = mongoose.models.TransportCollection || mongoose.model('TransportCollection', collectionSchema);
+const Vehicle = mongoose.models.Vehicle || mongoose.model('Vehicle', vehicleSchema);
+const Driver = mongoose.models.Driver || mongoose.model('Driver', driverSchema);
+const TransportRoute = mongoose.models.TransportRoute || mongoose.model('TransportRoute', transportRouteSchema);
+const TransportAnalytics = mongoose.models.TransportAnalytics || mongoose.model('TransportAnalytics', transportAnalyticsSchema);
 
 module.exports = {
-  Collection,
+  Collection: TransportCollection,
   Vehicle,
   Driver,
   TransportRoute,

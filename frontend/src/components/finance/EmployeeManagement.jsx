@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Save, X, User, Search, Filter, Download, FileText, Users as UsersIcon } from 'lucide-react';
+import { Plus, Edit, Trash2, User, Search, Users as UsersIcon, X, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { Card, CardContent } from '../ui/card';
@@ -7,35 +7,42 @@ import { Button } from '../ui/button';
 
 const EmployeeManagement = () => {
   const [employees, setEmployees] = useState([]);
-  const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState('add');
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
-    employeeId: '',
+    employeeId: `EMP${Math.floor(1000 + Math.random() * 9000)}`,
     fullName: '',
     email: '',
     phone: '',
     department: 'IT',
     position: '',
     employmentType: 'full-time',
-    joinDate: new Date().toISOString().slice(0, 10),
+    joinDate: new Date().toISOString().split('T')[0],
     basicSalary: '',
     bankName: '',
     accountNumber: '',
     status: 'active'
+
   });
+  const [formErrors, setFormErrors] = useState({});
 
   // Fetch employees from API
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:5000/api/employees');
+      const url = searchTerm 
+        ? `http://localhost:5000/api/employees?search=${encodeURIComponent(searchTerm)}`
+        : 'http://localhost:5000/api/employees';
+      
+      const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
-        setEmployees(data);
+        setEmployees(data.data || []);
+      } else {
+        throw new Error('Failed to fetch employees');
       }
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -44,72 +51,343 @@ const EmployeeManagement = () => {
       setLoading(false);
     }
   };
+  
+  // Debounce search
+  useEffect(() => {
+    const timerId = setTimeout(() => {
+      fetchEmployees();
+    }, 500);
+    
+    return () => clearTimeout(timerId);
+  }, [searchTerm]);
 
   useEffect(() => {
     fetchEmployees();
   }, []);
 
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+    const { name, value, type } = e.target;
     
-    try {
-      const url = modalType === 'edit' 
-        ? `http://localhost:5000/api/employees/${selectedEmployee._id}`
-        : 'http://localhost:5000/api/employees';
+    // Handle nested objects (like emergencyContact)
+    if (name.includes('.')) {
+      const [parent, child] = name.split('.');
+      setFormData(prev => ({
+        ...prev,
+        [parent]: {
+          ...prev[parent],
+          [child]: value
+        }
+      }));
+    } else {
+      let processedValue = value;
       
-      const method = modalType === 'edit' ? 'PUT' : 'POST';
-      
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-
-      if (response.ok) {
-        toast.success(`Employee ${modalType === 'edit' ? 'updated' : 'added'} successfully`);
-        setShowModal(false);
-        fetchEmployees();
-      } else {
-        const error = await response.json();
-        throw new Error(error.message || 'Something went wrong');
+      // Apply restrictions based on field type
+      switch (name) {
+        case 'fullName':
+          // Only allow letters, spaces, and dots
+          processedValue = value.replace(/[^A-Za-z\s.]/g, '');
+          // Limit to 100 characters
+          if (processedValue.length > 100) {
+            processedValue = processedValue.substring(0, 100);
+          }
+          break;
+          
+        case 'email':
+          // No special restrictions, but limit length
+          if (value.length > 100) {
+            processedValue = value.substring(0, 100);
+          }
+          break;
+          
+        case 'phone':
+        case 'emergencyContact.phone':
+          // Only allow digits and format as user types
+          let digits = value.replace(/\D/g, '');
+          // Limit to 10 digits (Sri Lankan phone numbers)
+          if (digits.length > 10) {
+            digits = digits.substring(0, 10);
+          }
+          // Format as 071-234-5678
+          if (digits.length > 6) {
+            processedValue = `${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6)}`;
+          } else if (digits.length > 3) {
+            processedValue = `${digits.substring(0, 3)}-${digits.substring(3)}`;
+          } else {
+            processedValue = digits;
+          }
+          break;
+          
+        case 'position':
+          // Only allow letters and spaces
+          processedValue = value.replace(/[^A-Za-z\s]/g, '');
+          // Limit to 50 characters
+          if (processedValue.length > 50) {
+            processedValue = processedValue.substring(0, 50);
+          }
+          break;
+          
+        case 'basicSalary':
+          // Allow only numbers and up to 2 decimal places
+          processedValue = value.replace(/[^0-9.]/g, '')
+            .replace(/(\..*?)\./g, '$1') // Remove extra decimal points
+            .replace(/^(\d{1,9})(\.\d{0,2})?.*$/, '$1$2'); // Limit to 2 decimal places
+          // Ensure it's within the allowed range
+          const numValue = parseFloat(processedValue) || 0;
+          if (numValue > 1000000) {
+            processedValue = '1000000';
+          }
+          break;
+          
+        case 'bankName':
+          // Only allow letters and spaces
+          processedValue = value.replace(/[^A-Za-z\s]/g, '');
+          // Limit to 50 characters
+          if (processedValue.length > 50) {
+            processedValue = processedValue.substring(0, 50);
+          }
+          break;
+          
+        case 'accountNumber':
+          // Only allow digits
+          processedValue = value.replace(/\D/g, '');
+          // Limit to 12 digits
+          if (processedValue.length > 12) {
+            processedValue = processedValue.substring(0, 12);
+          }
+          break;
+          
+        default:
+          processedValue = value;
       }
-    } catch (error) {
-      console.error('Error saving employee:', error);
-      toast.error(error.message || 'Failed to save employee');
+      
+      setFormData(prev => ({
+        ...prev,
+        [name]: processedValue
+      }));
+    }
+    
+    // Clear error when user starts typing
+    const errorKey = name.includes('.') ? name : name.split('.')[0];
+    if (formErrors[errorKey]) {
+      setFormErrors(prev => ({
+        ...prev,
+        [errorKey]: ''
+      }));
     }
   };
 
-  const handleEdit = (employee) => {
-    setSelectedEmployee(employee);
+  const validateForm = () => {
+    const errors = {};
+    const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+    const sriLankanPhoneRegex = /^0[1-9][0-9]{8}$/; // Matches 10 digits starting with 07
+    const nameRegex = /^[A-Za-z\s.]{3,100}$/; // Only letters, spaces, and dots, 3-100 chars
+    const positionRegex = /^[A-Za-z\s]{2,50}$/; // Only letters and spaces, 2-50 chars
+    const bankNameRegex = /^[A-Za-z\s]{1,50}$/; // Only letters and spaces, max 50 chars
+    const accountNumberRegex = /^\d{10,12}$/; // 10-12 digits only
+    const today = new Date();
+    const joinDate = new Date(formData.joinDate);
+    
+    // Full Name Validation
+    if (!formData.fullName.trim()) {
+      errors.fullName = 'Full name is required';
+    } else if (!nameRegex.test(formData.fullName.trim())) {
+      errors.fullName = 'Name must contain only letters, spaces, and dots (3-100 characters)';
+    }
+    
+    // Email Validation
+    if (!formData.email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!emailRegex.test(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    
+    // Phone Number Validation
+    if (!formData.phone.trim()) {
+      errors.phone = 'Phone number is required';
+    } else {
+      const digitsOnly = formData.phone.replace(/[^0-9]/g, '');
+      if (!sriLankanPhoneRegex.test(digitsOnly)) {
+        errors.phone = 'Please enter a valid Sri Lankan phone number (10 digits, starting with 07)';
+      }
+    }
+    
+    // Position Validation
+    if (!formData.position.trim()) {
+      errors.position = 'Position is required';
+    } else if (!positionRegex.test(formData.position.trim())) {
+      errors.position = 'Position must contain only letters and spaces (2-50 characters)';
+    }
+    
+    // Join Date Validation
+    const foundingYear = 2024; // Company founding year
+    const minJoinDate = new Date(foundingYear, 0, 1); // January 1st of founding year
+    
+    if (joinDate > today) {
+      errors.joinDate = 'Join date cannot be in the future';
+    } else if (joinDate < minJoinDate) {
+      errors.joinDate = `Join date cannot be before company founding year (${foundingYear})`;
+    }
+    
+    // Basic Salary Validation
+    if (!formData.basicSalary) {
+      errors.basicSalary = 'Basic salary is required';
+    } else {
+      const salary = parseFloat(formData.basicSalary);
+      if (isNaN(salary) || salary <= 0) {
+        errors.basicSalary = 'Please enter a valid salary amount';
+      } else if (salary < 20000) {
+        errors.basicSalary = 'Salary must be at least Rs. 20,000';
+      } else if (salary > 1000000) {
+        errors.basicSalary = 'Salary cannot exceed Rs. 1,000,000';
+      } else if (!/^\d+(\.\d{1,2})?$/.test(formData.basicSalary)) {
+        errors.basicSalary = 'Salary can have maximum 2 decimal places';
+      }
+    }
+    
+    // Bank Name Validation
+    if (formData.bankName && !bankNameRegex.test(formData.bankName.trim())) {
+      errors.bankName = 'Bank name can only contain letters and spaces (max 50 characters)';
+    }
+    
+    // Account Number Validation
+    if (formData.accountNumber) {
+      const accountNumber = formData.accountNumber.replace(/[^0-9]/g, '');
+      if (!accountNumberRegex.test(accountNumber)) {
+        errors.accountNumber = 'Account number must be 10-12 digits';
+      }
+    }
+    
+    // Emergency contact validation if any field is filled
+    if (formData.emergencyContact?.name || formData.emergencyContact?.phone) {
+      if (!formData.emergencyContact?.name?.trim()) {
+        errors['emergencyContact.name'] = 'Emergency contact name is required';
+      }
+      if (!formData.emergencyContact?.phone?.trim()) {
+        errors['emergencyContact.phone'] = 'Emergency contact phone is required';
+      } else {
+        const emergencyDigits = formData.emergencyContact.phone.replace(/[^0-9]/g, '');
+        if (!sriLankanPhoneRegex.test(emergencyDigits)) {
+          errors['emergencyContact.phone'] = 'Please enter a valid Sri Lankan phone number (10 digits, starting with 07)';
+        }
+      }
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleAddEmployee = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+    
+    try {
+      setIsSubmitting(true);
+      const url = editingEmployee 
+        ? `http://localhost:5000/api/employees/${editingEmployee._id}`
+        : 'http://localhost:5000/api/employees';
+      
+      const method = editingEmployee ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success(`Employee ${editingEmployee ? 'updated' : 'added'} successfully`);
+        setShowAddModal(false);
+        fetchEmployees();
+        resetForm();
+      } else {
+        throw new Error(data.message || `Failed to ${editingEmployee ? 'update' : 'add'} employee`);
+      }
+    } catch (error) {
+      console.error(`Error ${editingEmployee ? 'updating' : 'adding'} employee:`, error);
+      
+      // Handle duplicate entry errors
+      if (error.message && (error.message.includes('duplicate') || error.message.includes('already exists'))) {
+        if (error.message.includes('email') || error.message.includes('Email')) {
+          alert('❌ Error: This email is already in use. Please use a different email address.');
+          setFormErrors(prev => ({ ...prev, email: 'This email is already in use' }));
+        } else if (error.message.includes('employeeId') || error.message.includes('ID')) {
+          alert('❌ Error: This employee ID is already in use. Please use a different ID.');
+          setFormErrors(prev => ({ ...prev, employeeId: 'This ID is already in use' }));
+        } else if (error.message.includes('accountNumber') || error.message.includes('bank account')) {
+          alert('❌ Error: This bank account number is already in use. Please verify the account number.');
+          setFormErrors(prev => ({ ...prev, accountNumber: 'This account number is already in use' }));
+        } else {
+          alert('❌ Error: This record conflicts with an existing entry. Please check your input.');
+        }
+      } else {
+        // Handle other errors
+        toast.error(error.message || `Failed to ${editingEmployee ? 'update' : 'add'} employee`);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  const resetForm = () => {
     setFormData({
-      employeeId: employee.employeeId || '',
+      employeeId: `EMP${Math.floor(1000 + Math.random() * 9000)}`,
+      fullName: '',
+      email: '',
+      phone: '',
+      department: 'IT',
+      position: '',
+      employmentType: 'full-time',
+      joinDate: new Date().toISOString().split('T')[0],
+      basicSalary: '',
+      bankName: '',
+      accountNumber: '',
+      status: 'active',
+      emergencyContact: {
+        name: '',
+        relationship: '',
+        phone: ''
+      }
+    });
+    setFormErrors({});
+    setEditingEmployee(null);
+  };
+
+  const handleEdit = (employee) => {
+    setEditingEmployee(employee);
+    setFormData({
+      employeeId: employee.employeeId,
       fullName: employee.fullName || '',
       email: employee.email || '',
       phone: employee.phone || '',
       department: employee.department || 'IT',
       position: employee.position || '',
       employmentType: employee.employmentType || 'full-time',
-      joinDate: employee.joinDate ? new Date(employee.joinDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      joinDate: employee.joinDate ? new Date(employee.joinDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       basicSalary: employee.basicSalary || '',
       bankName: employee.bankName || '',
       accountNumber: employee.accountNumber || '',
-      status: employee.status || 'active'
+      status: employee.status || 'active',
+      emergencyContact: employee.emergencyContact || {
+        name: '',
+        relationship: '',
+        phone: ''
+      }
     });
-    setModalType('edit');
-    setShowModal(true);
+    setFormErrors({});
+    setShowAddModal(true);
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this employee?')) {
+    if (window.confirm('Are you sure you want to delete this employee? This action cannot be undone.')) {
       try {
+        setLoading(true);
         const response = await fetch(`http://localhost:5000/api/employees/${id}`, {
           method: 'DELETE'
         });
@@ -133,16 +411,25 @@ const EmployeeManagement = () => {
     employee.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-LK', {
+      style: 'currency',
+      currency: 'LKR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount);
+  };
+
   return (
-    <div className="container mx-auto p-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+    <div className="container mx-auto p-4">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800 mb-4 md:mb-0">Employee Management</h1>
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
           <div className="relative flex-grow max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Search employees..."
+              placeholder="Search by name, email, or ID..."
               className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -150,26 +437,12 @@ const EmployeeManagement = () => {
           </div>
           <Button
             onClick={() => {
-              setFormData({
-                employeeId: '',
-                fullName: '',
-                email: '',
-                phone: '',
-                department: 'IT',
-                position: '',
-                employmentType: 'full-time',
-                joinDate: new Date().toISOString().slice(0, 10),
-                basicSalary: '',
-                bankName: '',
-                accountNumber: '',
-                status: 'active'
-              });
-              setModalType('add');
-              setShowModal(true);
+              resetForm();
+              setShowAddModal(true);
             }}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center justify-center gap-2"
           >
-            <Plus size={18} />
+            <Plus className="h-5 w-5" />
             Add Employee
           </Button>
         </div>
@@ -182,12 +455,22 @@ const EmployeeManagement = () => {
       ) : (
         <Card>
           <CardContent className="p-0">
-            {filteredEmployees.length === 0 ? (
-              <div className="text-center py-12">
+            {employees.length === 0 ? (
+              <div className="text-center py-12 px-4">
                 <UsersIcon className="mx-auto h-12 w-12 text-gray-400" />
                 <h3 className="mt-2 text-sm font-medium text-gray-900">No employees found</h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  {searchTerm ? 'No employees match your search.' : 'Get started by adding a new employee.'}
+                  {searchTerm ? 'Try adjusting your search or ' : 'Get started by '}
+                  <button
+                    onClick={() => {
+                      setSearchTerm('');
+                      resetForm();
+                      setShowAddModal(true);
+                    }}
+                    className="text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    adding a new employee
+                  </button>
                 </p>
               </div>
             ) : (
@@ -195,11 +478,24 @@ const EmployeeManagement = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Employee
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Position / Department
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Contact
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Salary
+                      </th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th scope="col" className="relative px-6 py-3">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -207,48 +503,62 @@ const EmployeeManagement = () => {
                       <tr key={employee._id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                              <User className="h-6 w-6 text-blue-600" />
+                            <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                              <User className="h-5 w-5" />
                             </div>
                             <div className="ml-4">
                               <div className="text-sm font-medium text-gray-900">{employee.fullName}</div>
-                              <div className="text-sm text-gray-500">{employee.employeeId}</div>
+                              <div className="text-xs text-gray-500">ID: {employee.employeeId}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{employee.department}</div>
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-medium text-gray-900">{employee.position}</div>
+                          <div className="text-sm text-gray-500 capitalize">{employee.department}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-900">{employee.email}</div>
+                          <div className="text-sm text-gray-500">{employee.phone}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{employee.position}</div>
-                          <div className="text-sm text-gray-500">{employee.employmentType}</div>
+                          <div className="text-sm text-gray-900 font-medium">
+                            {formatCurrency(employee.basicSalary || 0)}
+                          </div>
+                          <div className="text-xs text-gray-500 capitalize">
+                            {employee.employmentType}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            employee.status === 'active' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
+                            employee.status === 'active' ? 'bg-green-100 text-green-800' :
+                            employee.status === 'inactive' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
                           }`}>
-                            {employee.status || 'inactive'}
+                            {employee.status}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-blue-600 hover:text-blue-900 mr-2"
-                            onClick={() => handleEdit(employee)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-600 hover:text-red-900"
-                            onClick={() => handleDelete(employee._id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <div className="flex justify-end space-x-2">
+                            <button
+                              onClick={() => handleEdit(employee)}
+                              className="text-blue-600 hover:text-blue-900 p-1 rounded-full hover:bg-blue-50"
+                              title="Edit"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(employee._id)}
+                              className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-50"
+                              title="Delete"
+                              disabled={loading}
+                            >
+                              {loading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -261,230 +571,239 @@ const EmployeeManagement = () => {
       )}
 
       {/* Add/Edit Employee Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
-          <div className="relative p-5 w-full max-w-2xl">
-            <div className="bg-white rounded-lg shadow-xl">
-              <div className="flex justify-between items-center p-5 border-b">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {modalType === 'add' ? 'Add New Employee' : 'Edit Employee'}
-                </h3>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="text-gray-400 hover:text-gray-500"
-                >
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
-              
-              <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="employeeId" className="block text-sm font-medium text-gray-700">
-                      Employee ID <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      id="employeeId"
-                      name="employeeId"
-                      value={formData.employeeId}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    />
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-xl font-semibold">
+                {editingEmployee ? 'Edit Employee' : 'Add New Employee'}
+              </h2>
+              <button 
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleAddEmployee} className="p-6 space-y-4">
+              {isSubmitting && (
+                <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+                  <div className="bg-white p-4 rounded-lg shadow-lg flex items-center space-x-2">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                    <span>{editingEmployee ? 'Updating employee...' : 'Adding employee...'}</span>
                   </div>
-                  
-                  <div>
-                    <label htmlFor="fullName" className="block text-sm font-medium text-gray-700">
-                      Full Name <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      id="fullName"
-                      name="fullName"
-                      value={formData.fullName}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                      Email <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="email"
-                      id="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                      Phone Number
-                    </label>
-                    <input
-                      type="tel"
-                      id="phone"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="department" className="block text-sm font-medium text-gray-700">
-                      Department
-                    </label>
-                    <select
-                      id="department"
-                      name="department"
-                      value={formData.department}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="IT">IT</option>
-                      <option value="HR">HR</option>
-                      <option value="Finance">Finance</option>
-                      <option value="Operations">Operations</option>
-                      <option value="Sales">Sales</option>
-                      <option value="Marketing">Marketing</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="position" className="block text-sm font-medium text-gray-700">
-                      Position
-                    </label>
-                    <input
-                      type="text"
-                      id="position"
-                      name="position"
-                      value={formData.position}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="employmentType" className="block text-sm font-medium text-gray-700">
-                      Employment Type
-                    </label>
-                    <select
-                      id="employmentType"
-                      name="employmentType"
-                      value={formData.employmentType}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="full-time">Full-time</option>
-                      <option value="part-time">Part-time</option>
-                      <option value="contract">Contract</option>
-                      <option value="internship">Internship</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="joinDate" className="block text-sm font-medium text-gray-700">
-                      Join Date
-                    </label>
-                    <input
-                      type="date"
-                      id="joinDate"
-                      name="joinDate"
-                      value={formData.joinDate}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="basicSalary" className="block text-sm font-medium text-gray-700">
-                      Basic Salary (LKR)
-                    </label>
-                    <input
-                      type="number"
-                      id="basicSalary"
-                      name="basicSalary"
-                      value={formData.basicSalary}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="bankName" className="block text-sm font-medium text-gray-700">
-                      Bank Name
-                    </label>
-                    <input
-                      type="text"
-                      id="bankName"
-                      name="bankName"
-                      value={formData.bankName}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700">
-                      Account Number
-                    </label>
-                    <input
-                      type="text"
-                      id="accountNumber"
-                      name="accountNumber"
-                      value={formData.accountNumber}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="status" className="block text-sm font-medium text-gray-700">
-                      Status
-                    </label>
-                    <select
-                      id="status"
-                      name="status"
-                      value={formData.status}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="on-leave">On Leave</option>
-                      <option value="terminated">Terminated</option>
-                    </select>
-                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID</label>
+                  <input
+                    type="text"
+                    name="employeeId"
+                    value={formData.employeeId}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded-md"
+                    disabled
+                  />
                 </div>
                 
-                <div className="flex justify-end space-x-3 pt-6 border-t">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setShowModal(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    {modalType === 'add' ? 'Add Employee' : 'Save Changes'}
-                  </Button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Full Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="fullName"
+                    value={formData.fullName}
+                    onChange={handleInputChange}
+                    className={`w-full p-2 border rounded-md ${formErrors.fullName ? 'border-red-500' : ''}`}
+                    required
+                  />
+                  {formErrors.fullName && (
+                    <p className="mt-1 text-sm text-red-600">{formErrors.fullName}</p>
+                  )}
                 </div>
-              </form>
-            </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    className={`w-full p-2 border rounded-md ${formErrors.email ? 'border-red-500' : ''}`}
+                    required
+                  />
+                  {formErrors.email && (
+                    <p className="mt-1 text-sm text-red-600">{formErrors.email}</p>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Phone <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    className={`w-full p-2 border rounded-md ${formErrors.phone ? 'border-red-500' : ''}`}
+                    required
+                  />
+                  {formErrors.phone && (
+                    <p className="mt-1 text-sm text-red-600">{formErrors.phone}</p>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                  <select
+                    name="department"
+                    value={formData.department}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded-md"
+                  >
+                    <option value="IT">IT</option>
+                    <option value="HR">HR</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Operations">Operations</option>
+                    <option value="Sales">Sales</option>
+                    <option value="Marketing">Marketing</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Position <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="position"
+                    value={formData.position}
+                    onChange={handleInputChange}
+                    className={`w-full p-2 border rounded-md ${formErrors.position ? 'border-red-500' : ''}`}
+                    required
+                  />
+                  {formErrors.position && (
+                    <p className="mt-1 text-sm text-red-600">{formErrors.position}</p>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Employment Type</label>
+                  <select
+                    name="employmentType"
+                    value={formData.employmentType}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded-md"
+                  >
+                    <option value="full-time">Full-time</option>
+                    <option value="part-time">Part-time</option>
+                    <option value="contract">Contract</option>
+                    <option value="internship">Internship</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Join Date</label>
+                  <input
+                    type="date"
+                    name="joinDate"
+                    value={formData.joinDate}
+                    min="2024-01-01"
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded-md"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Basic Salary (LKR) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    name="basicSalary"
+                    value={formData.basicSalary}
+                    onChange={handleInputChange}
+                    min="0"
+                    step="0.01"
+                    className={`w-full p-2 border rounded-md ${formErrors.basicSalary ? 'border-red-500' : ''}`}
+                    required
+                  />
+                  {formErrors.basicSalary && (
+                    <p className="mt-1 text-sm text-red-600">{formErrors.basicSalary}</p>
+                  )}
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
+                  <input
+                    type="text"
+                    name="bankName"
+                    value={formData.bankName}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded-md"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
+                  <input
+                    type="text"
+                    name="accountNumber"
+                    value={formData.accountNumber}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded-md"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded-md"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="on-leave">On Leave</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center disabled:opacity-70"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" />
+                      {editingEmployee ? 'Updating...' : 'Saving...'}
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      {editingEmployee ? 'Update Employee' : 'Save Employee'}
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -493,4 +812,3 @@ const EmployeeManagement = () => {
 };
 
 export default EmployeeManagement;
-//

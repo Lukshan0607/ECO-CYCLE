@@ -5,8 +5,7 @@ import {
   DocumentChartBarIcon,
   ArrowTrendingUpIcon,
   MagnifyingGlassIcon,
-  CheckIcon,
-  XMarkIcon,
+  ClipboardDocumentListIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router-dom";
 import axios from "axios";
@@ -26,7 +25,6 @@ import {
 
 export default function InventoryDashboard() {
   const [inventory, setInventory] = useState([]);
-  const [requests, setRequests] = useState([]);
   const [activeTab, setActiveTab] = useState("overview");
 
   const [profilePic, setProfilePic] = useState(null);
@@ -35,17 +33,14 @@ export default function InventoryDashboard() {
   const menuItems = [
     { name: "Inventory Overview", key: "overview", icon: <CubeIcon className="w-5 h-5" /> },
     { name: "Stock Management", key: "stock", icon: <ChartBarIcon className="w-5 h-5" /> },
-    { name: "Production Requests", key: "requests", icon: <DocumentChartBarIcon className="w-5 h-5" /> },
     { name: "Analytics", key: "analytics", icon: <ArrowTrendingUpIcon className="w-5 h-5" /> },
   ];
 
   useEffect(() => {
     fetchInventory();
-    fetchProductionRequests();
     // Auto-refresh every 30 seconds to show new items
     const interval = setInterval(() => {
       fetchInventory();
-      fetchProductionRequests();
     }, 30000);
 
     return () => clearInterval(interval);
@@ -60,32 +55,7 @@ export default function InventoryDashboard() {
     }
   };
 
-  const fetchProductionRequests = async () => {
-    try {
-      const res = await axios.get("http://localhost:5000/api/production-requests");
-      setRequests(res.data);
-    } catch (err) {
-      console.error("Failed to fetch production requests:", err);
-    }
-  };
 
-  const handleRequestAction = async (requestId, action, approvedBy = "Inventory Manager") => {
-    try {
-      await axios.put(`http://localhost:5000/api/production-requests/${requestId}/status`, {
-        status: action,
-        approvedBy: approvedBy
-      });
-      
-      // Refresh both requests and inventory data
-      await fetchProductionRequests();
-      await fetchInventory();
-      
-      alert(`Request ${action.toLowerCase()} successfully!`);
-    } catch (err) {
-      console.error(`Failed to ${action.toLowerCase()} request:`, err);
-      alert(`Failed to ${action.toLowerCase()} request. Please try again.`);
-    }
-  };
 
   const handleProfileUpload = (e) => {
     const file = e.target.files[0];
@@ -124,22 +94,42 @@ export default function InventoryDashboard() {
         </div>
         
         <nav className="p-4 space-y-2">
-          {menuItems.map((item) => (
-            <Link
-              key={item.key}
-              to={`/inventory/${item.key}`}
-              onClick={() => setActiveTab(item.key)}
-              className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${
-                activeTab === item.key
-                  ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
-                  : "text-gray-700 hover:bg-gray-100"
-              }`}
-            >
-              {item.icon}
-              <span className="font-medium">{item.name}</span>
-            </Link>
-          ))}
-          <LogoutButton />
+          <Link
+            to="/inventory"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
+          >
+            <CubeIcon className="w-5 h-5" />
+            <span className="font-medium">Inventory Overview</span>
+          </Link>
+          <Link
+            to="/inventory/stock"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Stock Management</span>
+          </Link>
+          <Link
+            to="/inventory/requests"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <DocumentChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Production Requests</span>
+          </Link>
+          <Link
+            to="/inventory/deliveries"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ClipboardDocumentListIcon className="w-5 h-5" />
+            <span className="font-medium">Delivery Records</span>
+          </Link>
+          
+          <Link
+            to="/inventory/analytics"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ArrowTrendingUpIcon className="w-5 h-5" />
+            <span className="font-medium">Analytics</span>
+          </Link>
           <Link
             to="/inventory/materials"
             className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
@@ -154,6 +144,7 @@ export default function InventoryDashboard() {
             <DocumentChartBarIcon className="w-5 h-5" />
             <span className="font-medium">Reports</span>
           </Link>
+          <LogoutButton />
         </nav>
       </aside>
 
@@ -240,9 +231,9 @@ export default function InventoryDashboard() {
           <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg rounded-2xl p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-orange-100 text-sm font-medium">Pending Requests</p>
-                <h2 className="text-3xl font-bold">{requests.filter((r) => r.status === "Pending").length}</h2>
-                <p className="text-orange-100 text-sm mt-1">Awaiting approval</p>
+                <p className="text-orange-100 text-sm font-medium">Low Stock Items</p>
+                <h2 className="text-3xl font-bold">{inventory.filter((i) => i.stock < 10).length}</h2>
+                <p className="text-orange-100 text-sm mt-1">Need restocking</p>
               </div>
               <DocumentChartBarIcon className="w-10 h-10 text-orange-200" />
             </div>
@@ -251,9 +242,9 @@ export default function InventoryDashboard() {
           <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-lg rounded-2xl p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-purple-100 text-sm font-medium">Completed Orders</p>
-                <h2 className="text-3xl font-bold">{requests.filter((r) => r.status === "Accepted").length}</h2>
-                <p className="text-purple-100 text-sm mt-1">Successfully processed</p>
+                <p className="text-purple-100 text-sm font-medium">Material Types</p>
+                <h2 className="text-3xl font-bold">{inventory.length}</h2>
+                <p className="text-purple-100 text-sm mt-1">Different materials</p>
               </div>
               <ArrowTrendingUpIcon className="w-10 h-10 text-purple-200" />
             </div>
@@ -270,55 +261,6 @@ export default function InventoryDashboard() {
           />
         </div>
 
-        {/* Enhanced Production Requests */}
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 mb-8">
-          <h3 className="text-xl font-bold text-gray-900 mb-6">Production Requests</h3>
-          <div className="space-y-4">
-            {requests.map((req) => (
-              <div
-                key={req._id}
-                className="p-6 bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl border border-gray-200 hover:shadow-lg transition-all duration-300"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-gray-800">{req.team}</span>
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      req.status === "Pending"
-                        ? "bg-yellow-100 text-yellow-700"
-                        : req.status === "Approved"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-red-100 text-red-700"
-                    }`}
-                  >
-                    {req.status}
-                  </span>
-                </div>
-                <div className="text-sm text-gray-600 mb-2">
-                  <p><strong>Item:</strong> {req.inventoryItemId?.name || 'Unknown Item'}</p>
-                  <p><strong>Quantity:</strong> {req.requestedQty}</p>
-                  <p><strong>Priority:</strong> {req.priority}</p>
-                  {req.notes && <p><strong>Notes:</strong> {req.notes}</p>}
-                </div>
-                {req.status === "Pending" && (
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => handleRequestAction(req._id, "Approved")}
-                      className="p-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:shadow-lg transition-all duration-200"
-                    >
-                      <CheckIcon className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleRequestAction(req._id, "Rejected")}
-                      className="p-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:shadow-lg transition-all duration-200"
-                    >
-                      <XMarkIcon className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
 
         {/* Enhanced Inventory Items & Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

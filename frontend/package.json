@@ -11,12 +11,16 @@
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.11.0",
+    "date-fns": "^2.29.3",
     "jspdf": "^3.0.2",
     "jspdf-autotable": "^5.0.2",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.542.0",
     "react": "^19.1.1",
+    "react-date-range": "^1.4.0",
+    "react-day-picker": "^9.11.0",
     "react-dom": "^19.1.1",
+    "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.8.2",
     "react-scripts": "5.0.1",
     "react-to-print": "^3.1.1",
@@ -58,5 +62,4 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.14"
   }
-  
 }
