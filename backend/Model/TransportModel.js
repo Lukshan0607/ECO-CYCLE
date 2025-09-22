@@ -105,6 +105,11 @@ const vehicleSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
+  // Top-level plateNumber to align with existing unique index in DB
+  plateNumber: {
+    type: String,
+    index: { unique: true, sparse: true }
+  },
   type: {
     type: String,
     enum: ['Small Truck', 'Medium Truck', 'Large Truck', 'Van'],
