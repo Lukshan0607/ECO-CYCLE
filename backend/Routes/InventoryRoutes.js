@@ -4,6 +4,11 @@ const multer = require("multer");
 const path = require("path");
 const Inventory = require("../Model/InventoryModel");
 
+// Utility to escape regex special characters
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // ================= Multer Storage Config =================
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -43,35 +48,84 @@ router.post("/add", upload.single("image"), async (req, res) => {
     console.log("Request file:", req.file);
     
     const { name, color, type, weight, stock, lastUpdated } = req.body;
-    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     // Validate required fields (image is optional now)
-    if (!name || !color || !type || !weight || !stock) {
+    if (!name || !color || !type || !stock) {
       return res.status(400).json({ 
         message: "Missing required fields",
-        required: ["name", "color", "type", "weight", "stock"],
-        received: { name, color, type, weight, stock }
+        required: ["name", "color", "type", "stock"],
+        received: { name, color, type, stock }
       });
     }
 
+    // Backend validation: enforce stock range
+    const stockNum = parseFloat(stock);
+    if (isNaN(stockNum) || stockNum < 0.01 || stockNum > 100000) {
+      return res.status(400).json({ message: "Stock must be between 0.01 and 100000 Kg" });
+    }
+
+    // Try to find an existing item (case-insensitive) by name, color, and type
+    const nameNorm = name.trim();
+    const colorNorm = color.trim();
+    const typeNorm = type.trim();
+
+    const existingItem = await Inventory.findOne({
+      name: { $regex: new RegExp(`^${escapeRegex(nameNorm)}$`, "i") },
+      color: { $regex: new RegExp(`^${escapeRegex(colorNorm)}$`, "i") },
+      type: { $regex: new RegExp(`^${escapeRegex(typeNorm)}$`, "i") },
+    });
+
+    if (existingItem) {
+      // Build update for existing item
+      const updateSet = {
+        lastUpdated: lastUpdated || new Date().toISOString(),
+      };
+      if (weight) {
+        updateSet.weight = parseFloat(weight);
+      }
+      if (req.file) {
+        updateSet.imageUrl = `/uploads/${req.file.filename}`;
+      }
+
+      const updatedItem = await Inventory.findOneAndUpdate(
+        { _id: existingItem._id },
+        { $inc: { stock: parseFloat(stock) }, $set: updateSet },
+        { new: true }
+      );
+
+      return res.status(200).json({
+        ...updatedItem.toObject(),
+        message: "Stock updated for existing item",
+        stockAdded: parseFloat(stock),
+      });
+    }
+
+    // No existing item, create a new one
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
     const itemCode = await generateItemCode();
 
     const newItem = new Inventory({
       itemCode,
-      name: name.trim(),
-      color: color.trim(),
-      type: type.trim(),
-      weight: parseFloat(weight),
-      stock: parseInt(stock),
+      name: nameNorm,
+      color: colorNorm,
+      type: typeNorm,
+      stock: parseFloat(stock),
       lastUpdated: lastUpdated || new Date().toISOString(),
       imageUrl,
     });
+
+    if (weight) {
+      newItem.weight = parseFloat(weight);
+    }
 
     console.log("Attempting to save item:", newItem);
     const savedItem = await newItem.save();
     console.log("Item saved successfully:", savedItem);
     
-    res.status(201).json(savedItem);
+    res.status(201).json({
+      ...savedItem.toObject(),
+      message: "New item added to inventory",
+    });
   } catch (err) {
     console.error("Error adding inventory:", err);
     res.status(500).json({ 
@@ -87,7 +141,14 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     const { id } = req.params;
     const { name, color, type, weight, stock, lastUpdated } = req.body;
 
-    let updatedData = { name, color, type, weight, stock, lastUpdated };
+    let updatedData = { name, color, type, weight, lastUpdated };
+    if (typeof stock !== 'undefined') {
+      const stockNum = parseFloat(stock);
+      if (isNaN(stockNum) || stockNum < 0.01 || stockNum > 100000) {
+        return res.status(400).json({ message: "Stock must be between 0.01 and 100000 Kg" });
+      }
+      updatedData.stock = stockNum;
+    }
     if (req.file) {
       updatedData.imageUrl = `/uploads/${req.file.filename}`;
     }

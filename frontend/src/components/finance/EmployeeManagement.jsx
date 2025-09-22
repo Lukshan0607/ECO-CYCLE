@@ -17,7 +17,7 @@ const EmployeeManagement = () => {
     fullName: '',
     email: '',
     phone: '',
-    department: 'IT',
+    department: 'Operations',
     position: '',
     employmentType: 'full-time',
     joinDate: new Date().toISOString().split('T')[0],
@@ -341,7 +341,7 @@ const EmployeeManagement = () => {
       fullName: '',
       email: '',
       phone: '',
-      department: 'IT',
+      department: 'Operations',
       position: '',
       employmentType: 'full-time',
       joinDate: new Date().toISOString().split('T')[0],
@@ -667,12 +667,11 @@ const EmployeeManagement = () => {
                     onChange={handleInputChange}
                     className="w-full p-2 border rounded-md"
                   >
-                    <option value="IT">IT</option>
-                    <option value="HR">HR</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Inventory">Inventory</option>
+                    <option value="Production">Production</option>
                     <option value="Finance">Finance</option>
                     <option value="Operations">Operations</option>
-                    <option value="Sales">Sales</option>
-                    <option value="Marketing">Marketing</option>
                   </select>
                 </div>
                 
