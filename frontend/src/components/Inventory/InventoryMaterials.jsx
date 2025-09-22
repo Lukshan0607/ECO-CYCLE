@@ -52,8 +52,8 @@ export default function InventoryMaterials() {
     
     // Validation logic
     if (name === "name") {
-      // Item Name: only letters and spaces allowed
-      const nameRegex = /^[A-Za-z\s]*$/;
+      // Item Name: only letters (all languages) and spaces allowed
+      const nameRegex = /^[\p{L}\s]*$/u;
       if (!nameRegex.test(value)) {
         return; // Don't update if invalid
       }
@@ -77,7 +77,7 @@ export default function InventoryMaterials() {
     }
     
     if (name === "lastUpdatedDate") {
-      setNewItem({ ...newItem, lastUpdatedDate: value });
+      setNewItem((prev) => ({ ...prev, lastUpdatedDate: value }));
       if (value === todayDateString) {
         const hours = today.getHours().toString().padStart(2, "0");
         const minutes = today.getMinutes().toString().padStart(2, "0");
@@ -88,14 +88,14 @@ export default function InventoryMaterials() {
     } else if (name === "image") {
       const file = files[0];
       if (file) {
-        setNewItem({
-          ...newItem,
+        setNewItem((prev) => ({
+          ...prev,
           image: file,
           imagePreview: URL.createObjectURL(file),
-        });
+        }));
       }
     } else {
-      setNewItem({ ...newItem, [name]: value });
+      setNewItem((prev) => ({ ...prev, [name]: value }));
     }
   };
 
@@ -379,6 +379,12 @@ export default function InventoryMaterials() {
                 <option value="Powder">Powder</option>
                 <option value="Pieces">Pieces</option>
                 <option value="Wire">Wire</option>
+                <option value="Plastic Bottle Cap/Lid">Plastic Bottle Cap/Lid</option>
+                <option value="Plastic Bottle Yarn">Plastic Bottle Yarn</option>
+                <option value="Pellets">Pellets</option>
+                <option value="Granules">Granules</option>
+                <option value="Bales">Bales</option>
+                <option value="Regrind">Regrind</option>
               </select>
             </div>
 
@@ -465,7 +471,13 @@ export default function InventoryMaterials() {
                       'Crushed': 'bg-orange-100 text-orange-800',
                       'Powder': 'bg-pink-100 text-pink-800',
                       'Pieces': 'bg-cyan-100 text-cyan-800',
-                      'Wire': 'bg-indigo-100 text-indigo-800'
+                      'Wire': 'bg-indigo-100 text-indigo-800',
+                      'Plastic Bottle Cap/Lid': 'bg-blue-100 text-blue-800',
+                      'Plastic Bottle Yarn': 'bg-purple-100 text-purple-800',
+                      'Pellets': 'bg-teal-100 text-teal-800',
+                      'Granules': 'bg-lime-100 text-lime-800',
+                      'Bales': 'bg-amber-100 text-amber-800',
+                      'Regrind': 'bg-rose-100 text-rose-800'
                     };
                     return typeClasses[type] || 'bg-gray-100 text-gray-800';
                   };
