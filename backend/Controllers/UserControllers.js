@@ -380,9 +380,29 @@ const loginUser = async (req, res, next) => {
     }
 };
 
+// Check if user exists by phone (mobile)
+const normalizePhone = (p) => (p || "").replace(/[^0-9]/g, "");
+const userExistsByPhone = async (req, res) => {
+    try {
+        const raw = req.query.phone || req.body.phone || "";
+        const mobile = normalizePhone(raw);
+        if (!mobile) {
+            return res.status(400).json({ success: false, message: "Phone is required", exists: false });
+        }
+        // Assuming mobile stored as 10 digits in UserModel validation
+        const last10 = mobile.slice(-10);
+        const user = await User.findOne({ mobile: last10 });
+        return res.status(200).json({ success: true, exists: !!user, userId: user ? user._id : null });
+    } catch (err) {
+        console.error("userExistsByPhone error:", err);
+        return res.status(500).json({ success: false, message: "Server error", exists: false });
+    }
+};
+
 exports.getUserById = getUserById;
 exports.getAllUsers = getAllUsers;
 exports.addUser = addUser;
 exports.updateUser = updateUser;
 exports.deleteUser = deleteUser;
 exports.loginUser = loginUser;
+exports.userExistsByPhone = userExistsByPhone;

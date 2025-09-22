@@ -4,8 +4,14 @@ import {
   PencilIcon,
   LockClosedIcon,
   ArrowRightOnRectangleIcon,
+  CubeIcon,
+  ChartBarIcon,
+  DocumentChartBarIcon,
+  ArrowTrendingUpIcon,
+  ClipboardDocumentListIcon,
 } from "@heroicons/react/24/outline";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+import LogoutButton from "../common/LogoutButton";
 
 export default function InventoryProfile() {
   const navigate = useNavigate();
@@ -57,8 +63,78 @@ export default function InventoryProfile() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6">
-      <div className="bg-white shadow-xl rounded-2xl p-8 w-full max-w-2xl">
+    <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Enhanced Sidebar */}
+      <aside className="w-72 bg-white shadow-xl border-r border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
+              <CubeIcon className="text-white w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Inventory Hub</h2>
+              <p className="text-sm text-gray-500">User Profile</p>
+            </div>
+          </div>
+        </div>
+        
+        <nav className="p-4 space-y-2">
+          <Link
+            to="/inventory/overview"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <CubeIcon className="w-5 h-5" />
+            <span className="font-medium">Inventory Overview</span>
+          </Link>
+          <Link
+            to="/inventory/stock"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Stock Management</span>
+          </Link>
+          <Link
+            to="/inventory/requests"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <DocumentChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Production Requests</span>
+          </Link>
+          <Link
+            to="/inventory/deliveries"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ClipboardDocumentListIcon className="w-5 h-5" />
+            <span className="font-medium">Delivery Records</span>
+          </Link>
+          <Link
+            to="/inventory/analytics"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ArrowTrendingUpIcon className="w-5 h-5" />
+            <span className="font-medium">Analytics</span>
+          </Link>
+          <Link
+            to="/inventory/materials"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ArrowTrendingUpIcon className="w-5 h-5" />
+            <span className="font-medium">Raw Materials</span>
+          </Link>
+          <Link
+            to="/inventory/reports"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <DocumentChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Reports</span>
+          </Link>
+          <LogoutButton />
+        </nav>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col items-center justify-center p-6">
+        <div className="bg-white shadow-xl rounded-2xl p-8 w-full max-w-2xl">
         {/* Profile Header */}
         <div className="flex flex-col items-center mb-6">
           {profile.profilePic ? (
@@ -203,6 +279,7 @@ export default function InventoryProfile() {
           >
             <ArrowRightOnRectangleIcon className="w-5 h-5" /> Logout
           </button>
+        </div>
         </div>
       </div>
     </div>
