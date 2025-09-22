@@ -15,17 +15,46 @@ exports.addInventory = async (req, res) => {
     console.log("Request body:", req.body);
     console.log("Request file:", req.file);
     
-    const { name, color, type, weight, stock, lastUpdated } = req.body;
+    const { name, color, type, stock, lastUpdated, weight } = req.body;
     
     // Validate required fields
-    if (!name || !color || !type || !weight || !stock) {
+    if (!name || !color || !type || !stock) {
       return res.status(400).json({ 
         message: "Missing required fields", 
-        required: ["name", "color", "type", "weight", "stock"],
-        received: { name, color, type, weight, stock }
+        required: ["name", "color", "type", "stock"],
+        received: { name, color, type, stock }
       });
     }
 
+    // Check if an item with the same name, color, and type already exists
+    const existingItem = await Inventory.findOne({
+      name: name.trim(),
+      color: color.trim(),
+      type: type.trim()
+    });
+
+    if (existingItem) {
+      // Update the existing item's stock by adding the new stock quantity
+      existingItem.stock += parseFloat(stock);
+      if (weight) existingItem.weight = parseFloat(weight);
+      existingItem.lastUpdated = lastUpdated || new Date().toISOString();
+      
+      // Update image if a new one is provided
+      if (req.file) {
+        existingItem.imageUrl = `/uploads/${req.file.filename}`;
+      }
+
+      const updatedItem = await existingItem.save();
+      console.log("Existing item stock updated:", updatedItem);
+      
+      return res.status(200).json({
+        ...updatedItem.toObject(),
+        message: "Stock updated for existing item",
+        stockAdded: parseFloat(stock)
+      });
+    }
+
+    // If no existing item found, create a new one
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
     const itemCode = await generateItemCode();
 
@@ -34,17 +63,21 @@ exports.addInventory = async (req, res) => {
       name: name.trim(),
       color: color.trim(),
       type: type.trim(),
-      weight: parseFloat(weight),
       stock: parseInt(stock),
       lastUpdated: lastUpdated || new Date().toISOString(),
       imageUrl,
     });
 
-    console.log("Attempting to save item:", newItem);
+    if (weight) newItem.weight = parseFloat(weight);
+
+    console.log("Attempting to save new item:", newItem);
     const savedItem = await newItem.save();
-    console.log("Item saved successfully:", savedItem);
+    console.log("New item saved successfully:", savedItem);
     
-    res.status(201).json(savedItem);
+    res.status(201).json({
+      ...savedItem.toObject(),
+      message: "New item added to inventory"
+    });
   } catch (err) {
     console.error("Error saving inventory item:", err);
     res.status(500).json({ 
@@ -87,7 +120,7 @@ exports.updateInventory = async (req, res) => {
     item.color = color || item.color;
     item.type = type || item.type;
     if (weight) item.weight = parseFloat(weight);
-    if (stock) item.stock = parseInt(stock);
+    if (stock) item.stock = parseFloat(stock);
     if (lastUpdated) item.lastUpdated = new Date(lastUpdated).toISOString();
     if (req.file) item.imageUrl = `/uploads/${req.file.filename}`;
 
