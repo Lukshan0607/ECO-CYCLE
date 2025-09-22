@@ -94,9 +94,66 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    let processedValue = value;
+
+    // Apply field-specific validations
+    switch (name) {
+      case 'basicSalary':
+        // Only allow numbers and up to 2 decimal places
+        processedValue = value.replace(/[^0-9.]/g, '')
+          .replace(/(\..*?)\./g, '$1') // Remove extra decimal points
+          .replace(/^(\d{1,7})(\.\d{0,2})?.*$/, '$1$2'); // Limit to 7 digits and 2 decimal places
+        
+        // Ensure it's within the allowed range
+        const salary = parseFloat(processedValue) || 0;
+        if (salary > 1000000) {
+          processedValue = '1000000';
+        } else if (salary < 20000 && processedValue !== '') {
+          // Don't show error here, just prevent going below 20,000
+          processedValue = '20000';
+        }
+        break;
+        
+      case 'allowances':
+        // Only allow numbers and up to 2 decimal places, minimum 0
+        processedValue = value.replace(/[^0-9.]/g, '')
+          .replace(/(\..*?)\./g, '$1')
+          .replace(/^(\d{1,6})(\.\d{0,2})?.*$/, '$1$2');
+        
+        // Cap at 500,000
+        const allowance = parseFloat(processedValue) || 0;
+        if (allowance > 500000) {
+          processedValue = '500000';
+        }
+        break;
+        
+      case 'overtimeHours':
+        // Only allow numbers and one decimal point (0.5 increments)
+        processedValue = value.replace(/[^0-9.]/g, '')
+          .replace(/(\..*?)\./g, '$1')
+          .replace(/^(\d{1,3})(\.\d{0,1})?.*$/, '$1$2');
+        
+        // Ensure it's a valid number and within range (0-100)
+        const hours = parseFloat(processedValue) || 0;
+        if (hours > 100) {
+          processedValue = '100';
+        } else if (hours < 0) {
+          processedValue = '0';
+        } else if (processedValue.includes('.') && !/\.[05]0?$/.test(processedValue)) {
+          // Ensure only 0.5 increments
+          const [whole, decimal] = processedValue.split('.');
+          processedValue = `${whole}.${decimal ? '5' : '0'}`;
+        }
+        break;
+        
+      default:
+        // No special processing for other fields
+        break;
+    }
+    
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: processedValue
     }));
   };
 
@@ -312,9 +369,12 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
                         className="w-full pl-10 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         value={formData.basicSalary}
                         onChange={handleInputChange}
-                        min="0"
+                        min="20000"
+                        max="1000000"
                         step="0.01"
                         required
+                        title="Basic salary must be between Rs. 20,000 and Rs. 1,000,000"
+                        placeholder="20,000.00"
                       />
                     </div>
                   </div>
@@ -329,7 +389,10 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
                         value={formData.allowances}
                         onChange={handleInputChange}
                         min="0"
+                        max="500000"
                         step="0.01"
+                        title="Allowances cannot exceed Rs. 500,000"
+                        placeholder="0.00"
                       />
                     </div>
                   </div>
@@ -341,9 +404,12 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
                         name="overtimeHours"
                         className="w-full p-2 border rounded-l-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         value={formData.overtimeHours}
-                        onChange={handleInputChange}
                         min="0"
+                        max="100"
                         step="0.5"
+                        title="Overtime hours must be between 0 and 100 in 0.5 increments"
+                        placeholder="0.0"
+                        onChange={handleInputChange}
                       />
                       <span className="bg-gray-100 px-3 py-2 border-t border-r border-b rounded-r-md text-sm text-gray-500">
                         hrs
