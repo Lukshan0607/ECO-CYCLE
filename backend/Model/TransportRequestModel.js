@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 
 const transportRequestSchema = new mongoose.Schema({
+  // Human-friendly request ID coming from Collectors (e.g., CST0001)
+  requestId: { type: String, unique: true, sparse: true },
   collectionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Collection' },
   collectorName: { type: String, required: true },
   bottleType: { type: String, required: true },
