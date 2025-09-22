@@ -26,6 +26,7 @@ import {
 export default function InventoryDashboard() {
   const [inventory, setInventory] = useState([]);
   const [activeTab, setActiveTab] = useState("overview");
+  const [requestCount, setRequestCount] = useState(0);
 
   const [profilePic, setProfilePic] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -38,9 +39,11 @@ export default function InventoryDashboard() {
 
   useEffect(() => {
     fetchInventory();
-    // Auto-refresh every 30 seconds to show new items
+    fetchRequests();
+    // Auto-refresh every 30 seconds to show new items and requests
     const interval = setInterval(() => {
       fetchInventory();
+      fetchRequests();
     }, 30000);
 
     return () => clearInterval(interval);
@@ -52,6 +55,21 @@ export default function InventoryDashboard() {
       setInventory(res.data);
     } catch (err) {
       console.error("Failed to fetch inventory:", err);
+    }
+  };
+
+  const fetchRequests = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/production-requests");
+      if (Array.isArray(res.data)) {
+        const pending = res.data.filter(r => (r.status || '').toLowerCase() === 'pending').length;
+        setRequestCount(pending);
+      } else {
+        setRequestCount(0);
+      }
+    } catch (err) {
+      console.error("Failed to fetch production requests:", err);
+      setRequestCount(0);
     }
   };
 
@@ -210,7 +228,7 @@ export default function InventoryDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-emerald-100 text-sm font-medium">Total Collected</p>
-                <h2 className="text-3xl font-bold">{inventory.reduce((sum, i) => sum + i.stock, 0)}</h2>
+                <h2 className="text-3xl font-bold">{inventory.reduce((sum, i) => sum + i.stock, 0)} Kg</h2>
                 <p className="text-emerald-100 text-sm mt-1">Items in inventory</p>
               </div>
               <CubeIcon className="w-10 h-10 text-emerald-200" />
@@ -220,9 +238,9 @@ export default function InventoryDashboard() {
           <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg rounded-2xl p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-blue-100 text-sm font-medium">Total Weight</p>
-                <h2 className="text-3xl font-bold">{totalWeight.toFixed(1)} kg</h2>
-                <p className="text-blue-100 text-sm mt-1">Material weight</p>
+                <p className="text-blue-100 text-sm font-medium">Pending Requests</p>
+                <h2 className="text-3xl font-bold">{requestCount}</h2>
+                <p className="text-blue-100 text-sm mt-1">Awaiting action</p>
               </div>
               <ChartBarIcon className="w-10 h-10 text-blue-200" />
             </div>
