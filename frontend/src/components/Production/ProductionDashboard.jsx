@@ -184,6 +184,7 @@ const ProductionDashboard = () => {
     { name: "Analytics", key: "analytics", icon: <TrendingUp size={20} /> },
     { name: "Reports", key: "reports", icon: <FileText size={20} /> },
   ];
+  
 
   const productionSchedule = [
     { id: 1, product: "Recycled PET Bottles", quantity: 500, startDate: "2025-09-02", endDate: "2025-09-05", status: "In Progress", priority: "High" },
