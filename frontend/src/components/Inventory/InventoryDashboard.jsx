@@ -10,10 +10,8 @@ import {
 import { Link } from "react-router-dom";
 import axios from "axios";
 import LogoutButton from "../common/LogoutButton";
+import StockLevelsChart from "./StockLevelsChart";
 import {
-  BarChart,
-  Bar,
-  XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
@@ -21,12 +19,14 @@ import {
   PieChart,
   Pie,
   Cell,
+  Legend,
 } from "recharts";
 
 export default function InventoryDashboard() {
   const [inventory, setInventory] = useState([]);
   const [activeTab, setActiveTab] = useState("overview");
   const [requestCount, setRequestCount] = useState(0);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [profilePic, setProfilePic] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -58,6 +58,22 @@ export default function InventoryDashboard() {
     }
   };
 
+  // Custom label for pie slices: show Color and Percentage in the slice color
+  const renderSliceLabel = (props) => {
+    const { cx, cy, midAngle, innerRadius = 0, outerRadius, percent } = props;
+    const RADIAN = Math.PI / 180;
+    // place label at the middle of the slice
+    const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + r * Math.cos(-midAngle * RADIAN);
+    const y = cy + r * Math.sin(-midAngle * RADIAN);
+    const pct = `${(percent * 100).toFixed(0)}%`;
+    return (
+      <text x={x} y={y} fill="#ffffff" textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight={700}>
+        {pct}
+      </text>
+    );
+  };
+
   const fetchRequests = async () => {
     try {
       const res = await axios.get("http://localhost:5000/api/production-requests");
@@ -82,10 +98,21 @@ export default function InventoryDashboard() {
 
   const totalWeight = inventory.reduce((sum, i) => sum + i.weight, 0);
 
-  const barData = inventory.map((item) => ({
-    name: item.name,
-    stock: item.stock,
-  }));
+  // Apply search filter
+  const filteredInventory = inventory.filter((item) => {
+    if (!searchTerm.trim()) return true;
+    const needle = searchTerm.toLowerCase();
+    return (
+      (item.name || "").toLowerCase().includes(needle) ||
+      (item.color || "").toLowerCase().includes(needle) ||
+      (item.type || "").toLowerCase().includes(needle) ||
+      (item.itemCode || "").toLowerCase().includes(needle)
+    );
+  });
+
+  const barData = inventory
+    .map((item) => ({ name: item.name, stock: Number(item.stock) || 0 }))
+    .sort((a, b) => b.stock - a.stock);
 
   const colorData = [
     { name: "Clear", value: inventory.filter((i) => i.color === "Clear").length },
@@ -94,6 +121,30 @@ export default function InventoryDashboard() {
     { name: "Mixed", value: inventory.filter((i) => i.color === "Mixed").length },
   ];
   const COLORS = ["#4CAF50", "#2196F3", "#FF9800", "#9C27B0"];
+
+  // Custom tick for prettier item names on X axis
+  const renderNameTick = (props) => {
+    const { x, y, payload } = props;
+    const name = String(payload?.value ?? "");
+    const maxLen = 16;
+    const display = name.length > maxLen ? `${name.slice(0, maxLen)}…` : name;
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text
+          dy={12}
+          textAnchor="end"
+          fill="#0f172a"
+          fontSize={12}
+          fontWeight={500}
+          transform="rotate(-30)"
+        >
+          {display}
+        </text>
+        {/* Native tooltip on hover shows the full name */}
+        <title>{name}</title>
+      </g>
+    );
+  };
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -213,9 +264,6 @@ export default function InventoryDashboard() {
                   </div>
                 )}
               </div>
-              <button className="bg-green-600 text-white px-6 py-2 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200">
-                + Add Item
-              </button>
             </div>
           </div>
         </header>
@@ -274,7 +322,9 @@ export default function InventoryDashboard() {
           <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute left-4 top-4" />
           <input
             type="text"
-            placeholder="Search by name, color, or processed form..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search by name, color, processed form, or code..."
             className="w-full pl-12 pr-4 py-4 border border-gray-300 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
           />
         </div>
@@ -283,7 +333,7 @@ export default function InventoryDashboard() {
         {/* Enhanced Inventory Items & Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-            {inventory.map((item) => (
+            {filteredInventory.map((item) => (
               <div key={item._id} className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 hover:shadow-xl transition-all duration-300">
                 {item.imageUrl ? (
                   <img
@@ -324,41 +374,9 @@ export default function InventoryDashboard() {
           </div>
 
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">Stock Levels</h2>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={barData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis 
-                    dataKey="name" 
-                    tick={{ fontSize: 12, fill: '#64748b' }} 
-                    axisLine={{ stroke: '#e2e8f0' }}
-                  />
-                  <YAxis 
-                    tick={{ fontSize: 12, fill: '#64748b' }}
-                    axisLine={{ stroke: '#e2e8f0' }}
-                  />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: '#ffffff',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '12px',
-                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Bar 
-                    dataKey="stock" 
-                    fill="url(#stockGradient)"
-                    radius={[4, 4, 0, 0]}
-                  />
-                  <defs>
-                    <linearGradient id="stockGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#3b82f6" />
-                      <stop offset="100%" stopColor="#1d4ed8" />
-                    </linearGradient>
-                  </defs>
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Stock Levels</h2>
+              <StockLevelsChart inventory={inventory} height={380} />
             </div>
 
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
@@ -372,7 +390,7 @@ export default function InventoryDashboard() {
                     cx="50%"
                     cy="50%"
                     outerRadius={80}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={renderSliceLabel}
                     labelLine={false}
                   >
                     {colorData.map((entry, index) => (
@@ -382,6 +400,7 @@ export default function InventoryDashboard() {
                       />
                     ))}
                   </Pie>
+                  <Legend verticalAlign="bottom" height={24} iconType="circle" wrapperStyle={{ fontSize: 12 }} />
                   <Tooltip 
                     contentStyle={{
                       backgroundColor: '#ffffff',
