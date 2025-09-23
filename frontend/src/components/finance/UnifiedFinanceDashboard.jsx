@@ -16,6 +16,7 @@ import FinanceCharts from "./FinanceCharts";
 import CustomerPaymentsManagement from "./CustomerPaymentsManagement";
 import PaymentCRUD from "./PaymentCRUD";
 import PaymentProcessing from "./PaymentProcessing";
+import ExpenseManagement from "./ExpenseManagement";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import LogoutButton from "../common/LogoutButton";
@@ -56,6 +57,7 @@ export default function UnifiedFinanceDashboard() {
 
   const tabs = [
     { id: "overview", name: "Financial Overview", icon: <DollarSign size={20} /> },
+    { id: "expenses", name: "Expenses", icon: <FileText size={20} /> },
     { id: "analytics", name: "Financial Analytics", icon: <TrendingUp size={20} /> },
     { id: "payment-processing", name: "Payment Processing", icon: <Target size={20} /> },
     { id: "customer-payments", name: "Customer Payments", icon: <Users size={20} /> },
@@ -236,6 +238,8 @@ export default function UnifiedFinanceDashboard() {
     switch (activeTab) {
       case "overview":
         return renderOverview();
+      case "expenses":
+        return <ExpenseManagement />;
       case "analytics":
         return renderAnalytics();
       case "payment-processing":
