@@ -294,7 +294,11 @@ export default function InventoryDashboard() {
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg rounded-2xl p-6">
+          <Link
+            to="/inventory/materials?highlight=low"
+            state={{ highlightLowStock: true }}
+            className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg rounded-2xl p-6 hover:from-orange-600 hover:to-orange-700 transition-colors"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-orange-100 text-sm font-medium">Low Stock Items</p>
@@ -303,7 +307,7 @@ export default function InventoryDashboard() {
               </div>
               <DocumentChartBarIcon className="w-10 h-10 text-orange-200" />
             </div>
-          </div>
+          </Link>
 
           <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-lg rounded-2xl p-6">
             <div className="flex items-center justify-between">
