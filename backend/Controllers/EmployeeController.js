@@ -4,18 +4,24 @@ const Employee = require('../Model/EmployeeModel');
 // Get all employees
 exports.getAllEmployees = async (req, res) => {
   try {
-    const { search } = req.query;
-    let query = {};
+    const { search, department, position, status } = req.query;
+    const query = {};
 
+    // Optional search across multiple fields
     if (search) {
-      query = {
-        $or: [
-          { fullName: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { employeeId: { $regex: search, $options: 'i' } }
-        ]
-      };
+      query.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { employeeId: { $regex: search, $options: 'i' } }
+      ];
     }
+
+    // Helper to build exact, case-insensitive regex
+    const exactCI = (val) => ({ $regex: `^${String(val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' });
+
+    if (department) query.department = exactCI(department);
+    if (position) query.position = exactCI(position);
+    if (status) query.status = exactCI(status);
 
     const employees = await Employee.find(query).sort({ createdAt: -1 });
     

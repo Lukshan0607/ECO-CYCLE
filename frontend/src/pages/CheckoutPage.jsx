@@ -176,7 +176,7 @@ function CheckoutPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <Navbar />
+        <Navbar forceWhiteBackground={true} />
         <div className="flex justify-center items-center py-20 pt-32">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
         </div>
@@ -188,7 +188,7 @@ function CheckoutPage() {
   if (orderComplete) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <Navbar />
+        <Navbar forceWhiteBackground={true} />
         <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
             <CheckCircle size={64} className="mx-auto text-green-600 mb-4" />
@@ -221,7 +221,7 @@ function CheckoutPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navbar />
+      <Navbar forceWhiteBackground={true} />
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
         {/* Header */}

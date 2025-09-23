@@ -1,3 +1,5 @@
+
+
 // src/components/transport/TransportDashboard.jsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
@@ -178,6 +180,7 @@ export default function TransportDashboard() {
     { name: "Deliveries", key: "deliveries", icon: <Package size={20} /> },
     { name: "Route Management", key: "routes", icon: <MapPin size={20} /> },
     { name: "Vehicle Fleet", key: "vehicles", icon: <Truck size={20} /> },
+    { name: "Drivers", key: "drivers", icon: <Users size={20} /> },
   ];
 
   const getStatusColor = (status) => {
@@ -196,8 +199,12 @@ export default function TransportDashboard() {
   const fetchDriversList = async () => {
     try {
       setLoadingDriversList(true);
-      const res = await axios.get('http://localhost:5000/api/transport/drivers');
-      setDriversList(Array.isArray(res.data) ? res.data : []);
+      const res = await axios.get('http://localhost:5000/api/employees', {
+        params: { department: 'transport', position: 'Driver', status: 'active' }
+      });
+      const payload = res?.data;
+      const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+      setDriversList(list);
     } catch (err) { console.error('Failed to fetch drivers', err); }
     finally { setLoadingDriversList(false); }
   };
@@ -221,13 +228,31 @@ export default function TransportDashboard() {
     return () => clearInterval(t);
   }, [activeTab]);
 
+  // React to status updates from Collectors page (e.g., PickedUp)
+  useEffect(() => {
+    const onStatusUpdate = (e) => {
+      try {
+        const { id, status } = e?.detail || {};
+        if (!id || !status) return;
+        // Update locally for instant feedback
+        setAssigned(prev => prev.map(x => String(x._id) === String(id) ? { ...x, status } : x));
+        // Reconcile with backend
+        fetchAssigned();
+      } catch {}
+    };
+    window.addEventListener('transport:status-updated', onStatusUpdate);
+    return () => window.removeEventListener('transport:status-updated', onStatusUpdate);
+  }, []);
+
   const getDriverNameById = (id) => {
     if (!id) return '-';
     const d = driversList.find(x => (x._id === id) || (String(x._id) === String(id)));
-    if (!d) return id; // fallback
-    const first = d.personalInfo?.firstName || '';
-    const last = d.personalInfo?.lastName || '';
-    const name = `${first} ${last}`.trim();
+    if (!d) return id; // fallback to id when not found
+    const name = (
+      d.fullName ||
+      d.name ||
+      `${(d.personalInfo?.firstName || d.firstName || '').toString().trim()} ${(d.personalInfo?.lastName || d.lastName || '').toString().trim()}`.trim()
+    );
     return name || d.employeeId || id;
   };
 
@@ -247,15 +272,17 @@ export default function TransportDashboard() {
   const fetchAssigned = async () => {
     try {
       setLoadingAssigned(true);
-      const [aRes, dRes] = await Promise.all([
+      const [aRes, pRes, dRes] = await Promise.all([
         axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Assigned' } }),
+        axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'PickedUp' } }),
         axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Delivered' } }),
       ]);
       const a = aRes?.data?.requests || [];
+      const p = pRes?.data?.requests || [];
       const d = dRes?.data?.requests || [];
-      // Merge so that already delivered items still show with Delivered status
+      // Merge so that already picked up and delivered items still show with latest status
       // Sort by Stock ID (requestId) ascending
-      const merged = [...a, ...d].sort((x,y)=>{
+      const merged = [...a, ...p, ...d].sort((x,y)=>{
         const kx = (x.requestId || x._id || '').toString();
         const ky = (y.requestId || y._id || '').toString();
         if (kx < ky) return -1; if (kx > ky) return 1; return 0;
@@ -291,19 +318,26 @@ export default function TransportDashboard() {
               {assignNotice.text && (
                 <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${assignNotice.type==='error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>{assignNotice.text}</div>
               )}
-              {loadingDrivers ? (
+              <div className="mb-2 text-sm text-gray-700">
+                Selected Driver: <span className="font-semibold">{getDriverNameById(selectedDriverId) || '-'}</span>
+              </div>
+              {loadingDriversList ? (
                 <div className="text-gray-600">Loading drivers...</div>
               ) : (
                 <div className="max-h-72 overflow-auto border rounded-xl">
-                  {drivers.map((d)=>{
-                    const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+                  {driversList.map((d)=>{
+                    const name = (
+                      d.fullName ||
+                      d.name ||
+                      `${(d.personalInfo?.firstName || d.firstName || '').toString().trim()} ${(d.personalInfo?.lastName || d.lastName || '').toString().trim()}`.trim()
+                    ) || d.employeeId;
                     const status = d.currentStatus;
                     const selected = selectedDriverId === d._id;
                     return (
                       <button key={d._id} onClick={()=>setSelectedDriverId(d._id)} className={`w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}>
                         <div className="flex items-center justify-between">
                           <div>
-                            <div className="font-medium">{name}</div>
+                            <div className="text-base md:text-lg font-semibold">{name}</div>
                             <div className="text-xs text-gray-500">Employee ID: {d.employeeId}</div>
                           </div>
                           <span className={`text-xs px-2 py-1 rounded-full ${status==='Available'?'bg-green-100 text-green-700': 'bg-gray-100 text-gray-700'}`}>{status}</span>
@@ -311,14 +345,14 @@ export default function TransportDashboard() {
                       </button>
                     );
                   })}
-                  {drivers.length === 0 && (
+                  {driversList.length === 0 && (
                     <div className="p-4 text-gray-600">No drivers found</div>
                   )}
                 </div>
               )}
             </div>
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium mb-1">Pickup Time</label>
+              <label className="block text-sm font-medium mb-1">Schedule a Pick Up Time</label>
               <input type="datetime-local" className="border rounded-lg px-3 py-2 w-full" value={scheduledAt} onChange={(e)=>setScheduledAt(e.target.value)} />
               <div className="text-xs text-gray-500 mt-1">Schedule when the driver should pick bottles at the collector location.</div>
             </div>
@@ -336,6 +370,22 @@ export default function TransportDashboard() {
                   driverId: selectedDriverId,
                   scheduledAt,
                 });
+                // Ensure status is set to Assigned so Collectors page and Assigned tab reflect it
+                try {
+                  await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/status`, { status: 'Assigned' });
+                } catch (err) { console.error('Failed to update status to Assigned', err); }
+                // Optimistic UI: move from Requests -> Assigned immediately
+                try {
+                  const req = requests.find(x => x._id === assignRequestId);
+                  if (req) {
+                    const newItem = { ...req, assignedDriverId: selectedDriverId, scheduledAt, status: 'Assigned' };
+                    setAssigned(prev => {
+                      const exists = prev.some(x => x._id === newItem._id);
+                      return exists ? prev.map(x => x._id === newItem._id ? newItem : x) : [...prev, newItem];
+                    });
+                    setRequests(prev => prev.filter(x => x._id !== assignRequestId));
+                  }
+                } catch {}
                 setAssignNotice({ type:'success', text:'Assigned successfully' });
                 // brief delay to show success
                 setTimeout(()=>{
@@ -344,6 +394,8 @@ export default function TransportDashboard() {
                   setSelectedDriverId("");
                   setAssignSubmitting(false);
                   fetchRequests();
+                  fetchAssigned();
+                  try { window.dispatchEvent(new CustomEvent('transport:assigned-updated')); } catch {}
                 }, 600);
               } catch (err) {
                 console.error('Assign failed', err);
@@ -487,12 +539,12 @@ export default function TransportDashboard() {
                 <th className="p-3">Scheduled Time</th>
                 <th className="p-3">Driver</th>
                 <th className="p-3">Collector</th>
-                <th className="p-3">Bottle Type</th>
-                <th className="p-3">Quantity</th>
+                <th className="p-3">Weight (kg)</th>
                 <th className="p-3">Location</th>
                 <th className="p-3">Status</th>
               </tr>
             </thead>
+
             <tbody>
               {assigned.map(r => (
                 <tr key={r._id} className="border-b hover:bg-gray-50">
@@ -500,15 +552,15 @@ export default function TransportDashboard() {
                   <td className="p-3">{r.scheduledAt ? new Date(r.scheduledAt).toLocaleString() : '-'}</td>
                   <td className="p-3">{getDriverNameById(r.assignedDriverId)}</td>
                   <td className="p-3">{r.collectorName}</td>
-                  <td className="p-3">{r.bottleType}</td>
                   <td className="p-3 font-semibold">{r.quantity}</td>
                   <td className="p-3">{r.location || '-'}</td>
                   <td className="p-3"><span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{r.status}</span></td>
                 </tr>
               ))}
               {assigned.length === 0 && (
-                <tr><td className="p-3 text-gray-500" colSpan={8}>No assigned requests</td></tr>
+                <tr><td className="p-3 text-gray-500" colSpan={7}>No assigned requests</td></tr>
               )}
+
             </tbody>
           </table>
         )}
@@ -534,8 +586,7 @@ export default function TransportDashboard() {
                 <th className="p-3">Request ID</th>
                 <th className="p-3">Requested At</th>
                 <th className="p-3">Collector</th>
-                <th className="p-3">Bottle Type</th>
-                <th className="p-3">Quantity</th>
+                <th className="p-3">Weight (kg)</th>
                 <th className="p-3">Location</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Actions</th>
@@ -547,7 +598,6 @@ export default function TransportDashboard() {
                   <td className="p-3 font-mono text-xs">{r.requestId || (r._id?.slice(-6) || '-')}</td>
                   <td className="p-3">{new Date(r.createdAt).toLocaleString()}</td>
                   <td className="p-3">{r.collectorName}</td>
-                  <td className="p-3">{r.bottleType}</td>
                   <td className="p-3 font-semibold">{r.quantity}</td>
                   <td className="p-3">{r.location || '-'}</td>
                   <td className="p-3"><span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{r.status}</span></td>
@@ -985,7 +1035,23 @@ export default function TransportDashboard() {
             <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
               <div>
                 <label className="block text-sm font-medium mb-1">Vehicle ID</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.vehicleId} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, vehicleId: e.target.value })} />
+                <input
+                  type="text"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.vehicleId}
+                  maxLength={10}
+                  placeholder="Max 10 letters/numbers"
+                  title="Only letters and numbers. Max 10 characters."
+                  onChange={(e) => {
+                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase();
+                    setAddVehicleForm({ ...addVehicleForm, vehicleId: sanitized });
+                  }}
+                />
+                <p className="mt-1 text-xs text-gray-500">Allowed: A–Z, 0–9. Max length 10.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Type</label>
@@ -1008,7 +1074,28 @@ export default function TransportDashboard() {
 
               <div>
                 <label className="block text-sm font-medium mb-1">Capacity (Bottles)</label>
-                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.capacityBottles} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, capacityBottles: e.target.value })} />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  placeholder="1 – 10,000"
+                  title="Enter whole number of bottles between 1 and 10,000"
+                  value={addVehicleForm.capacityBottles}
+                  onChange={(e) => {
+                    const digits = (e.target.value || '').replace(/[^0-9]/g, '').slice(0, 5);
+                    if (digits === '') { setAddVehicleForm({ ...addVehicleForm, capacityBottles: '' }); return; }
+                    let n = parseInt(digits, 10);
+                    if (Number.isNaN(n)) { n = ''; }
+                    // clamp to 1..10000
+                    if (n !== '') {
+                      if (n < 1) n = 1;
+                      if (n > 10000) n = 10000;
+                    }
+                    setAddVehicleForm({ ...addVehicleForm, capacityBottles: n === '' ? '' : String(n) });
+                  }}
+                />
+                <p className="mt-1 text-xs text-gray-500">Whole number between 1 and 10,000.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Capacity (Weight kg)</label>
@@ -1017,16 +1104,65 @@ export default function TransportDashboard() {
               
               <div>
                 <label className="block text-sm font-medium mb-1">Model</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.model} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, model: e.target.value })} />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.model}
+                  maxLength={20}
+                  placeholder="Letters only"
+                  title="Only letters A–Z. Max 20 characters."
+                  onChange={(e) => {
+                    const onlyLetters = e.target.value.replace(/[^a-zA-Z]/g, '');
+                    const limited = onlyLetters.slice(0, 20);
+                    setAddVehicleForm({ ...addVehicleForm, model: limited });
+                  }}
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">License Plate</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.licensePlate} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, licensePlate: e.target.value })} />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.licensePlate}
+                  maxLength={12}
+                  placeholder="e.g., ABC-1234"
+                  title="Letters, numbers, hyphen and spaces only. Max 12 characters."
+                  onChange={(e) => {
+                    const upper = e.target.value.toUpperCase();
+                    const allowed = upper.replace(/[^A-Z0-9\-\s]/g, '');
+                    const collapsed = allowed.replace(/\s+/g, ' ').trim();
+                    const limited = collapsed.slice(0, 12);
+                    setAddVehicleForm({ ...addVehicleForm, licensePlate: limited });
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Color</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.color} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, color: e.target.value })} />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.color}
+                  maxLength={20}
+                  placeholder="e.g., Dark Blue"
+                  title="Letters and spaces only. Max 20 characters."
+                  onChange={(e) => {
+                    const onlyLettersSpaces = e.target.value.replace(/[^a-zA-Z\s]/g, '');
+                    const collapsed = onlyLettersSpaces.replace(/\s+/g, ' ').trim();
+                    const titleCased = collapsed.split(' ').map(w => w ? (w[0].toUpperCase() + w.slice(1).toLowerCase()) : '').join(' ');
+                    const limited = titleCased.slice(0, 20);
+                    setAddVehicleForm({ ...addVehicleForm, color: limited });
+                  }}
+                />
               </div>
 
               <div>
@@ -1058,11 +1194,40 @@ export default function TransportDashboard() {
                 try {
                   // Basic validation
                   if (!addVehicleForm.vehicleId || !addVehicleForm.type) return;
+                  // Enforce Vehicle ID format: alphanumeric only up to 10 chars
+                  if (!/^[A-Za-z0-9]{1,10}$/.test(addVehicleForm.vehicleId)) {
+                    window.alert('Vehicle ID must contain only letters and numbers, maximum 10 characters.');
+                    return;
+                  }
+                  // Color validation: optional, but if present must be letters and spaces, max 20
+                  const colorVal = (addVehicleForm.color || '').trim();
+                  if (colorVal && !/^[A-Za-z ]{1,20}$/.test(colorVal)) {
+                    window.alert('Color can only contain letters and spaces (max 20 characters).');
+                    return;
+                  }
+                  // License Plate validation: optional, but if present must be A–Z, 0–9, hyphen and spaces, max 12
+                  const plateVal = (addVehicleForm.licensePlate || '').trim();
+                  if (plateVal && !/^[A-Z0-9\- ]{1,12}$/.test(plateVal)) {
+                    window.alert('License Plate can only contain letters (A–Z), numbers, hyphen and spaces (max 12 characters).');
+                    return;
+                  }
+                  // Model validation: optional, but if present must be letters only, max 20
+                  const modelVal = (addVehicleForm.model || '').trim();
+                  if (modelVal && !/^[A-Za-z]{1,20}$/.test(modelVal)) {
+                    window.alert('Model can only contain letters (A–Z) with no spaces (max 20 characters).');
+                    return;
+                  }
+                  // Capacity (Bottles) validation: required integer 1..10000
+                  const bottlesVal = parseInt(addVehicleForm.capacityBottles, 10);
+                  if (!Number.isInteger(bottlesVal) || bottlesVal < 1 || bottlesVal > 10000) {
+                    window.alert('Capacity (Bottles) must be a whole number between 1 and 10,000.');
+                    return;
+                  }
                   const payload = {
                     vehicleId: addVehicleForm.vehicleId,
                     type: addVehicleForm.type,
                     capacity: {
-                      bottles: Number(addVehicleForm.capacityBottles) || 0,
+                      bottles: bottlesVal,
                       weight: Number(addVehicleForm.capacityWeight) || 0,
                     },
                     specifications: {
@@ -1104,7 +1269,22 @@ export default function TransportDashboard() {
             <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
               <div>
                 <label className="block text-sm font-medium mb-1">Vehicle ID</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.vehicleId} onChange={(e)=>setEditVehicleForm({...editVehicleForm, vehicleId: e.target.value})} />
+                <input
+                  type="text"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={editVehicleForm.vehicleId}
+                  maxLength={10}
+                  placeholder="Max 10 letters/numbers"
+                  title="Only letters and numbers. Max 10 characters."
+                  onChange={(e)=>{
+                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0,10).toUpperCase();
+                    setEditVehicleForm({...editVehicleForm, vehicleId: sanitized});
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Type</label>
@@ -1135,7 +1315,24 @@ export default function TransportDashboard() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">License Plate</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.licensePlate} onChange={(e)=>setEditVehicleForm({...editVehicleForm, licensePlate: e.target.value})} />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={editVehicleForm.licensePlate}
+                  maxLength={12}
+                  placeholder="e.g., ABC-1234"
+                  title="Letters, numbers, hyphen and spaces only. Max 12 characters."
+                  onChange={(e)=>{
+                    const upper = e.target.value.toUpperCase();
+                    const allowed = upper.replace(/[^A-Z0-9\-\s]/g, '');
+                    const collapsed = allowed.replace(/\s+/g, ' ').trim();
+                    const limited = collapsed.slice(0, 12);
+                    setEditVehicleForm({...editVehicleForm, licensePlate: limited});
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Fuel Level (%)</label>
@@ -1201,14 +1398,14 @@ export default function TransportDashboard() {
     <Card className="p-4 shadow-lg rounded-2xl">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-bold">Driver Management</h2>
-        <Button className="bg-indigo-600 text-white" onClick={()=>setShowAddDriver(true)}><Plus size={16} className="mr-2" />Add Driver</Button>
+        <button className="border rounded-lg px-3 py-2" onClick={fetchDriversList}>Refresh</button>
       </div>
       {loadingDriversList ? (
         <div className="p-4 text-gray-600">Loading drivers...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {driversList.map(d => {
-            const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+            const name = (d.fullName || '').trim() || d.employeeId;
             return (
               <div key={d._id} className="border rounded-lg p-4">
                 <div className="flex items-center space-x-3 mb-3">
@@ -1221,10 +1418,11 @@ export default function TransportDashboard() {
                   </div>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Email</span><span>{d.personalInfo?.email || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Phone</span><span>{d.personalInfo?.phone || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Status</span><span className={`font-medium ${d.currentStatus==='Available'?'text-green-600':'text-gray-700'}`}>{d.currentStatus}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Shift</span><span>{d.employment?.shift || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Email</span><span>{d.email || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Phone</span><span>{d.phone || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Department</span><span>{d.department}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Position</span><span>{d.position}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Status</span><span className={`font-medium ${String(d.status).toLowerCase()==='active'?'text-green-600':'text-gray-700'}`}>{d.status}</span></div>
                 </div>
               </div>
             );
@@ -1232,141 +1430,6 @@ export default function TransportDashboard() {
           {driversList.length === 0 && (
             <div className="p-4 text-gray-600">No drivers found</div>
           )}
-        </div>
-      )}
-      {showAddDriver && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          <div className="bg-white w-[900px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
-            <div className="px-5 py-3 border-b flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Add Driver</h3>
-              <button className="text-gray-500 hover:text-gray-700" onClick={()=>setShowAddDriver(false)}>✕</button>
-            </div>
-            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
-              <div className="md:col-span-1">
-                <label className="block text-sm font-medium mb-1">Employee ID</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.employeeId} onChange={(e)=>setAddDriverForm({...addDriverForm, employeeId: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">First Name</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.firstName} onChange={(e)=>setAddDriverForm({...addDriverForm, firstName: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Last Name</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.lastName} onChange={(e)=>setAddDriverForm({...addDriverForm, lastName: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
-                <input type="email" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.email} onChange={(e)=>setAddDriverForm({...addDriverForm, email: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Phone</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.phone} onChange={(e)=>setAddDriverForm({...addDriverForm, phone: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Date of Birth</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.dateOfBirth} onChange={(e)=>setAddDriverForm({...addDriverForm, dateOfBirth: e.target.value})} />
-              </div>
-              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Street</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.street} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, street: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">City</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.city} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, city: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">State</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.state} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, state: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Zip Code</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.zipCode} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, zipCode: e.target.value}})} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Number</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseNumber} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseNumber: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Type</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseType} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseType: e.target.value})}>
-                  <option>Class A</option>
-                  <option>Class B</option>
-                  <option>Class C</option>
-                  <option>CDL</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Expiry</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseExpiry} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseExpiry: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Hire Date</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.hireDate} onChange={(e)=>setAddDriverForm({...addDriverForm, hireDate: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Employment Status</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.employmentStatus} onChange={(e)=>setAddDriverForm({...addDriverForm, employmentStatus: e.target.value})}>
-                  <option>Active</option>
-                  <option>Inactive</option>
-                  <option>On Leave</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Shift</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.shift} onChange={(e)=>setAddDriverForm({...addDriverForm, shift: e.target.value})}>
-                  <option>Morning</option>
-                  <option>Afternoon</option>
-                  <option>Night</option>
-                  <option>Flexible</option>
-                </select>
-              </div>
-              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Username</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.username} onChange={(e)=>setAddDriverForm({...addDriverForm, username: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text sm font-medium mb-1">Password</label>
-                  <input type="password" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.password} onChange={(e)=>setAddDriverForm({...addDriverForm, password: e.target.value})} />
-                </div>
-              </div>
-            </div>
-            <div className="px-5 pb-5 flex justify-end gap-2">
-              <button className="border px-4 py-2 rounded-lg" onClick={()=>setShowAddDriver(false)}>Cancel</button>
-              <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg" onClick={async ()=>{
-                try {
-                  const payload = {
-                    employeeId: addDriverForm.employeeId,
-                    firstName: addDriverForm.firstName,
-                    lastName: addDriverForm.lastName,
-                    email: addDriverForm.email,
-                    phone: addDriverForm.phone,
-                    dateOfBirth: addDriverForm.dateOfBirth,
-                    address: addDriverForm.address,
-                    licenseNumber: addDriverForm.licenseNumber,
-                    licenseType: addDriverForm.licenseType,
-                    licenseExpiry: addDriverForm.licenseExpiry,
-                    hireDate: addDriverForm.hireDate,
-                    employmentStatus: addDriverForm.employmentStatus,
-                    shift: addDriverForm.shift,
-                    username: addDriverForm.username,
-                    password: addDriverForm.password,
-                  };
-                  await axios.post('http://localhost:5000/api/transport/drivers', payload);
-                  setShowAddDriver(false);
-                  setAddDriverForm({
-                    employeeId: "", firstName: "", lastName: "", email: "", phone: "",
-                    address: { street: "", city: "", state: "", zipCode: "" }, dateOfBirth: "",
-                    licenseNumber: "", licenseType: "Class C", licenseExpiry: "", hireDate: "",
-                    employmentStatus: "Active", shift: "Morning", username: "", password: "",
-                  });
-                  fetchDriversList();
-                } catch (err) { console.error('Create driver failed', err); }
-              }}>Save Driver</button>
-            </div>
-          </div>
         </div>
       )}
     </Card>
@@ -1450,9 +1513,6 @@ export default function TransportDashboard() {
             </div>
             <div className="flex space-x-3">
               <Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50">Export Report</Button>
-              <Button className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200">
-                <Plus size={16} className="mr-2" />Quick Collection
-              </Button>
             </div>
           </div>
         </header>

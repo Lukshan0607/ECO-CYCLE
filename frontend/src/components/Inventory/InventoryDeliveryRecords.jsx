@@ -10,6 +10,7 @@ export default function InventoryDeliveryRecords() {
   const [error, setError] = useState("");
   const [drivers, setDrivers] = useState([]);
   const [loadingDrivers, setLoadingDrivers] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const fetchDrivers = async () => {
     try {
@@ -26,13 +27,15 @@ export default function InventoryDeliveryRecords() {
   const fetchRequests = async () => {
     try {
       setLoading(true);
-      const [assignedRes, deliveredRes] = await Promise.all([
+      const [assignedRes, pickedUpRes, deliveredRes] = await Promise.all([
         axios.get("http://localhost:5000/api/transport-requests", { params: { status: "Assigned" } }),
+        axios.get("http://localhost:5000/api/transport-requests", { params: { status: "PickedUp" } }),
         axios.get("http://localhost:5000/api/transport-requests", { params: { status: "Delivered" } }),
       ]);
       const a = assignedRes?.data?.requests || [];
+      const p = pickedUpRes?.data?.requests || [];
       const d = deliveredRes?.data?.requests || [];
-      setRows([...a, ...d].sort((x,y)=> new Date(x.createdAt) - new Date(y.createdAt)));
+      setRows([...a, ...p, ...d].sort((x,y)=> new Date(x.createdAt) - new Date(y.createdAt)));
     } catch (err) {
       console.error("Failed to fetch transport requests", err);
       setError("Failed to fetch records. Ensure backend is running on port 5000.");
@@ -44,6 +47,17 @@ export default function InventoryDeliveryRecords() {
   useEffect(() => {
     fetchDrivers();
     fetchRequests();
+    // Listen for events from Transport page to refresh
+    const handler = () => { fetchRequests(); };
+    window.addEventListener('transport:assigned-updated', handler);
+    window.addEventListener('transport:status-updated', handler);
+    // Poll every 10s as a fallback when navigating directly
+    const t = setInterval(fetchRequests, 10000);
+    return () => {
+      window.removeEventListener('transport:assigned-updated', handler);
+      window.removeEventListener('transport:status-updated', handler);
+      clearInterval(t);
+    };
   }, []);
 
   const driverName = (id) => {
@@ -65,6 +79,26 @@ export default function InventoryDeliveryRecords() {
       setError('Failed to mark as delivered.');
     }
   };
+
+  // Derived: filtered rows based on search
+  const filteredRows = rows.filter((r) => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return true;
+    const clerkName = String(r.collectorName || "").toLowerCase();
+    const drvName = String(driverName(r.assignedDriverId) || "").toLowerCase();
+    const bottleType = String(r.bottleType || "").toLowerCase();
+    const statusRaw = String(r.status || "").toLowerCase();
+    const statusLabel = r.status === 'Delivered' ? 'received' : 'pending';
+    const actionLabel = r.status === 'Delivered' ? 'delivered (disabled)' : 'delivered';
+    return (
+      clerkName.includes(needle) ||
+      drvName.includes(needle) ||
+      bottleType.includes(needle) ||
+      statusRaw.includes(needle) ||
+      statusLabel.includes(needle) ||
+      actionLabel.includes(needle)
+    );
+  });
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -152,6 +186,17 @@ export default function InventoryDeliveryRecords() {
         <div className="p-6">
           {error && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 border border-red-200">{error}</div>}
 
+          {/* Search Bar */}
+          <div className="mb-4">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by Clerk's Name, Driver Name, Bottle Type, Status, or Action"
+              className="w-full max-w-xl px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
           <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
             {loading ? (
               <div className="p-6 text-gray-600">Loading records...</div>
@@ -162,20 +207,20 @@ export default function InventoryDeliveryRecords() {
                     <th className="py-3 px-4 font-semibold">Name</th>
                     <th className="py-3 px-4 font-semibold">Stock ID</th>
                     <th className="py-3 px-4 font-semibold">Driver Name</th>
-                    <th className="py-3 px-4 font-semibold">Bottle Type</th>
-                    <th className="py-3 px-4 font-semibold">Quantity</th>
+                    <th className="py-3 px-4 font-semibold">Scheduled Pickup Time</th>
+                    <th className="py-3 px-4 font-semibold">Weight (kg)</th>
                     <th className="py-3 px-4 font-semibold">Status</th>
                     <th className="py-3 px-4 font-semibold">Delivered Time</th>
                     <th className="py-3 px-4 font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {filteredRows.map((r) => (
                     <tr key={r._id} className="border-t text-sm">
                       <td className="py-3 px-4">{r.collectorName || '-'}</td>
                       <td className="py-3 px-4 font-mono">{r.requestId || (r._id?.slice(-6) || '-')}</td>
                       <td className="py-3 px-4">{driverName(r.assignedDriverId)}</td>
-                      <td className="py-3 px-4">{r.bottleType}</td>
+                      <td className="py-3 px-4">{r.scheduledAt ? new Date(r.scheduledAt).toLocaleString() : '-'}</td>
                       <td className="py-3 px-4 font-semibold">{r.quantity}</td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'Delivered' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
@@ -186,12 +231,18 @@ export default function InventoryDeliveryRecords() {
                       <td className="py-3 px-4">
                         <button
                           onClick={()=>{ if(r.status!== 'Delivered'){ markDelivered(r); } }}
-                          disabled={r.status === 'Delivered'}
-                          className={`px-3 py-1 rounded ${r.status==='Delivered' ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-green-600 text-white'}`}
+                          disabled={r.status === 'Delivered' || !(r.scheduledAt && new Date(r.scheduledAt) <= new Date())}
+                          title={!(r.scheduledAt && new Date(r.scheduledAt) <= new Date()) ? 'Enabled at the scheduled pickup time' : ''}
+                          className={`px-3 py-1 rounded ${r.status === 'Delivered' || !(r.scheduledAt && new Date(r.scheduledAt) <= new Date()) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-green-600 text-white'}`}
                         >Delivered</button>
                       </td>
                     </tr>
                   ))}
+                  {rows.length > 0 && filteredRows.length === 0 && (
+                    <tr>
+                      <td className="py-6 px-4 text-gray-500" colSpan={8}>No records match your search.</td>
+                    </tr>
+                  )}
                   {rows.length === 0 && (
                     <tr>
                       <td className="py-6 px-4 text-gray-500" colSpan={8}>No delivery records</td>
