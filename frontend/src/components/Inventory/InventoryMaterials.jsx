@@ -580,7 +580,7 @@ export default function InventoryMaterials() {
                           item.stock > 50 ? 'bg-yellow-100 text-yellow-800' :
                           'bg-red-100 text-red-800'
                         }`}>
-                          {item.stock} Kg
+                          {Number(item.stock || 0).toFixed(3)} Kg
                         </span>
                       </td>
                       <td className="p-3 border border-gray-200 text-sm text-gray-600">

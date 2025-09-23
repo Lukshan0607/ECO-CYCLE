@@ -276,14 +276,18 @@ export default function InventoryDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-emerald-100 text-sm font-medium">Total Collected</p>
-                <h2 className="text-3xl font-bold">{inventory.reduce((sum, i) => sum + i.stock, 0)} Kg</h2>
+                <h2 className="text-3xl font-bold">{(inventory.reduce((sum, i) => sum + (Number(i.stock) || 0), 0)).toFixed(3)} Kg</h2>
                 <p className="text-emerald-100 text-sm mt-1">Items in inventory</p>
               </div>
               <CubeIcon className="w-10 h-10 text-emerald-200" />
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg rounded-2xl p-6">
+          <Link
+            to="/inventory/requests"
+            className="block bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg rounded-2xl p-6 hover:from-blue-600 hover:to-blue-700 transition-colors"
+            title="Go to Production Requests"
+         >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100 text-sm font-medium">Pending Requests</p>
@@ -292,7 +296,7 @@ export default function InventoryDashboard() {
               </div>
               <ChartBarIcon className="w-10 h-10 text-blue-200" />
             </div>
-          </div>
+          </Link>
 
           <Link
             to="/inventory/materials?highlight=low"
@@ -309,7 +313,11 @@ export default function InventoryDashboard() {
             </div>
           </Link>
 
-          <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-lg rounded-2xl p-6">
+          <Link
+            to="/inventory/materials"
+            className="block bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-lg rounded-2xl p-6 hover:from-purple-600 hover:to-purple-700 transition-colors"
+            title="Go to Raw Materials"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-purple-100 text-sm font-medium">Material Types</p>
@@ -318,7 +326,7 @@ export default function InventoryDashboard() {
               </div>
               <ArrowTrendingUpIcon className="w-10 h-10 text-purple-200" />
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Enhanced Search bar */}
@@ -350,7 +358,11 @@ export default function InventoryDashboard() {
                     <CubeIcon className="w-16 h-16 text-gray-400" />
                   </div>
                 )}
-                <h2 className="text-xl font-bold text-gray-900 mb-2">{item.name}</h2>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">
+                  <span className="font-extrabold text-emerald-700">{Number(item.stock || 0).toFixed(3)} Kg</span>
+                  <span className="mx-2 text-gray-300">—</span>
+                  {item.name}
+                </h2>
                 <p className="text-sm text-gray-500 mb-3">
                   Code: <span className="font-semibold text-gray-700">{item.itemCode}</span>
                 </p>
@@ -362,14 +374,7 @@ export default function InventoryDashboard() {
                     {item.type}
                   </span>
                 </div>
-                <div className="space-y-2 mb-4">
-                  <p className="text-gray-700 flex justify-between">
-                    <span>Weight:</span> <span className="font-semibold">{item.weight} Kg</span>
-                  </p>
-                  <p className="text-gray-700 flex justify-between">
-                    <span>Stock Level:</span> <span className="font-semibold">{item.stock}</span>
-                  </p>
-                </div>
+                {/* Removed separate weight/stock rows; stock displayed inline with title */}
                 <p className="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded-lg">
                   Last updated: {new Date(item.lastUpdated).toLocaleString()}
                 </p>

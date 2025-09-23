@@ -319,7 +319,7 @@ export default function InventoryStockManagement() {
                   {requests.map((r) => (
                     <tr key={r._id || r.id} className="border-t text-sm">
                       <td className="py-2 px-3 font-mono">{r.requestId}</td>
-                      <td className="py-2 px-3 font-semibold">{r.weightKg}</td>
+                      <td className="py-2 px-3 font-semibold">{Number(r.weightKg || 0).toFixed(3)}</td>
                       <td className="py-2 px-3">{new Date(r.createdAt).toLocaleString()}</td>
                       <td className="py-2 px-3">
                         <button
