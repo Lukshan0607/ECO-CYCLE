@@ -10,6 +10,7 @@ export default function InventoryDeliveryRecords() {
   const [error, setError] = useState("");
   const [drivers, setDrivers] = useState([]);
   const [loadingDrivers, setLoadingDrivers] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const fetchDrivers = async () => {
     try {
@@ -65,6 +66,26 @@ export default function InventoryDeliveryRecords() {
       setError('Failed to mark as delivered.');
     }
   };
+
+  // Derived: filtered rows based on search
+  const filteredRows = rows.filter((r) => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return true;
+    const clerkName = String(r.collectorName || "").toLowerCase();
+    const drvName = String(driverName(r.assignedDriverId) || "").toLowerCase();
+    const bottleType = String(r.bottleType || "").toLowerCase();
+    const statusRaw = String(r.status || "").toLowerCase();
+    const statusLabel = r.status === 'Delivered' ? 'received' : 'pending';
+    const actionLabel = r.status === 'Delivered' ? 'delivered (disabled)' : 'delivered';
+    return (
+      clerkName.includes(needle) ||
+      drvName.includes(needle) ||
+      bottleType.includes(needle) ||
+      statusRaw.includes(needle) ||
+      statusLabel.includes(needle) ||
+      actionLabel.includes(needle)
+    );
+  });
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -152,6 +173,17 @@ export default function InventoryDeliveryRecords() {
         <div className="p-6">
           {error && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 border border-red-200">{error}</div>}
 
+          {/* Search Bar */}
+          <div className="mb-4">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by Clerk's Name, Driver Name, Bottle Type, Status, or Action"
+              className="w-full max-w-xl px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
           <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
             {loading ? (
               <div className="p-6 text-gray-600">Loading records...</div>
@@ -170,7 +202,7 @@ export default function InventoryDeliveryRecords() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {filteredRows.map((r) => (
                     <tr key={r._id} className="border-t text-sm">
                       <td className="py-3 px-4">{r.collectorName || '-'}</td>
                       <td className="py-3 px-4 font-mono">{r.requestId || (r._id?.slice(-6) || '-')}</td>
@@ -192,6 +224,11 @@ export default function InventoryDeliveryRecords() {
                       </td>
                     </tr>
                   ))}
+                  {rows.length > 0 && filteredRows.length === 0 && (
+                    <tr>
+                      <td className="py-6 px-4 text-gray-500" colSpan={8}>No records match your search.</td>
+                    </tr>
+                  )}
                   {rows.length === 0 && (
                     <tr>
                       <td className="py-6 px-4 text-gray-500" colSpan={8}>No delivery records</td>
