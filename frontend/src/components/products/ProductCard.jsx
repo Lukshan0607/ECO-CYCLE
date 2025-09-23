@@ -8,6 +8,8 @@ function ProductCard({ product }) {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [pointsPerRupee, setPointsPerRupee] = useState('');
+  const [pointsBalance, setPointsBalance] = useState(0);
+  const [payingWithPoints, setPayingWithPoints] = useState(false);
 
   useEffect(() => {
     try {
@@ -17,6 +19,21 @@ function ProductCard({ product }) {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    const loadBalance = async () => {
+      try {
+        if (!isAuthenticated()) return;
+        const uid = user?._id || user?.id;
+        if (!uid) return;
+        const { data } = await axios.get('http://localhost:5000/api/points/balance', { params: { userId: uid } });
+        setPointsBalance(Number(data?.balance || 0));
+      } catch (e) {
+        // silent fail
+      }
+    };
+    loadBalance();
+  }, [isAuthenticated, user]);
 
   const handleAddToCart = async () => {
     // Check if user is authenticated
@@ -47,6 +64,43 @@ function ProductCard({ product }) {
     } catch (error) {
       console.error('Error adding to cart:', error);
       alert('Failed to add item to cart. Please try again.');
+    }
+  };
+
+  const handleBuyWithPoints = async () => {
+    if (!isAuthenticated()) {
+      alert('Please login to buy with points');
+      navigate('/login');
+      return;
+    }
+    const uid = user?._id || user?.id;
+    const pid = product?._id || product?.id;
+    if (!uid || !pid) {
+      alert('Missing user or product information for points purchase');
+      return;
+    }
+    try {
+      setPayingWithPoints(true);
+      const { data } = await axios.post('http://localhost:5000/api/points/pay-product', {
+        userId: uid,
+        productId: pid,
+        quantity: 1,
+      });
+      if (data?.success) {
+        alert(`Purchased with points successfully!\nOrder: ${data.orderId}\nPoints used: ${data.requiredPoints}\nRemaining balance: ${data.balance}`);
+        // Refresh balance after creating pending payment
+        try {
+          const bal = await axios.get('http://localhost:5000/api/points/balance', { params: { userId: uid } });
+          setPointsBalance(Number(bal?.data?.balance || 0));
+        } catch {}
+      } else {
+        alert(data?.message || 'Failed to create points payment.');
+      }
+    } catch (e) {
+      console.error('Buy with points failed', e?.response?.data || e);
+      alert(e?.response?.data?.message || 'Failed to buy with points');
+    } finally {
+      setPayingWithPoints(false);
     }
   };
 
@@ -84,6 +138,23 @@ function ProductCard({ product }) {
           >
             Add to Cart
           </button>
+          {(() => {
+            const price = parseFloat(product.price);
+            const rate = parseFloat(pointsPerRupee || '0');
+            if (Number.isNaN(price) || Number.isNaN(rate) || rate <= 0) return null;
+            const required = Math.round(price * rate);
+            const canBuy = required > 0 && pointsBalance >= required;
+            return (
+              <button
+                onClick={handleBuyWithPoints}
+                disabled={!canBuy || payingWithPoints}
+                className={`ml-2 border rounded-md text-sm px-3 py-1 transition-colors ${canBuy && !payingWithPoints ? 'border-green-600 text-green-700 hover:bg-green-50' : 'border-gray-300 text-gray-400'}`}
+                title={canBuy ? `Costs ${required} points` : `Need ${required} points, you have ${pointsBalance}`}
+              >
+                {payingWithPoints ? 'Processing...' : canBuy ? `Buy with ${required} pts` : 'Insufficient points'}
+              </button>
+            );
+          })()}
         </div>
         
         {(() => {
