@@ -19,6 +19,7 @@ function ProductCard({ product }) {
       // ignore
     }
   }, []);
+  
 
   useEffect(() => {
     const loadBalance = async () => {
