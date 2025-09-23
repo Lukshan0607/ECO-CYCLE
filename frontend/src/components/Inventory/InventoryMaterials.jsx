@@ -224,6 +224,7 @@ export default function InventoryMaterials() {
         imagePreview: null,
       });
       setShowForm(false);
+      try { window.dispatchEvent(new CustomEvent('inventory:materials-updated')); } catch {}
     } catch (error) {
       console.error("Full error:", error);
       console.error("Error response:", error.response?.data);
@@ -253,6 +254,7 @@ export default function InventoryMaterials() {
       try {
         await axios.delete(`http://localhost:5000/api/inventory/${id}`);
         setInventory((prev) => prev.filter((item) => item._id !== id));
+        try { window.dispatchEvent(new CustomEvent('inventory:materials-updated')); } catch {}
       } catch (error) {
         console.error("Error deleting item:", error);
       }
