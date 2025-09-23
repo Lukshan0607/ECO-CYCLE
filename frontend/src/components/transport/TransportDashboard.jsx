@@ -247,10 +247,12 @@ export default function TransportDashboard() {
   const getDriverNameById = (id) => {
     if (!id) return '-';
     const d = driversList.find(x => (x._id === id) || (String(x._id) === String(id)));
-    if (!d) return id; // fallback
-    const first = d.personalInfo?.firstName || '';
-    const last = d.personalInfo?.lastName || '';
-    const name = `${first} ${last}`.trim();
+    if (!d) return id; // fallback to id when not found
+    const name = (
+      d.fullName ||
+      d.name ||
+      `${(d.personalInfo?.firstName || d.firstName || '').toString().trim()} ${(d.personalInfo?.lastName || d.lastName || '').toString().trim()}`.trim()
+    );
     return name || d.employeeId || id;
   };
 
@@ -316,19 +318,26 @@ export default function TransportDashboard() {
               {assignNotice.text && (
                 <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${assignNotice.type==='error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>{assignNotice.text}</div>
               )}
-              {loadingDrivers ? (
+              <div className="mb-2 text-sm text-gray-700">
+                Selected Driver: <span className="font-semibold">{getDriverNameById(selectedDriverId) || '-'}</span>
+              </div>
+              {loadingDriversList ? (
                 <div className="text-gray-600">Loading drivers...</div>
               ) : (
                 <div className="max-h-72 overflow-auto border rounded-xl">
-                  {drivers.map((d)=>{
-                    const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+                  {driversList.map((d)=>{
+                    const name = (
+                      d.fullName ||
+                      d.name ||
+                      `${(d.personalInfo?.firstName || d.firstName || '').toString().trim()} ${(d.personalInfo?.lastName || d.lastName || '').toString().trim()}`.trim()
+                    ) || d.employeeId;
                     const status = d.currentStatus;
                     const selected = selectedDriverId === d._id;
                     return (
                       <button key={d._id} onClick={()=>setSelectedDriverId(d._id)} className={`w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}>
                         <div className="flex items-center justify-between">
                           <div>
-                            <div className="font-medium">{name}</div>
+                            <div className="text-base md:text-lg font-semibold">{name}</div>
                             <div className="text-xs text-gray-500">Employee ID: {d.employeeId}</div>
                           </div>
                           <span className={`text-xs px-2 py-1 rounded-full ${status==='Available'?'bg-green-100 text-green-700': 'bg-gray-100 text-gray-700'}`}>{status}</span>
@@ -336,7 +345,7 @@ export default function TransportDashboard() {
                       </button>
                     );
                   })}
-                  {drivers.length === 0 && (
+                  {driversList.length === 0 && (
                     <div className="p-4 text-gray-600">No drivers found</div>
                   )}
                 </div>
