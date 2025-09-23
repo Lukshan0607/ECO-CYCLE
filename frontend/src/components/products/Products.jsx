@@ -161,6 +161,6 @@ const Products = () => {
       </div>
     </div>
   );
-};
+}; //end
 
 export default Products;
