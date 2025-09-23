@@ -32,26 +32,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// Mock helpers
+// Helpers
 const nowIso = () => new Date().toISOString();
-const MOCK_COLLECTOR_ID = "collector_demo_01";
-
-const MOCK_NOTIFICATIONS = [
-  { id: "n1", type: "assignment", text: "Transport staff assigned to your request TR-1023 (Driver: John)", time: nowIso(), read: false },
-  { id: "n2", type: "collected", text: "Driver picked up 180 PET bottles", time: nowIso(), read: false },
-  { id: "n3", type: "delivered", text: "Inventory confirmed delivery for TR-1021", time: nowIso(), read: true },
-];
-
-const MOCK_STOCK = [
-  { id: "cs_1001", bottleType: "PET", quantity: 120, status: "Pending Transport", createdAt: nowIso() },
-  { id: "cs_1002", bottleType: "HDPE", quantity: 60, status: "Collected", createdAt: nowIso() },
-  { id: "cs_1003", bottleType: "GlassGreen", quantity: 40, status: "Delivered", createdAt: nowIso() },
-];
-
-const MOCK_TRANSPORT_REQUESTS = [
-  { id: "TR-1021", stockId: "cs_1002", bottleType: "HDPE", quantity: 60, status: "Assigned", driver: "John Smith", createdAt: nowIso() },
-  { id: "TR-1023", stockId: "cs_1001", bottleType: "PET", quantity: 120, status: "Requested", driver: null, createdAt: nowIso() },
-];
 
 export default function CollectorsDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -65,9 +47,9 @@ export default function CollectorsDashboard() {
   const [toast, setToast] = useState("");
 
   // Data
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
-  const [myStock, setMyStock] = useState(MOCK_STOCK);
-  const [transportReqs, setTransportReqs] = useState(MOCK_TRANSPORT_REQUESTS);
+  const [notifications, setNotifications] = useState([]);
+  // Stock will be derived from collections data
+  const [transportReqs, setTransportReqs] = useState([]);
   // Recent Collections loaded from DB
   const [collections, setCollections] = useState([]);
   const [loadingCollections, setLoadingCollections] = useState(false);
@@ -100,20 +82,85 @@ export default function CollectorsDashboard() {
     }
   };
 
+  const fetchTransportRequests = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/transport-requests", {
+        params: { collectorName: "Demo Collector" }
+      });
+      const arr = res?.data?.requests || [];
+      setTransportReqs(arr);
+    } catch (e) {
+      // silent
+    }
+  };
+
   useEffect(() => {
     fetchCollections();
   }, [filterType, filterFrom, filterTo]);
 
+  useEffect(() => {
+    fetchTransportRequests();
+  }, []);
+
   // Removed local edit/delete helpers; using DB-backed table and disabled buttons for now
 
   const totals = useMemo(() => {
-    // Real-time total bottles from DB-backed collections
     const totalQty = collections.reduce((s, c) => s + (c.quantity || 0), 0);
-    // Keep other metrics for now (legacy mock-based). You can remove or replace later.
-    const pending = 0;
-    const delivered = 0;
+    const pending = collections.filter(c => (c.status||'').toLowerCase().includes('pending')).reduce((s,c)=>s+(c.quantity||0),0);
+    const delivered = collections.filter(c => (c.status||'').toLowerCase().includes('delivered')).reduce((s,c)=>s+(c.quantity||0),0);
     return { totalQty, pending, delivered };
   }, [collections]);
+
+  // Compute total quantity since the last transport request (any status)
+  const lastRequestAt = useMemo(() => {
+    if (!transportReqs || transportReqs.length === 0) return null;
+    const dt = transportReqs.reduce((max, r) => {
+      const d = r.createdAt ? new Date(r.createdAt) : null;
+      return (!max || (d && d > max)) ? d : max;
+    }, null);
+    return dt;
+  }, [transportReqs]);
+
+  const qtySinceLastRequest = useMemo(() => {
+    return collections.reduce((sum, c) => {
+      const d = c.createdAt ? new Date(c.createdAt) : null;
+      const isNew = lastRequestAt ? (d && d > lastRequestAt) : true;
+      return sum + (isNew ? (c.quantity || 0) : 0);
+    }, 0);
+  }, [collections, lastRequestAt]);
+
+  const currentBatchCollections = useMemo(() => {
+    // Only items created after the last request belong to the current batch
+    return collections.filter(c => {
+      const d = c.createdAt ? new Date(c.createdAt) : null;
+      return lastRequestAt ? (d && d > lastRequestAt) : true;
+    });
+  }, [collections, lastRequestAt]);
+
+  const batchByType = useMemo(() => {
+    const map = currentBatchCollections.reduce((acc, c) => {
+      const t = c.bottleType || 'Unknown';
+      acc[t] = (acc[t] || 0) + (c.quantity || 0);
+      return acc;
+    }, {});
+    return Object.entries(map).map(([type, qty]) => ({ type, qty }));
+  }, [currentBatchCollections]);
+
+  const batchId = useMemo(() => {
+    // Batch number = number of requests so far + 1 for open batch
+    const num = (transportReqs?.length || 0) + 1;
+    const pad4 = (n) => String(n).padStart(4, '0');
+    return `CST${pad4(num)}`;
+  }, [transportReqs]);
+
+  const batchCreatedRange = useMemo(() => {
+    if (!currentBatchCollections.length) return null;
+    const times = currentBatchCollections
+      .map(c => c.createdAt ? new Date(c.createdAt) : null)
+      .filter(Boolean)
+      .sort((a,b) => a - b);
+    return { from: times[0], to: times[times.length - 1] };
+  }, [currentBatchCollections]);
 
   const requestsCount = useMemo(() => transportReqs.length, [transportReqs]);
 
@@ -129,32 +176,33 @@ export default function CollectorsDashboard() {
   };
 
   const chartByType = useMemo(() => {
-    const map = myStock.reduce((acc, s) => {
-      acc[s.bottleType] = (acc[s.bottleType] || 0) + s.quantity;
+    const map = collections.reduce((acc, s) => {
+      acc[s.bottleType] = (acc[s.bottleType] || 0) + (s.quantity||0);
       return acc;
     }, {});
     return Object.entries(map).map(([type, qty]) => ({ type, qty }));
-  }, [myStock]);
+  }, [collections]);
 
   const chartStatus = useMemo(() => {
-    const map = myStock.reduce((acc, s) => {
-      acc[s.status] = (acc[s.status] || 0) + s.quantity;
+    const map = collections.reduce((acc, s) => {
+      const key = s.status || 'Unknown';
+      acc[key] = (acc[key] || 0) + (s.quantity||0);
       return acc;
     }, {});
     return Object.entries(map).map(([name, value]) => ({ name, value }));
-  }, [myStock]);
+  }, [collections]);
 
   const chartDaily = useMemo(() => {
     const fmt = (d) => new Date(d).toISOString().split("T")[0];
-    const map = myStock.reduce((acc, s) => {
+    const map = collections.reduce((acc, s) => {
       const day = fmt(s.createdAt);
-      acc[day] = (acc[day] || 0) + s.quantity;
+      acc[day] = (acc[day] || 0) + (s.quantity||0);
       return acc;
     }, {});
     return Object.entries(map)
       .sort((a,b) => new Date(a[0]) - new Date(b[0]))
       .map(([day, qty]) => ({ day, qty }));
-  }, [myStock]);
+  }, [collections]);
 
   // Submit new collection: award points + create collection + add to collector stock
   const handleSubmitCollection = async (form) => {
@@ -220,20 +268,7 @@ export default function CollectorsDashboard() {
       const createdStatus = created?.status || "Pending Transport";
       const createdAt = created?.createdAt || new Date().toISOString();
 
-      // Update local collector stock immediately
-      setMyStock((prev) => [
-        {
-          id: `cs_${Date.now()}`,
-          bottleType: form.bottleType,
-          quantity: qty,
-          status: createdStatus,
-          createdAt,
-          location: form.location || "",
-        },
-        ...prev,
-      ]);
-
-      // 2) No local push; we'll refresh from DB after finishing
+      // We'll refresh from DB after finishing
 
       // 3) Award points (we already verified user exists)
       const pointsToAward = calcPoints(form.bottleType, qty);
@@ -248,7 +283,7 @@ export default function CollectorsDashboard() {
         setToast(`Collection saved and ${pointsToAward} points awarded!`);
         // Set receipt data (award succeeded)
         setLastReceipt({
-          id: createdMongoId,
+          id: createdCollectionId || createdMongoId,
           createdAt,
           collectorName: "Demo Collector",
           bottleType: form.bottleType,
@@ -261,7 +296,7 @@ export default function CollectorsDashboard() {
         setToast("Collection saved. Could not award points at this time.");
         // Set receipt data (without points)
         setLastReceipt({
-          id: createdMongoId,
+          id: createdCollectionId || createdMongoId,
           createdAt,
           collectorName: "Demo Collector",
           bottleType: form.bottleType,
@@ -332,12 +367,15 @@ export default function CollectorsDashboard() {
         location: stock.location || "",
         notes: `Requested via dashboard for ${stock.bottleType}`,
       });
-      setNotifications(prev => [
+      // Optionally push a lightweight local notification entry
+      setNotifications(prev => ([
         { id: `n_${Date.now()}`, type: "request", text: `Transport requested for ${stock.quantity} ${stock.bottleType}`, time: nowIso(), read: false },
         ...prev,
-      ]);
+      ]));
       setToast("Transport request sent to Transport team.");
       setTimeout(() => setToast(""), 2500);
+      // refresh requests list
+      fetchTransportRequests();
     } catch (e) {
       setToast("Failed to send transport request. Ensure backend is running.");
       setTimeout(() => setToast(""), 2500);
@@ -737,9 +775,12 @@ export default function CollectorsDashboard() {
                   <td colSpan={9} className="px-4 py-6 text-center text-sm text-gray-500">No collections yet.</td>
                 </tr>
               )}
-              {!loadingCollections && collections.map((c, idx) => (
+              {!loadingCollections && collections
+                .slice()
+                .sort((a,b)=> new Date(a.createdAt) - new Date(b.createdAt))
+                .map((c, idx) => (
                 <tr key={c._id}>
-                  <td className="px-4 py-2 text-sm text-gray-900">{idx + 1}</td>
+                  <td className="px-4 py-2 text-sm text-gray-900">{c.collectionId || (c._id?.slice(-6) || idx + 1)}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.awardedToUserId?.name || '-'}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.collectorName || '-'}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.bottleType}</td>
@@ -765,43 +806,76 @@ export default function CollectorsDashboard() {
   const MyStockTab = () => (
     <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
       <h2 className="text-xl font-bold text-gray-900 mb-4">My Stock</h2>
-      <div className="overflow-x-auto">
-        <table className="min-w-full">
-          <thead>
-            <tr className="bg-gray-50 text-left text-sm text-gray-700">
-              <th className="py-3 px-4 font-semibold">Stock ID</th>
-              <th className="py-3 px-4 font-semibold">Bottle Type</th>
-              <th className="py-3 px-4 font-semibold">Quantity</th>
-              <th className="py-3 px-4 font-semibold">Status</th>
-              <th className="py-3 px-4 font-semibold">Created</th>
-              <th className="py-3 px-4 font-semibold">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {myStock.map(s => (
-              <tr key={s.id} className="border-t text-sm">
-                <td className="py-3 px-4 font-mono">{s.id}</td>
-                <td className="py-3 px-4">{s.bottleType}</td>
-                <td className="py-3 px-4 font-semibold">{s.quantity}</td>
-                <td className="py-3 px-4">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.status === 'Delivered' ? 'bg-green-100 text-green-700' : s.status === 'Collected' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>{s.status}</span>
-                </td>
-                <td className="py-3 px-4">{new Date(s.createdAt).toLocaleString()}</td>
-                <td className="py-3 px-4">
-                  {s.status === 'Pending Transport' && (
-                    <button onClick={() => requestTransport(s)} className="text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white px-3 py-1 rounded-lg">Request Transport</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {myStock.length === 0 && (
-              <tr>
-                <td className="py-6 px-4 text-gray-500" colSpan={6}>No stock found</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {currentBatchCollections.length === 0 ? (
+        <div className="p-6 border rounded-2xl bg-gray-50 text-gray-700">
+          No current stock. New collections will appear here until you send a request.
+        </div>
+      ) : (
+        <div className="p-6 border rounded-2xl bg-gradient-to-br from-indigo-50 to-purple-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-gray-500">Batch</div>
+              <div className="text-2xl font-bold text-gray-900">{batchId}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-gray-500">Since last request</div>
+              <div className="text-3xl font-extrabold text-gray-900">{qtySinceLastRequest}</div>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-xl bg-white border">
+              <div className="text-sm text-gray-500">Bottle Breakdown</div>
+              <ul className="mt-2 text-sm text-gray-800 space-y-1">
+                {batchByType.map(b => (
+                  <li key={b.type} className="flex justify-between">
+                    <span>{b.type}</span>
+                    <span className="font-semibold">{b.qty}</span>
+                  </li>
+                ))}
+                {batchByType.length === 0 && <li className="text-gray-500">No items</li>}
+              </ul>
+            </div>
+            <div className="p-4 rounded-xl bg-white border">
+              <div className="text-sm text-gray-500">Created Range</div>
+              <div className="mt-2 text-sm text-gray-800">
+                <div>From: {batchCreatedRange?.from ? new Date(batchCreatedRange.from).toLocaleString() : '-'}</div>
+                <div>To: {batchCreatedRange?.to ? new Date(batchCreatedRange.to).toLocaleString() : '-'}</div>
+              </div>
+            </div>
+            <div className="p-4 rounded-xl bg-white border flex flex-col justify-between">
+              <div>
+                <div className="text-sm text-gray-500">Status</div>
+                <div className="mt-2"><span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Pending Transport</span></div>
+              </div>
+              <button
+                className="mt-4 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white disabled:opacity-60"
+                disabled={qtySinceLastRequest < 1000}
+                title="Enabled when total since last request reaches 1000"
+                onClick={async ()=>{
+                  try {
+                    await axios.post('http://localhost:5000/api/transport-requests', {
+                      collectionId: null,
+                      collectorName: 'Demo Collector',
+                      bottleType: 'Mixed',
+                      quantity: qtySinceLastRequest,
+                      location: '',
+                      notes: 'Threshold reached (>=1000) since last request. Please collect.',
+                      requestId: batchId,
+                    });
+                    setToast('Transport request sent to Transport team.');
+                    setTimeout(()=>setToast(''), 2500);
+                    await fetchTransportRequests();
+                    await fetchCollections();
+                  } catch (e) {
+                    setToast('Failed to create transport request.');
+                    setTimeout(()=>setToast(''), 2500);
+                  }
+                }}
+              >Request Transport</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -813,29 +887,29 @@ export default function CollectorsDashboard() {
           <thead>
             <tr className="bg-gray-50 text-left text-sm text-gray-700">
               <th className="py-3 px-4 font-semibold">Request ID</th>
-              <th className="py-3 px-4 font-semibold">Stock</th>
-              <th className="py-3 px-4 font-semibold">Qty</th>
+              <th className="py-3 px-4 font-semibold">Collector</th>
+              <th className="py-3 px-4 font-semibold">Bottle Type</th>
+              <th className="py-3 px-4 font-semibold">Quantity</th>
+              <th className="py-3 px-4 font-semibold">Location</th>
               <th className="py-3 px-4 font-semibold">Status</th>
-              <th className="py-3 px-4 font-semibold">Driver</th>
               <th className="py-3 px-4 font-semibold">Created</th>
             </tr>
           </thead>
           <tbody>
-            {transportReqs.map(r => (
-              <tr key={r.id} className="border-t text-sm">
-                <td className="py-3 px-4 font-mono">{r.id}</td>
-                <td className="py-3 px-4">{r.stockId} • {r.bottleType}</td>
+            {transportReqs.map((r, idx) => (
+              <tr key={r._id || idx} className="border-t text-sm">
+                <td className="py-3 px-4 font-mono">{r.requestId || (r._id?.slice(-6) || idx+1)}</td>
+                <td className="py-3 px-4">{r.collectorName}</td>
+                <td className="py-3 px-4">{r.bottleType}</td>
                 <td className="py-3 px-4 font-semibold">{r.quantity}</td>
-                <td className="py-3 px-4">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'Assigned' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>{r.status}</span>
-                </td>
-                <td className="py-3 px-4">{r.driver || '-'}</td>
-                <td className="py-3 px-4">{new Date(r.createdAt).toLocaleString()}</td>
+                <td className="py-3 px-4">{r.location || '-'}</td>
+                <td className="py-3 px-4"><span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'Delivered' ? 'bg-green-100 text-green-700' : r.status === 'Assigned' ? 'bg-blue-100 text-blue-700' : r.status === 'PickedUp' ? 'bg-purple-100 text-purple-700' : r.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{r.status}</span></td>
+                <td className="py-3 px-4">{r.createdAt ? new Date(r.createdAt).toLocaleString() : '-'}</td>
               </tr>
             ))}
             {transportReqs.length === 0 && (
               <tr>
-                <td className="py-6 px-4 text-gray-500" colSpan={6}>No transport requests</td>
+                <td className="py-6 px-4 text-gray-500" colSpan={7}>No requests</td>
               </tr>
             )}
           </tbody>
@@ -864,7 +938,7 @@ export default function CollectorsDashboard() {
   );
 
   const ReportsTab = () => {
-    const byType = myStock.reduce((acc, x) => { acc[x.bottleType] = (acc[x.bottleType]||0) + x.quantity; return acc; }, {});
+    const byType = collections.reduce((acc, x) => { acc[x.bottleType] = (acc[x.bottleType]||0) + (x.quantity||0); return acc; }, {});
     const rows = Object.entries(byType).map(([k, v]) => ({ type: k, qty: v }));
     return (
       <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
@@ -873,7 +947,7 @@ export default function CollectorsDashboard() {
           <div className="p-4 border rounded-xl">
             <h3 className="font-semibold mb-2">Totals</h3>
             <p className="text-sm">Total bottles: <span className="font-semibold">{totals.totalQty}</span></p>
-            <p className="text-sm">Collections recorded: <span className="font-semibold">{myStock.length}</span></p>
+            <p className="text-sm">Collections recorded: <span className="font-semibold">{collections.length}</span></p>
             <p className="text-sm">Transport requests: <span className="font-semibold">{requestsCount}</span></p>
           </div>
           <div className="p-4 border rounded-xl">

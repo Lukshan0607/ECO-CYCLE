@@ -5,26 +5,66 @@ import LogoutButton from "../common/LogoutButton";
 import { ClipboardDocumentListIcon, CubeIcon, ChartBarIcon, ArrowTrendingUpIcon, DocumentChartBarIcon } from "@heroicons/react/24/outline";
 
 export default function InventoryDeliveryRecords() {
-  const [records, setRecords] = useState([]);
+  const [rows, setRows] = useState([]); // transport requests
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [drivers, setDrivers] = useState([]);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
 
-  const fetchDeliveries = async () => {
+  const fetchDrivers = async () => {
+    try {
+      setLoadingDrivers(true);
+      const res = await axios.get("http://localhost:5000/api/transport/drivers");
+      setDrivers(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Failed to fetch drivers", err);
+    } finally {
+      setLoadingDrivers(false);
+    }
+  };
+
+  const fetchRequests = async () => {
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:5000/api/deliveries");
-      setRecords(Array.isArray(res.data) ? res.data : []);
+      const [assignedRes, deliveredRes] = await Promise.all([
+        axios.get("http://localhost:5000/api/transport-requests", { params: { status: "Assigned" } }),
+        axios.get("http://localhost:5000/api/transport-requests", { params: { status: "Delivered" } }),
+      ]);
+      const a = assignedRes?.data?.requests || [];
+      const d = deliveredRes?.data?.requests || [];
+      setRows([...a, ...d].sort((x,y)=> new Date(x.createdAt) - new Date(y.createdAt)));
     } catch (err) {
-      console.error("Failed to fetch deliveries", err);
-      setError("Failed to fetch deliveries. Ensure backend is running on port 5000.");
+      console.error("Failed to fetch transport requests", err);
+      setError("Failed to fetch records. Ensure backend is running on port 5000.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDeliveries();
+    fetchDrivers();
+    fetchRequests();
   }, []);
+
+  const driverName = (id) => {
+    if (!id) return "-";
+    const d = drivers.find(x => (x._id === id) || (String(x._id) === String(id)));
+    if (!d) return id;
+    const first = d.personalInfo?.firstName || "";
+    const last = d.personalInfo?.lastName || "";
+    const name = `${first} ${last}`.trim();
+    return name || d.employeeId || id;
+  };
+
+  const markDelivered = async (row) => {
+    try {
+      await axios.post(`http://localhost:5000/api/transport-requests/${row._id}/status`, { status: 'Delivered' });
+      await fetchRequests();
+    } catch (err) {
+      console.error('Mark delivered failed', err);
+      setError('Failed to mark as delivered.');
+    }
+  };
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -105,7 +145,7 @@ export default function InventoryDeliveryRecords() {
               <h1 className="text-3xl font-bold text-gray-900">Delivery Records</h1>
               <p className="text-gray-600">End-to-end tracking from collectors to inventory</p>
             </div>
-            <button onClick={fetchDeliveries} className="px-4 py-2 rounded-lg bg-blue-600 text-white">Refresh</button>
+            <button onClick={fetchRequests} className="px-4 py-2 rounded-lg bg-blue-600 text-white">Refresh</button>
           </div>
         </header>
 
@@ -119,34 +159,40 @@ export default function InventoryDeliveryRecords() {
               <table className="min-w-full">
                 <thead>
                   <tr className="bg-gray-50 text-left text-sm text-gray-700">
-                    <th className="py-3 px-4 font-semibold">Collector</th>
+                    <th className="py-3 px-4 font-semibold">Name</th>
+                    <th className="py-3 px-4 font-semibold">Stock ID</th>
+                    <th className="py-3 px-4 font-semibold">Driver Name</th>
                     <th className="py-3 px-4 font-semibold">Bottle Type</th>
                     <th className="py-3 px-4 font-semibold">Quantity</th>
-                    <th className="py-3 px-4 font-semibold">Transport Staff</th>
-                    <th className="py-3 px-4 font-semibold">Collected</th>
-                    <th className="py-3 px-4 font-semibold">Assigned</th>
-                    <th className="py-3 px-4 font-semibold">Delivered</th>
                     <th className="py-3 px-4 font-semibold">Status</th>
+                    <th className="py-3 px-4 font-semibold">Delivered Time</th>
+                    <th className="py-3 px-4 font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {records.map((r) => (
+                  {rows.map((r) => (
                     <tr key={r._id} className="border-t text-sm">
-                      <td className="py-3 px-4">{r.collectorId?.name || r.collectorId || '-'}</td>
+                      <td className="py-3 px-4">{r.collectorName || '-'}</td>
+                      <td className="py-3 px-4 font-mono">{r.requestId || (r._id?.slice(-6) || '-')}</td>
+                      <td className="py-3 px-4">{driverName(r.assignedDriverId)}</td>
                       <td className="py-3 px-4">{r.bottleType}</td>
                       <td className="py-3 px-4 font-semibold">{r.quantity}</td>
-                      <td className="py-3 px-4">{r.transportStaffId || '-'}</td>
-                      <td className="py-3 px-4">{r.collectedAt ? new Date(r.collectedAt).toLocaleString() : '-'}</td>
-                      <td className="py-3 px-4">{r.assignedAt ? new Date(r.assignedAt).toLocaleString() : '-'}</td>
-                      <td className="py-3 px-4">{r.deliveredAt ? new Date(r.deliveredAt).toLocaleString() : '-'}</td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'Delivered' ? 'bg-green-100 text-green-700' : r.status === 'Assigned' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
-                          {r.status}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'Delivered' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                          {r.status === 'Delivered' ? 'Received' : 'Pending'}
                         </span>
+                      </td>
+                      <td className="py-3 px-4">{r.status === 'Delivered' ? (r.updatedAt ? new Date(r.updatedAt).toLocaleString() : (r.deliveredAt ? new Date(r.deliveredAt).toLocaleString() : '-')) : '-'}</td>
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={()=>{ if(r.status!== 'Delivered'){ markDelivered(r); } }}
+                          disabled={r.status === 'Delivered'}
+                          className={`px-3 py-1 rounded ${r.status==='Delivered' ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-green-600 text-white'}`}
+                        >Delivered</button>
                       </td>
                     </tr>
                   ))}
-                  {records.length === 0 && (
+                  {rows.length === 0 && (
                     <tr>
                       <td className="py-6 px-4 text-gray-500" colSpan={8}>No delivery records</td>
                     </tr>
