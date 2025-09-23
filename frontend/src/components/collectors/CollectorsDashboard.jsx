@@ -40,7 +40,6 @@ export default function CollectorsDashboard() {
 
   // Uncontrolled form refs for Add Collection (prevents focus loss when typing)
   const phoneRef = useRef(null);
-  const typeRef = useRef(null);
   const qtyRef = useRef(null);
   const locationRef = useRef(null);
   const [submitting, setSubmitting] = useState(false);
@@ -168,11 +167,9 @@ export default function CollectorsDashboard() {
   const COLORS = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444"]; // blue/purple/green/orange/red
 
   // Points calculation based on bottle type
-  const calcPoints = (type, qty) => {
-    const t = String(type || '').toUpperCase();
-    if (t === 'PET') return qty * 1;    // PET: 1 point per bottle
-    if (t === 'HDPE') return qty * 2;   // HDPE: 2 points per bottle
-    return qty * 1;                     // Others: 1 point per quantity
+  const calcPoints = (_type, qty) => {
+    // Points simplified when using weight: 1 point per kg
+    return Number(qty) || 0;
   };
 
   const chartByType = useMemo(() => {
@@ -218,9 +215,8 @@ export default function CollectorsDashboard() {
 
       // If editing, update the existing collection and recalc points + refresh timestamp
       if (editingId) {
-        const pointsToAward = calcPoints(form.bottleType, qty);
+        const pointsToAward = calcPoints('MIXED', qty);
         await axios.put(`http://localhost:5000/api/collections/${editingId}`, {
-          bottleType: form.bottleType,
           quantity: qty,
           location: form.location || "",
           awardedPoints: pointsToAward,
@@ -231,7 +227,6 @@ export default function CollectorsDashboard() {
         // reset
         setEditingId(null);
         if (phoneRef.current) phoneRef.current.value = "";
-        if (typeRef.current) typeRef.current.value = "PET";
         if (qtyRef.current) qtyRef.current.value = "";
         if (locationRef.current) locationRef.current.value = "";
         return;
@@ -256,7 +251,8 @@ export default function CollectorsDashboard() {
       const createRes = await axios
         .post("http://localhost:5000/api/collections", {
           collectorName: "Demo Collector",
-          bottleType: form.bottleType,
+          // Backend requires bottleType; use default since form removed type
+          bottleType: 'MIXED',
           quantity: qty,
           location: form.location || "",
         })
@@ -271,12 +267,12 @@ export default function CollectorsDashboard() {
       // We'll refresh from DB after finishing
 
       // 3) Award points (we already verified user exists)
-      const pointsToAward = calcPoints(form.bottleType, qty);
+      const pointsToAward = calcPoints('MIXED', qty);
       try {
         await axios.post("http://localhost:5000/api/points/award", {
           phone: form.phone,
           points: pointsToAward,
-          reason: `Bottle collection (${form.bottleType})`,
+          reason: `Bottle collection (Mixed)` ,
           collectionId: createdCollectionId,
           collectionMongoId: createdMongoId,
         });
@@ -286,7 +282,7 @@ export default function CollectorsDashboard() {
           id: createdCollectionId || createdMongoId,
           createdAt,
           collectorName: "Demo Collector",
-          bottleType: form.bottleType,
+          bottleType: 'MIXED',
           quantity: qty,
           location: form.location || "",
           awardedPoints: pointsToAward,
@@ -299,7 +295,7 @@ export default function CollectorsDashboard() {
           id: createdCollectionId || createdMongoId,
           createdAt,
           collectorName: "Demo Collector",
-          bottleType: form.bottleType,
+          bottleType: 'MIXED',
           quantity: qty,
           location: form.location || "",
           awardedPoints: 0,
@@ -312,7 +308,6 @@ export default function CollectorsDashboard() {
 
       // Reset uncontrolled inputs
       if (phoneRef.current) phoneRef.current.value = "";
-      if (typeRef.current) typeRef.current.value = "PET";
       if (qtyRef.current) qtyRef.current.value = "";
       if (locationRef.current) locationRef.current.value = "";
     } catch (e) {
@@ -327,7 +322,6 @@ export default function CollectorsDashboard() {
   const startEdit = (c) => {
     setEditingId(c._id);
     try {
-      if (typeRef.current) typeRef.current.value = c.bottleType || "PET";
       if (qtyRef.current) qtyRef.current.value = String(c.quantity || "");
       if (locationRef.current) locationRef.current.value = c.location || "";
       // focus qty field for quick edit
@@ -341,7 +335,6 @@ export default function CollectorsDashboard() {
 
   const cancelEdit = () => {
     setEditingId(null);
-    if (typeRef.current) typeRef.current.value = "PET";
     if (qtyRef.current) qtyRef.current.value = "";
     if (locationRef.current) locationRef.current.value = "";
   };
@@ -627,29 +620,15 @@ export default function CollectorsDashboard() {
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium">Bottle Type</label>
-          <select
-            ref={typeRef}
-            className="w-full border rounded-lg px-3 py-2 mt-1"
-            defaultValue="PET"
-          >
-            <option value="PET">PET</option>
-            <option value="HDPE">HDPE</option>
-            <option value="GlassGreen">GlassGreen</option>
-            <option value="GlassBrown">GlassBrown</option>
-            <option value="GlassClear">GlassClear</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Quantity (Bottles)</label>
+          <label className="block text-sm font-medium">Weight (kg)</label>
           <input
             ref={qtyRef}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
+            type="number"
+            step="0.1"
+            min="0"
             className="w-full border rounded-lg px-3 py-2 mt-1"
             defaultValue=""
-            onInput={(e)=>{ if (!/^\d*$/.test(e.currentTarget.value)) { e.currentTarget.value = e.currentTarget.value.replace(/\D+/g, ""); } }}
+            placeholder="e.g., 12.5"
           />
         </div>
         <div>
@@ -670,7 +649,6 @@ export default function CollectorsDashboard() {
           disabled={submitting}
           onClick={()=>handleSubmitCollection({
             phone: phoneRef.current?.value?.trim() || "",
-            bottleType: typeRef.current?.value || "PET",
             quantity: qtyRef.current?.value || "",
             location: locationRef.current?.value || "",
           })}
@@ -698,9 +676,7 @@ export default function CollectorsDashboard() {
       <div className="bg-white border border-gray-200 rounded-2xl p-5 h-max">
         <h3 className="text-lg font-semibold text-gray-900 mb-2">Points Rules</h3>
         <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-          <li><span className="font-medium">PET:</span> 1 point per bottle</li>
-          <li><span className="font-medium">HDPE:</span> 2 points per bottle</li>
-          <li><span className="font-medium">Others:</span> 1 point per quantity</li>
+          <li><span className="font-medium">Mixed:</span> 1 point per kg</li>
         </ul>
         <p className="text-xs text-gray-500 mt-3">Points are awarded to the user who brings bottles based on the rules above.</p>
       </div>
@@ -756,8 +732,7 @@ export default function CollectorsDashboard() {
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">ID</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">User Name</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Collector Name</th>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Bottle Type</th>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Quantity</th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Weight (kg)</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Location</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Awarded Points</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Collected Stamp (Time & Date)</th>
@@ -767,12 +742,12 @@ export default function CollectorsDashboard() {
             <tbody className="divide-y divide-gray-100 bg-white">
               {loadingCollections && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-sm text-gray-500">Loading...</td>
+                  <td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500">Loading...</td>
                 </tr>
               )}
               {!loadingCollections && collections.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-sm text-gray-500">No collections yet.</td>
+                  <td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500">No collections yet.</td>
                 </tr>
               )}
               {!loadingCollections && collections
@@ -783,7 +758,6 @@ export default function CollectorsDashboard() {
                   <td className="px-4 py-2 text-sm text-gray-900">{c.collectionId || (c._id?.slice(-6) || idx + 1)}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.awardedToUserId?.name || '-'}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.collectorName || '-'}</td>
-                  <td className="px-4 py-2 text-sm text-gray-700">{c.bottleType}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.quantity}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.location || '-'}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.awardedPoints || 0}</td>
@@ -824,16 +798,9 @@ export default function CollectorsDashboard() {
           </div>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl bg-white border">
-              <div className="text-sm text-gray-500">Bottle Breakdown</div>
-              <ul className="mt-2 text-sm text-gray-800 space-y-1">
-                {batchByType.map(b => (
-                  <li key={b.type} className="flex justify-between">
-                    <span>{b.type}</span>
-                    <span className="font-semibold">{b.qty}</span>
-                  </li>
-                ))}
-                {batchByType.length === 0 && <li className="text-gray-500">No items</li>}
-              </ul>
+              <div className="text-sm text-gray-500">Current Weight</div>
+              <div className="mt-2 text-2xl font-bold text-gray-900">{qtySinceLastRequest} kg</div>
+              <div className="text-xs text-gray-500 mt-1">Since last transport request</div>
             </div>
             <div className="p-4 rounded-xl bg-white border">
               <div className="text-sm text-gray-500">Created Range</div>
@@ -849,8 +816,8 @@ export default function CollectorsDashboard() {
               </div>
               <button
                 className="mt-4 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white disabled:opacity-60"
-                disabled={qtySinceLastRequest < 1000}
-                title="Enabled when total since last request reaches 1000"
+                disabled={qtySinceLastRequest < 20}
+                title="Enabled when total since last request reaches 20 kg"
                 onClick={async ()=>{
                   try {
                     await axios.post('http://localhost:5000/api/transport-requests', {
@@ -859,7 +826,7 @@ export default function CollectorsDashboard() {
                       bottleType: 'Mixed',
                       quantity: qtySinceLastRequest,
                       location: '',
-                      notes: 'Threshold reached (>=1000) since last request. Please collect.',
+                      notes: 'Threshold reached (>=20 kg) since last request. Please collect.',
                       requestId: batchId,
                     });
                     setToast('Transport request sent to Transport team.');
@@ -888,11 +855,11 @@ export default function CollectorsDashboard() {
             <tr className="bg-gray-50 text-left text-sm text-gray-700">
               <th className="py-3 px-4 font-semibold">Request ID</th>
               <th className="py-3 px-4 font-semibold">Collector</th>
-              <th className="py-3 px-4 font-semibold">Bottle Type</th>
-              <th className="py-3 px-4 font-semibold">Quantity</th>
+              <th className="py-3 px-4 font-semibold">Weight (kg)</th>
               <th className="py-3 px-4 font-semibold">Location</th>
               <th className="py-3 px-4 font-semibold">Status</th>
               <th className="py-3 px-4 font-semibold">Created</th>
+              <th className="py-3 px-4 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -900,11 +867,27 @@ export default function CollectorsDashboard() {
               <tr key={r._id || idx} className="border-t text-sm">
                 <td className="py-3 px-4 font-mono">{r.requestId || (r._id?.slice(-6) || idx+1)}</td>
                 <td className="py-3 px-4">{r.collectorName}</td>
-                <td className="py-3 px-4">{r.bottleType}</td>
                 <td className="py-3 px-4 font-semibold">{r.quantity}</td>
                 <td className="py-3 px-4">{r.location || '-'}</td>
                 <td className="py-3 px-4"><span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'Delivered' ? 'bg-green-100 text-green-700' : r.status === 'Assigned' ? 'bg-blue-100 text-blue-700' : r.status === 'PickedUp' ? 'bg-purple-100 text-purple-700' : r.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{r.status}</span></td>
                 <td className="py-3 px-4">{r.createdAt ? new Date(r.createdAt).toLocaleString() : '-'}</td>
+                <td className="py-3 px-4">
+                  <button
+                    className="px-3 py-1 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60"
+                    disabled={r.status !== 'Assigned'}
+                    onClick={async ()=>{
+                      try {
+                        await axios.post(`http://localhost:5000/api/transport-requests/${r._id}/status`, { status: 'PickedUp' });
+                        setTransportReqs(prev => prev.map(x => x._id === r._id ? { ...x, status: 'PickedUp' } : x));
+                        setToast('Marked as handed over.');
+                        setTimeout(()=>setToast(''), 2000);
+                      } catch (e) {
+                        setToast('Failed to update status.');
+                        setTimeout(()=>setToast(''), 2000);
+                      }
+                    }}
+                  >Handed over</button>
+                </td>
               </tr>
             ))}
             {transportReqs.length === 0 && (
