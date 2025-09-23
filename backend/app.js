@@ -19,6 +19,7 @@ const vehicleRoutes = require("./Routes/VehicleRoutes");
 const collectionRoutes = require("./Routes/CollectionRoutes");
 const pointsRoutes = require("./Routes/PointsRoutes");
 const transportRequestRoutes = require("./Routes/TransportRequestRoutes");
+const stockProductionRequestRoutes = require("./Routes/StockProductionRequestRoutes");
 
 // CORS Configuration
 const corsOptions = {
@@ -52,6 +53,7 @@ app.use("/api/transport", vehicleRoutes);
 app.use("/api/collections", collectionRoutes);
 app.use("/api/points", pointsRoutes);
 app.use("/api/transport-requests", transportRequestRoutes);
+app.use("/api/stock-requests", stockProductionRequestRoutes);
 
 
 // Health check endpoint
