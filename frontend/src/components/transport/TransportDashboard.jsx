@@ -228,6 +228,22 @@ export default function TransportDashboard() {
     return () => clearInterval(t);
   }, [activeTab]);
 
+  // React to status updates from Collectors page (e.g., PickedUp)
+  useEffect(() => {
+    const onStatusUpdate = (e) => {
+      try {
+        const { id, status } = e?.detail || {};
+        if (!id || !status) return;
+        // Update locally for instant feedback
+        setAssigned(prev => prev.map(x => String(x._id) === String(id) ? { ...x, status } : x));
+        // Reconcile with backend
+        fetchAssigned();
+      } catch {}
+    };
+    window.addEventListener('transport:status-updated', onStatusUpdate);
+    return () => window.removeEventListener('transport:status-updated', onStatusUpdate);
+  }, []);
+
   const getDriverNameById = (id) => {
     if (!id) return '-';
     const d = driversList.find(x => (x._id === id) || (String(x._id) === String(id)));
@@ -254,15 +270,17 @@ export default function TransportDashboard() {
   const fetchAssigned = async () => {
     try {
       setLoadingAssigned(true);
-      const [aRes, dRes] = await Promise.all([
+      const [aRes, pRes, dRes] = await Promise.all([
         axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Assigned' } }),
+        axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'PickedUp' } }),
         axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Delivered' } }),
       ]);
       const a = aRes?.data?.requests || [];
+      const p = pRes?.data?.requests || [];
       const d = dRes?.data?.requests || [];
-      // Merge so that already delivered items still show with Delivered status
+      // Merge so that already picked up and delivered items still show with latest status
       // Sort by Stock ID (requestId) ascending
-      const merged = [...a, ...d].sort((x,y)=>{
+      const merged = [...a, ...p, ...d].sort((x,y)=>{
         const kx = (x.requestId || x._id || '').toString();
         const ky = (y.requestId || y._id || '').toString();
         if (kx < ky) return -1; if (kx > ky) return 1; return 0;
@@ -347,6 +365,18 @@ export default function TransportDashboard() {
                 try {
                   await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/status`, { status: 'Assigned' });
                 } catch (err) { console.error('Failed to update status to Assigned', err); }
+                // Optimistic UI: move from Requests -> Assigned immediately
+                try {
+                  const req = requests.find(x => x._id === assignRequestId);
+                  if (req) {
+                    const newItem = { ...req, assignedDriverId: selectedDriverId, scheduledAt, status: 'Assigned' };
+                    setAssigned(prev => {
+                      const exists = prev.some(x => x._id === newItem._id);
+                      return exists ? prev.map(x => x._id === newItem._id ? newItem : x) : [...prev, newItem];
+                    });
+                    setRequests(prev => prev.filter(x => x._id !== assignRequestId));
+                  }
+                } catch {}
                 setAssignNotice({ type:'success', text:'Assigned successfully' });
                 // brief delay to show success
                 setTimeout(()=>{
@@ -356,6 +386,7 @@ export default function TransportDashboard() {
                   setAssignSubmitting(false);
                   fetchRequests();
                   fetchAssigned();
+                  try { window.dispatchEvent(new CustomEvent('transport:assigned-updated')); } catch {}
                 }, 600);
               } catch (err) {
                 console.error('Assign failed', err);

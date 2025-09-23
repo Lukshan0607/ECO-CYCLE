@@ -27,13 +27,15 @@ export default function InventoryDeliveryRecords() {
   const fetchRequests = async () => {
     try {
       setLoading(true);
-      const [assignedRes, deliveredRes] = await Promise.all([
+      const [assignedRes, pickedUpRes, deliveredRes] = await Promise.all([
         axios.get("http://localhost:5000/api/transport-requests", { params: { status: "Assigned" } }),
+        axios.get("http://localhost:5000/api/transport-requests", { params: { status: "PickedUp" } }),
         axios.get("http://localhost:5000/api/transport-requests", { params: { status: "Delivered" } }),
       ]);
       const a = assignedRes?.data?.requests || [];
+      const p = pickedUpRes?.data?.requests || [];
       const d = deliveredRes?.data?.requests || [];
-      setRows([...a, ...d].sort((x,y)=> new Date(x.createdAt) - new Date(y.createdAt)));
+      setRows([...a, ...p, ...d].sort((x,y)=> new Date(x.createdAt) - new Date(y.createdAt)));
     } catch (err) {
       console.error("Failed to fetch transport requests", err);
       setError("Failed to fetch records. Ensure backend is running on port 5000.");
@@ -45,6 +47,17 @@ export default function InventoryDeliveryRecords() {
   useEffect(() => {
     fetchDrivers();
     fetchRequests();
+    // Listen for events from Transport page to refresh
+    const handler = () => { fetchRequests(); };
+    window.addEventListener('transport:assigned-updated', handler);
+    window.addEventListener('transport:status-updated', handler);
+    // Poll every 10s as a fallback when navigating directly
+    const t = setInterval(fetchRequests, 10000);
+    return () => {
+      window.removeEventListener('transport:assigned-updated', handler);
+      window.removeEventListener('transport:status-updated', handler);
+      clearInterval(t);
+    };
   }, []);
 
   const driverName = (id) => {
