@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+          import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import LogoutButton from "../common/LogoutButton";
@@ -74,8 +74,57 @@ const ProductionDashboard = () => {
     imageUrl: "",
     description: "",
     category: "",
-    points: "",
   });
+
+  // Loyalty: points per 1 rupee setting (persisted locally for now)
+  const [pointsPerRupee, setPointsPerRupee] = useState("");
+  useEffect(() => {
+    const saved = localStorage.getItem('pointsPerRupee');
+    if (saved !== null) setPointsPerRupee(saved);
+    const savedAt = localStorage.getItem('pointsPerRupeeSavedAt');
+    if (savedAt) setPointsSavedAt(savedAt);
+  }, []);
+  const handleSavePointsPerRupee = (e) => {
+    e.preventDefault();
+    localStorage.setItem('pointsPerRupee', pointsPerRupee);
+    const ts = new Date().toISOString();
+    localStorage.setItem('pointsPerRupeeSavedAt', ts);
+    setPointsSavedAt(ts);
+    alert('Saved: points per 1 rupee updated.');
+  };
+
+  // Generate unique Product ID starting from RIP-0001 and incrementing
+  const generateUniqueProductId = () => {
+    const ids = (products || [])
+      .map(p => String(p.productId || ''))
+      .map(id => {
+        const m = id.match(/^RIP-(\d{4})$/);
+        return m ? parseInt(m[1], 10) : null;
+      })
+      .filter(n => n !== null);
+
+    const existingSet = new Set(ids);
+    let next = 1;
+    if (ids.length > 0) {
+      const max = Math.max(...ids);
+      next = max + 1;
+    }
+
+    // If exceeded 9999, find first available gap from 1..9999
+    if (next > 9999) {
+      next = 1;
+      while (next <= 9999 && existingSet.has(next)) next++;
+      if (next > 9999) {
+        // As a last resort, fallback to a timestamp-based suffix (still numeric) trimmed to 4 digits
+        const ts = Date.now() % 10000;
+        next = ts === 0 ? 1 : ts;
+      }
+    }
+
+    return `RIP-${String(next).padStart(4, '0')}`;
+  };
+
+  const [pointsSavedAt, setPointsSavedAt] = useState("");
 
   // Sample data (replace with API calls later)
   const overview = {
@@ -128,6 +177,7 @@ const ProductionDashboard = () => {
 
   const menuItems = [
     { name: "Overview", key: "overview", icon: <LayoutDashboard size={20} /> },
+    { name: "Products", key: "products", icon: <ShoppingCart size={20} /> },
     { name: "Production Planning", key: "planning", icon: <Factory size={20} /> },
     { name: "Raw Materials", key: "materials", icon: <Package size={20} /> },
     { name: "Quality Control", key: "quality", icon: <Settings size={20} /> },
@@ -285,7 +335,7 @@ const ProductionDashboard = () => {
 
   // Load data when component mounts and when tabs change
   useEffect(() => {
-    if (activeTab === 'overview') {
+    if (activeTab === 'products') {
       fetchProducts();
     } else if (activeTab === 'materials') {
       fetchInventoryData();
@@ -316,10 +366,11 @@ const ProductionDashboard = () => {
       if (value !== '' && !priceRegex.test(value)) {
         return; // Don't update if invalid
       }
-    } else if (name === 'stock' || name === 'points') {
-      // Stock Level and Reward Points: no negative numbers
-      if (value < 0) {
-        return; // Don't update if negative
+    } else if (name === 'stock') {
+      // Stock Level: only digits, up to 4 characters
+      const stockRegex = /^\d{0,4}$/;
+      if (!stockRegex.test(value)) {
+        return; // Block letters, special chars, or more than 4 digits
       }
     }
     
@@ -347,7 +398,6 @@ const ProductionDashboard = () => {
       imageUrl: product.imageUrl || '',
       description: product.description || '',
       category: product.category || '',
-      points: product.points?.toString() || '0',
     });
     setEditingProduct(product);
     setShowAddForm(true);
@@ -402,8 +452,12 @@ const ProductionDashboard = () => {
         imageUrl: newProduct.imageUrl || '',
         description: newProduct.description?.trim() || '',
         category: newProduct.category,
-        points: parseInt(newProduct.points) || 0,
       };
+
+      // Only generate and set productId when creating a new product
+      if (!editingProduct) {
+        productData.productId = generateUniqueProductId();
+      }
 
       console.log('Sending product data:', productData);
 
@@ -419,8 +473,20 @@ const ProductionDashboard = () => {
       console.log('Server response:', response.data);
       
       if (response.status === 200 || response.status === 201) {
-        // Refresh products list from database
-        await fetchProducts();
+        // Update products list in-place to preserve order (append new, update existing)
+        if (editingProduct) {
+          const updated = response.data?.product || response.data;
+          setProducts((prev) => prev.map((p) => (p._id === editingProduct._id ? { ...p, ...updated } : p)));
+        } else {
+          const created = response.data?.product || response.data;
+          if (created) {
+            // Append new product to the end so it shows after previous items
+            setProducts((prev) => [...prev, created]);
+          } else {
+            // Fallback: refresh from server if response format is unknown
+            await fetchProducts();
+          }
+        }
         
         // Reset form
         setNewProduct({
@@ -430,7 +496,6 @@ const ProductionDashboard = () => {
           imageUrl: "",
           description: "",
           category: "",
-          points: "",
         });
         setEditingProduct(null);
         setShowAddForm(false);
@@ -499,15 +564,7 @@ const ProductionDashboard = () => {
               <h1 className="text-3xl font-bold text-gray-900">Production Dashboard</h1>
               <p className="text-gray-600 mt-1">Manufacturing operations and inventory management</p>
             </div>
-            <div className="flex space-x-3">
-              <button 
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200"
-              >
-                <PackagePlus size={16} className="mr-2 inline" />
-                Add Product
-              </button>
-            </div>
+            <div className="flex space-x-3"></div>
           </div>
         </header>
 
@@ -562,286 +619,62 @@ const ProductionDashboard = () => {
             </div>
           </div>
 
-          {/* Add Product Form */}
-          {showAddForm && (
-            <div className="bg-white shadow rounded-2xl p-6">
-              <h3 className="text-lg font-bold mb-4">
-                {editingProduct ? "✏️ Edit Product" : "➕ Add New Product"}
-              </h3>
-              <form onSubmit={handleAddProduct} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium">
-                      Product Name *
-                    </label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={newProduct.name}
-                      onChange={handleChange}
-                      pattern="^[A-Za-z\s]+$"
-                      title="Only letters and spaces are allowed - no numbers or special characters"
-                      required
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter product name (letters and spaces only)"
-                    />
-                    {newProduct.name && !/^[A-Za-z\s]*$/.test(newProduct.name) && (
-                      <p className="text-red-500 text-xs mt-1">Product name can only contain letters and spaces</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">Price (LKR)</label>
-                    <input
-                      type="text"
-                      name="price"
-                      value={newProduct.price}
-                      onChange={handleChange}
-                      pattern="^\d{1,4}(\.\d{1,2})?$"
-                      title="Maximum 4 digits, numbers only (e.g., 1234 or 1234.56)"
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter price (max 4 digits, e.g., 1234.56)"
-                    />
-                    {newProduct.price && !/^\d{0,4}(\.\d{0,2})?$/.test(newProduct.price) && (
-                      <p className="text-red-500 text-xs mt-1">Price must be maximum 4 digits with optional decimal (e.g., 1234.56)</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">
-                      Stock Level
-                    </label>
-                    <input
-                      type="number"
-                      name="stock"
-                      value={newProduct.stock}
-                      onChange={handleChange}
-                      min="0"
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter stock level (positive numbers only)"
-                    />
-                    {newProduct.stock < 0 && (
-                      <p className="text-red-500 text-xs mt-1">Stock level cannot be negative</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">Category</label>
-                    <select
-                      name="category"
-                      value={newProduct.category}
-                      onChange={handleChange}
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select Category</option>
-                      <option value="Household Items">Household Items</option>
-                      <option value="Fashion & Accessories">Fashion & Accessories</option>
-                      <option value="Furniture & Home Decor">Furniture & Home Decor</option>
-                      <option value="Construction Materials">Construction Materials</option>
-                      <option value="Stationery & Office Supplies">Stationery & Office Supplies</option>
-                      <option value="Outdoor & Travel">Outdoor & Travel</option>
-                      <option value="Toys & Kids Items">Toys & Kids Items</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">Product Image</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="w-full border rounded-lg p-2"
-                    />
-                    {newProduct.imageUrl && (
-                      <img
-                        src={newProduct.imageUrl}
-                        alt="Preview"
-                        className="mt-2 w-32 h-32 object-cover rounded-lg border"
-                      />
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">Reward Points</label>
-                    <input
-                      type="number"
-                      name="points"
-                      value={newProduct.points}
-                      onChange={handleChange}
-                      min="0"
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter reward points (positive numbers only)"
-                    />
-                    {newProduct.points < 0 && (
-                      <p className="text-red-500 text-xs mt-1">Reward points cannot be negative</p>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium">Description</label>
-                  <textarea
-                    name="description"
-                    value={newProduct.description}
-                    onChange={handleChange}
-                    className="w-full border rounded-lg p-2"
-                    placeholder="Enter product description"
-                  ></textarea>
-                </div>
-                <div className="flex space-x-3">
-                  <button
-                    type="submit"
-                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg"
-                  >
-{editingProduct ? "Update Product" : "Create Product"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAddForm(false);
-                      setEditingProduct(null);
-                      setNewProduct({
-                        name: "",
-                        price: "",
-                        stock: "",
-                        imageUrl: "",
-                        description: "",
-                        category: "",
-                        points: "",
-                      });
-                    }}
-                    className="border px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-200"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
+          {/* Featured Products (first 8 items) */}
+          <div className="mt-8 bg-white shadow rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold">Featured Products</h3>
+              <button
+                onClick={() => setActiveTab('products')}
+                className="text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-lg shadow hover:shadow-md transition"
+              >
+                View All Products
+              </button>
             </div>
-          )}
-
-          {/* Products Section */}
-          <div className="bg-white shadow rounded-2xl p-4">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg">Products</h3>
-              {/* Search Bar */}
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
-                <input
-                  type="text"
-                  placeholder="Search products..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg shadow-sm 
-                             focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-700"
-                />
-              </div>
-            </div>
-
-            {/* Products Table */}
-            <div className="overflow-x-auto">
-              {filteredProducts.length > 0 ? (
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Image</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Product Name</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Category</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Description</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Price (LKR)</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Stock</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Reward Points</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredProducts.map((p, idx) => (
-                      <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4">
-                          {p.imageUrl ? (
-                            <img
-                              src={p.imageUrl}
-                              alt={p.name}
-                              className="w-16 h-16 object-cover rounded-lg border"
-                            />
-                          ) : (
-                            <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
-                              <Package size={24} className="text-gray-400" />
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-gray-900">{p.name}</div>
-                          <div className="text-sm text-gray-500">ID: {p._id?.slice(-6) || idx}</div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
-                            {p.category || 'Uncategorized'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 max-w-xs">
-                          <p className="text-sm text-gray-600 truncate" title={p.description}>
-                            {p.description || 'No description available'}
-                          </p>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="font-bold text-green-600">
-                            {parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex flex-col items-center">
-                            <span className="font-medium text-gray-900">{p.stock}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                              p.stock < 50 
-                                ? "bg-red-100 text-red-600" 
-                                : p.stock < 100 
-                                ? "bg-yellow-100 text-yellow-600"
-                                : "bg-green-100 text-green-600"
-                            }`}>
-                              {p.stock < 50 ? "Low" : p.stock < 100 ? "Medium" : "High"}
+            {products.length === 0 ? (
+              <div className="text-center py-10 text-gray-500">No products available yet</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {products.slice(0, 8).map((p, idx) => (
+                  <div key={p._id || idx} className="group border border-gray-100 rounded-2xl overflow-hidden bg-white hover:shadow-xl transition-shadow">
+                    <div className="relative h-40 bg-gray-50 overflow-hidden">
+                      {p.imageUrl ? (
+                        <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                          <Package size={36} />
+                        </div>
+                      )}
+                      <div className={`${p.stock < 10 ? 'bg-red-100 text-red-700' : p.stock < 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'} absolute top-3 left-3 text-xs px-2 py-1 rounded-full font-medium`}>
+                        {p.stock < 10 ? 'Out of Stock' : p.stock < 50 ? 'Low Stock' : 'In Stock'}
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between">
+                        <h4 className="font-semibold text-gray-900 truncate pr-2" title={p.name}>{p.name}</h4>
+                        <span className="text-green-600 font-bold text-sm">LKR {parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">Product ID: {p.productId || (p._id ? `RIP-${(p._id + '').replace(/\\D/g,'').slice(-4).padStart(4,'0')}` : '-')}</div>
+                      <div className="mt-3 flex items-center gap-2">
+                        {(() => {
+                          const price = parseFloat(p.price);
+                          const rate = parseFloat(pointsPerRupee || '0');
+                          if (Number.isNaN(price) || Number.isNaN(rate) || rate <= 0) return null;
+                          const points = Math.round(price * rate);
+                          return (
+                            <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">
+                              ⭐ {points} pts
                             </span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex flex-col items-center">
-                            <span className="font-medium text-purple-600">{p.points || 0}</span>
-                            <span className="text-xs text-gray-500">points</span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-                            p.stock > 0 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                          }`}>
-                            {p.stock > 0 ? "Available" : "Out of Stock"}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex justify-center space-x-2">
-                            <button 
-                              onClick={() => handleEditProduct(p)}
-                              className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1"
-                              title="Edit Product"
-                            >
-                              <Settings size={14} />
-                              <span>Edit</span>
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteProduct(p._id || idx)}
-                              className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1"
-                              title="Delete Product"
-                            >
-                              <XCircle size={14} />
-                              <span>Delete</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="text-center py-12">
-                  <Package size={48} className="mx-auto text-gray-400 mb-4" />
-                  <p className="text-gray-500 text-lg">No products found</p>
-                  <p className="text-gray-400 text-sm">Add your first product using the form above</p>
-                </div>
-              )}
-            </div>
+                          );
+                        })()}
+                        <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
+                          {p.category || 'Uncategorized'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Charts */}
@@ -911,6 +744,185 @@ const ProductionDashboard = () => {
               </ul>
             </div>
           </div>
+
+            </>
+          )}
+
+          {activeTab === 'products' && (
+            <>
+              {showAddForm && (
+                <div className="bg-white shadow rounded-2xl p-6 mb-6">
+                  <h3 className="text-lg font-bold mb-4">{editingProduct ? "✏️ Edit Product" : "➕ Add New Product"}</h3>
+                  <form onSubmit={handleAddProduct} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium">Product Name *</label>
+                        <input type="text" name="name" value={newProduct.name} onChange={handleChange} pattern="^[A-Za-z\s]+$" title="Only letters and spaces are allowed - no numbers or special characters" required className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Enter product name (letters and spaces only)" />
+                        {newProduct.name && !/^[A-Za-z\s]*$/.test(newProduct.name) && (<p className="text-red-500 text-xs mt-1">Product name can only contain letters and spaces</p>)}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium">Item Price</label>
+                        <input type="text" name="price" value={newProduct.price} onChange={handleChange} pattern="^\d{1,4}(\.\d{1,2})?$" title="Maximum 4 digits, numbers only (e.g., 1234 or 1234.56)" className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Enter price (max 4 digits, e.g., 1234.56)" />
+                        {newProduct.price && !/^\d{0,4}(\.\d{0,2})?$/.test(newProduct.price) && (<p className="text-red-500 text-xs mt-1">Price must be maximum 4 digits with optional decimal (e.g., 1234.56)</p>)}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium">Stock Level</label>
+                        <input
+                          type="text"
+                          name="stock"
+                          value={newProduct.stock}
+                          onChange={handleChange}
+                          inputMode="numeric"
+                          maxLength={4}
+                          className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="Enter stock (max 4 digits)"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium">Category</label>
+                        <select name="category" value={newProduct.category} onChange={handleChange} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                          <option value="">Select Category</option>
+                          <option value="Household Items">Household Items</option>
+                          <option value="Fashion & Accessories">Fashion & Accessories</option>
+                          <option value="Furniture & Home Decor">Furniture & Home Decor</option>
+                          <option value="Construction Materials">Construction Materials</option>
+                          <option value="Stationery & Office Supplies">Stationery & Office Supplies</option>
+                          <option value="Outdoor & Travel">Outdoor & Travel</option>
+                          <option value="Toys & Kids Items">Toys & Kids Items</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium">Product Image</label>
+                        <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full border rounded-lg p-2" />
+                        {newProduct.imageUrl && (<img src={newProduct.imageUrl} alt="Preview" className="mt-2 w-32 h-32 object-cover rounded-lg border" />)}
+                      </div>
+                      
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Description</label>
+                      <textarea name="description" value={newProduct.description} onChange={handleChange} className="w-full border rounded-lg p-2" placeholder="Enter product description"></textarea>
+                    </div>
+                    <div className="flex space-x-3">
+                      <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingProduct ? "Update Product" : "Create Product"}</button>
+                      <button type="button" onClick={() => { setShowAddForm(false); setEditingProduct(null); setNewProduct({ name: "", price: "", stock: "", imageUrl: "", description: "", category: "" }); }} className="border px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-200">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Two-column layout: left (products) and right (loyalty config) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="md:col-span-2 bg-white shadow rounded-2xl p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold text-lg">Products</h3>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                      <input type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-700" />
+                    </div>
+                  </div>
+                  <div className="mb-4">
+                    <button
+                      onClick={() => setShowAddForm(!showAddForm)}
+                      className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-lg shadow hover:shadow-md transition-all duration-200"
+                    >
+                      <PackagePlus size={16} className="mr-2 inline" />
+                      {showAddForm ? 'Close Form' : 'Add Product'}
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    {filteredProducts.length > 0 ? (
+                      <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Image</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Product Name</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Category</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Description</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Item Price (LKR)</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Reward Points</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Stock</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredProducts.map((p, idx) => (
+                          <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                            <td className="py-3 px-4">
+                              {p.imageUrl ? (
+                                <img src={p.imageUrl} alt={p.name} className="w-16 h-16 object-cover rounded-lg border" />
+                              ) : (
+                                <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
+                                  <Package size={24} className="text-gray-400" />
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-semibold text-gray-900">{p.name}</div>
+                              <div className="text-sm text-gray-500">Product ID: {p.productId || (p._id ? `RIP-${(p._id + '').replace(/\D/g,'').slice(-4).padStart(4,'0')}` : `RIP-${String(idx).padStart(4,'0')}`)}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">{p.category || 'Uncategorized'}</span>
+                            </td>
+                            <td className="py-3 px-4 max-w-xs">
+                              <p className="text-sm text-gray-600 truncate" title={p.description}>{p.description || 'No description available'}</p>
+                            </td>
+                            <td className="py-3 px-4 text-center"><span className="font-bold text-green-600">{parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></td>
+                            <td className="py-3 px-4 text-center"><span className="font-medium text-gray-900">{(() => {
+                              const price = parseFloat(p.price);
+                              const rate = parseFloat(pointsPerRupee || '0');
+                              if (Number.isNaN(price) || Number.isNaN(rate)) return 0;
+                              return Math.round(price * rate);
+                            })()}</span></td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="flex flex-col items-center">
+                                <span className="font-medium text-gray-900">{p.stock}</span>
+                                <span className={`text-xs px-2 py-1 rounded-full font-medium ${p.stock < 50 ? 'bg-red-100 text-red-800' : p.stock < 200 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>{p.stock < 50 ? 'Low' : p.stock < 200 ? 'Medium' : 'High'}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-center"><span className={`px-2 py-1 rounded-full text-xs font-medium ${p.stock < 10 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{p.stock < 10 ? 'Out of Stock' : 'Available'}</span></td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700" onClick={() => handleEditProduct(p)}>Edit</button>
+                                <button className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700" onClick={() => handleDeleteProduct(p._id)}>Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      </table>
+                    ) : (
+                      <div className="text-gray-600 p-4">No products found.</div>
+                    )}
+                  </div>
+                </div>
+                {/* Right side: Points per rupee configuration */}
+                <div className="bg-white shadow rounded-2xl p-4">
+                  <h3 className="font-bold text-lg mb-3">Loyalty Settings</h3>
+                  <form onSubmit={handleSavePointsPerRupee} className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium">How many points does 1 rupee represent?</label>
+                      <input
+                        type="text"
+                        value={pointsPerRupee}
+                        onChange={(e) => setPointsPerRupee(e.target.value)}
+                        placeholder="e.g., 0.10"
+                        inputMode="decimal"
+                        className="mt-1 w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">Save</button>
+                    <div className="text-sm mt-2">
+                      <span className="inline-block px-2 py-1 rounded-full bg-blue-100 text-blue-800">
+                        Current: {pointsPerRupee || 'Not set'} points per 1 rupee
+                      </span>
+                      {pointsSavedAt && (
+                        <span className="ml-2 text-gray-500">Last saved: {new Date(pointsSavedAt).toLocaleString()}</span>
+                      )}
+                    </div>
+                  </form>
+                </div>
+              </div>
             </>
           )}
 

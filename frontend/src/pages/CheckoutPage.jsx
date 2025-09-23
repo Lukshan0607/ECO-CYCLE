@@ -4,7 +4,7 @@ import axios from 'axios';
 import Navbar from '../components/layout/Navbar';
 import Footer from '../components/layout/Footer';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, CreditCard, MapPin, User, Phone, Mail, CheckCircle } from 'lucide-react';
+import { ArrowLeft, CreditCard, User, Phone, Mail, CheckCircle } from 'lucide-react';
 
 function CheckoutPage() {
   const navigate = useNavigate();
@@ -22,11 +22,7 @@ function CheckoutPage() {
     email: '',
     phone: '',
     
-    // Shipping Address
-    address: '',
-    city: '',
-    postalCode: '',
-    country: 'Sri Lanka',
+    // Shipping Address removed
     
     // Payment Information
     paymentMethod: 'card',
@@ -35,6 +31,10 @@ function CheckoutPage() {
     cvv: '',
     cardName: ''
   });
+
+  // For non-card payment proofs
+  const [paymentProof, setPaymentProof] = useState(null); // File
+  const [paymentProofError, setPaymentProofError] = useState('');
 
   const [errors, setErrors] = useState({});
 
@@ -72,11 +72,11 @@ function CheckoutPage() {
     }
   };
 
-  // Calculate totals
+  // Calculate totals (Tax and Shipping removed)
   const subtotal = cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
-  const tax = subtotal * 0.1; // 10% tax
-  const shipping = subtotal > 5000 ? 0 : 500; // Free shipping over LKR 5000
-  const total = subtotal + tax + shipping;
+  const tax = 0;
+  const shipping = 0;
+  const total = subtotal;
   const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0);
 
   // Handle form input changes
@@ -87,6 +87,28 @@ function CheckoutPage() {
     // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+
+    // Clear payment proof error when switching method
+    if (name === 'paymentMethod') {
+      setPaymentProofError('');
+    }
+  };
+
+  const handlePaymentProofChange = (e) => {
+    const file = e.target.files?.[0] || null;
+    if (file) {
+      // Allow images or PDF
+      const ok = file.type.startsWith('image/') || file.type === 'application/pdf';
+      if (!ok) {
+        setPaymentProof(null);
+        setPaymentProofError('Please upload an image or PDF file.');
+        return;
+      }
+      setPaymentProof(file);
+      setPaymentProofError('');
+    } else {
+      setPaymentProof(null);
     }
   };
 
@@ -101,17 +123,20 @@ function CheckoutPage() {
     else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email is invalid';
     if (!formData.phone.trim()) newErrors.phone = 'Phone number is required';
 
-    // Shipping Address
-    if (!formData.address.trim()) newErrors.address = 'Address is required';
-    if (!formData.city.trim()) newErrors.city = 'City is required';
-    if (!formData.postalCode.trim()) newErrors.postalCode = 'Postal code is required';
+    // Shipping Address removed
 
-    // Payment Information (if card payment)
+    // Payment Information
     if (formData.paymentMethod === 'card') {
       if (!formData.cardNumber.trim()) newErrors.cardNumber = 'Card number is required';
       if (!formData.expiryDate.trim()) newErrors.expiryDate = 'Expiry date is required';
       if (!formData.cvv.trim()) newErrors.cvv = 'CVV is required';
       if (!formData.cardName.trim()) newErrors.cardName = 'Cardholder name is required';
+    } else {
+      // Bank transfer or mobile payments require proof upload
+      if (!paymentProof) {
+        setPaymentProofError('Please upload payment proof (image or PDF).');
+        newErrors.paymentProof = 'Payment proof required';
+      }
     }
 
     setErrors(newErrors);
@@ -269,61 +294,7 @@ function CheckoutPage() {
                 </div>
               </div>
 
-              {/* Shipping Address */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
-                  <MapPin className="mr-2" size={24} />
-                  Shipping Address
-                </h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Address *</label>
-                    <input
-                      type="text"
-                      name="address"
-                      value={formData.address}
-                      onChange={handleInputChange}
-                      className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.address ? 'border-red-500' : 'border-gray-300'}`}
-                    />
-                    {errors.address && <p className="text-red-500 text-xs mt-1">{errors.address}</p>}
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
-                      <input
-                        type="text"
-                        name="city"
-                        value={formData.city}
-                        onChange={handleInputChange}
-                        className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.city ? 'border-red-500' : 'border-gray-300'}`}
-                      />
-                      {errors.city && <p className="text-red-500 text-xs mt-1">{errors.city}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code *</label>
-                      <input
-                        type="text"
-                        name="postalCode"
-                        value={formData.postalCode}
-                        onChange={handleInputChange}
-                        className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${errors.postalCode ? 'border-red-500' : 'border-gray-300'}`}
-                      />
-                      {errors.postalCode && <p className="text-red-500 text-xs mt-1">{errors.postalCode}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
-                      <select
-                        name="country"
-                        value={formData.country}
-                        onChange={handleInputChange}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                      >
-                        <option value="Sri Lanka">Sri Lanka</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {/* Shipping Address removed */}
 
               {/* Payment Information */}
               <div className="bg-white rounded-lg shadow-md p-6">
@@ -350,17 +321,28 @@ function CheckoutPage() {
                       <input
                         type="radio"
                         name="paymentMethod"
-                        value="cod"
-                        checked={formData.paymentMethod === 'cod'}
+                        value="bank"
+                        checked={formData.paymentMethod === 'bank'}
                         onChange={handleInputChange}
                         className="mr-2"
                       />
-                      Cash on Delivery
+                      Bank Transfer
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="mobile"
+                        checked={formData.paymentMethod === 'mobile'}
+                        onChange={handleInputChange}
+                        className="mr-2"
+                      />
+                      Mobile Payments
                     </label>
                   </div>
                 </div>
 
-                {formData.paymentMethod === 'card' && (
+                {formData.paymentMethod === 'card' ? (
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Cardholder Name *</label>
@@ -411,6 +393,29 @@ function CheckoutPage() {
                         {errors.cvv && <p className="text-red-500 text-xs mt-1">{errors.cvv}</p>}
                       </div>
                     </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Upload Payment Proof (Image or PDF) *
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      onChange={handlePaymentProofChange}
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                    {paymentProof && paymentProof.type.startsWith('image/') && (
+                      <img
+                        src={URL.createObjectURL(paymentProof)}
+                        alt="Payment proof preview"
+                        className="mt-2 w-40 h-40 object-cover rounded"
+                      />
+                    )}
+                    {paymentProofError && (
+                      <p className="text-red-500 text-xs mt-1">{paymentProofError}</p>
+                    )}
+                    <p className="text-xs text-gray-500">Accepted formats: JPG, PNG, PDF.</p>
                   </div>
                 )}
               </div>
@@ -466,16 +471,7 @@ function CheckoutPage() {
                   <span className="text-gray-600">Subtotal ({totalItems} items)</span>
                   <span className="font-medium">LKR {subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Shipping</span>
-                  <span className="font-medium">
-                    {shipping === 0 ? 'Free' : `LKR ${shipping.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Tax</span>
-                  <span className="font-medium">LKR {tax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </div>
+                {/* Shipping and Tax removed */}
                 <div className="border-t pt-2">
                   <div className="flex justify-between">
                     <span className="text-lg font-bold">Total</span>
@@ -485,14 +481,7 @@ function CheckoutPage() {
                   </div>
                 </div>
               </div>
-              
-              {shipping === 0 && (
-                <div className="mt-4 p-3 bg-green-50 rounded-lg">
-                  <p className="text-sm text-green-700 text-center">
-                    🚚 Free shipping on orders over LKR 5,000!
-                  </p>
-                </div>
-              )}
+              {/* Free shipping notice removed since shipping is disabled */}
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
 
@@ -7,6 +7,16 @@ function ProductCard({ product }) {
   const [isHovered, setIsHovered] = useState(false);
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [pointsPerRupee, setPointsPerRupee] = useState('');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pointsPerRupee');
+      if (saved !== null) setPointsPerRupee(saved);
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
   const handleAddToCart = async () => {
     // Check if user is authenticated
@@ -67,14 +77,7 @@ function ProductCard({ product }) {
         
         <p className="mt-2 text-gray-600 text-sm h-12 overflow-hidden">{product.description}</p>
         
-        <div className="mt-4 flex justify-between items-center">
-          <Link 
-            to={`/products/${product.id}`} 
-            className="text-green-600 hover:text-green-800 text-sm font-medium"
-          >
-            View Details
-          </Link>
-          
+        <div className="mt-4 flex justify-end items-center">
           <button 
             onClick={handleAddToCart}
             className="bg-green-600 hover:bg-green-700 text-white py-1 px-3 rounded-md text-sm transition-colors"
@@ -83,11 +86,17 @@ function ProductCard({ product }) {
           </button>
         </div>
         
-        {product.pointsWorth > 0 && (
-          <div className="mt-3 bg-green-50 rounded-md p-2 text-center text-sm text-green-700">
-            <span className="font-medium">Or redeem with {product.pointsWorth} points</span>
-          </div>
-        )}
+        {(() => {
+          const price = parseFloat(product.price);
+          const rate = parseFloat(pointsPerRupee || '0');
+          if (Number.isNaN(price) || Number.isNaN(rate) || rate <= 0) return null;
+          const pointsWorth = Math.round(price * rate);
+          return (
+            <div className="mt-3 bg-green-50 rounded-md p-2 text-center text-sm text-green-700">
+              <span className="font-medium">Or redeem with {pointsWorth} points</span>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
