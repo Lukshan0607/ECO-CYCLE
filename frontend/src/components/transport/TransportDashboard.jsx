@@ -1,3 +1,5 @@
+
+
 // src/components/transport/TransportDashboard.jsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
@@ -32,12 +34,7 @@ const activeCollections = [
   { id: "COL004", location: "Business Park", driver: "Emma Davis", vehicle: "TRK-004", bottles: 380, status: "Delayed", startTime: "08:00", estimatedCompletion: "11:00", progress: 30 },
 ];
 
-const transportRoutes = [
-  { id: "RT001", name: "City Center Route", locations: 8, distance: "25 km", avgTime: "3.5 hrs", frequency: "Daily", status: "Active" },
-  { id: "RT002", name: "Suburban Route", locations: 12, distance: "35 km", avgTime: "4.2 hrs", frequency: "Daily", status: "Active" },
-  { id: "RT003", name: "Industrial Route", locations: 6, distance: "18 km", avgTime: "2.8 hrs", frequency: "Twice Daily", status: "Active" },
-  { id: "RT004", name: "Weekend Route", locations: 15, distance: "42 km", avgTime: "5.1 hrs", frequency: "Weekends", status: "Inactive" },
-];
+// Route data is loaded from the backend (no mock data)
 
 const vehicles = [
   { id: "TRK-001", type: "Large Truck", capacity: 500, driver: "John Smith", status: "Active", location: "Downtown", fuel: 75, maintenance: "Good" },
@@ -91,6 +88,91 @@ export default function TransportDashboard() {
     password: "",
   });
 
+  // Add Route modal state
+  const [showAddRoute, setShowAddRoute] = useState(false);
+  const [addRouteForm, setAddRouteForm] = useState({
+    name: "",
+    estimatedDuration: "",
+    distanceTotal: "",
+    distanceUnit: "km",
+    locationsText: "",
+    assignedVehicleId: "",
+    assignedDriverId: "",
+  });
+  const [addRouteErrors, setAddRouteErrors] = useState({});
+
+  // DB-backed routes list
+  const [routesList, setRoutesList] = useState([]);
+  const [loadingRoutesList, setLoadingRoutesList] = useState(false);
+
+  const fetchRoutesList = async () => {
+    try {
+      setLoadingRoutesList(true);
+      const res = await axios.get('http://localhost:5000/api/transport/routes');
+      const payload = res?.data;
+      const list = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : payload || [];
+      setRoutesList(list);
+    } catch (err) { console.error('Failed to fetch routes', err); }
+    finally { setLoadingRoutesList(false); }
+  };
+
+  const validateAddRouteForm = () => {
+    const errors = {};
+    const name = (addRouteForm.name || '').trim();
+    if (!name) errors.name = 'Route name is required';
+    else if (name.length < 3) errors.name = 'Route name must be at least 3 characters';
+    else if (name.length > 80) errors.name = 'Route name cannot exceed 80 characters';
+
+    const est = Number(addRouteForm.estimatedDuration);
+    if (!Number.isFinite(est) || est <= 0) errors.estimatedDuration = 'Estimated duration must be a positive number (mins)';
+
+    const dist = Number(addRouteForm.distanceTotal);
+    if (!Number.isFinite(dist) || dist <= 0) errors.distanceTotal = 'Distance must be a positive number';
+
+    if (!['km','miles'].includes(addRouteForm.distanceUnit)) errors.distanceUnit = 'Invalid distance unit';
+
+    const locs = (addRouteForm.locationsText || '').split(',').map(s=>s.trim()).filter(Boolean);
+    if (addRouteForm.locationsText && locs.length === 0) errors.locationsText = 'Please enter at least one location or leave blank';
+
+    setAddRouteErrors(errors);
+    return { valid: Object.keys(errors).length === 0, errors };
+  };
+
+  // Vehicle management state
+  const [vehiclesList, setVehiclesList] = useState([]);
+  const [loadingVehiclesList, setLoadingVehiclesList] = useState(false);
+  const [showAddVehicle, setShowAddVehicle] = useState(false);
+  const [showEditVehicle, setShowEditVehicle] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState(null);
+  const [editVehicleForm, setEditVehicleForm] = useState({
+    vehicleId: "",
+    type: "Medium Truck",
+    capacityBottles: "",
+    capacityWeight: "",
+    licensePlate: "",
+    status: "Active",
+    fuelLevel: 100,
+    fuelType: "Diesel",
+    maintenanceStatus: "Good",
+  });
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [vehicleTypeFilter, setVehicleTypeFilter] = useState("");
+  const [vehicleStatusFilter, setVehicleStatusFilter] = useState("");
+  const [addVehicleForm, setAddVehicleForm] = useState({
+    vehicleId: "",
+    type: "Medium Truck",
+    capacityBottles: "",
+    capacityWeight: "",
+    model: "",
+    licensePlate: "",
+    color: "",
+    status: "Active",
+    fuelLevel: 100,
+    fuelType: "Diesel",
+    maintenanceStatus: "Good",
+    
+  });
+
   const menuItems = [
     { name: "Transport Overview", key: "overview", icon: <Truck size={20} /> },
     { name: "Requests", key: "requests", icon: <Package size={20} /> },
@@ -98,7 +180,7 @@ export default function TransportDashboard() {
     { name: "Deliveries", key: "deliveries", icon: <Package size={20} /> },
     { name: "Route Management", key: "routes", icon: <MapPin size={20} /> },
     { name: "Vehicle Fleet", key: "vehicles", icon: <Truck size={20} /> },
-    { name: "Driver Management", key: "drivers", icon: <Users size={20} /> },
+    { name: "Drivers", key: "drivers", icon: <Users size={20} /> },
   ];
 
   const getStatusColor = (status) => {
@@ -117,8 +199,12 @@ export default function TransportDashboard() {
   const fetchDriversList = async () => {
     try {
       setLoadingDriversList(true);
-      const res = await axios.get('http://localhost:5000/api/transport/drivers');
-      setDriversList(Array.isArray(res.data) ? res.data : []);
+      const res = await axios.get('http://localhost:5000/api/employees', {
+        params: { department: 'transport', position: 'Driver', status: 'active' }
+      });
+      const payload = res?.data;
+      const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+      setDriversList(list);
     } catch (err) { console.error('Failed to fetch drivers', err); }
     finally { setLoadingDriversList(false); }
   };
@@ -195,6 +281,116 @@ export default function TransportDashboard() {
       default: return <Clock size={16} className="text-gray-600" />;
     }
   };
+
+  // Modal to select driver and schedule time
+  const AssignModal = () => {
+    if (!showAssignModal) return null;
+    return (
+      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+        <div className="bg-white w-[760px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
+          <div className="px-5 py-3 border-b flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Assign Driver & Schedule Pickup</h3>
+            <button className="text-gray-500 hover:text-gray-700" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setAssignNotice({type:'', text:''}); }}>✕</button>
+          </div>
+          <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2">
+              <h4 className="font-medium mb-2">Select a Driver</h4>
+              {assignNotice.text && (
+                <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${assignNotice.type==='error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>{assignNotice.text}</div>
+              )}
+              {loadingDrivers ? (
+                <div className="text-gray-600">Loading drivers...</div>
+              ) : (
+                <div className="max-h-72 overflow-auto border rounded-xl">
+                  {drivers.map((d)=>{
+                    const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+                    const status = d.currentStatus;
+                    const selected = selectedDriverId === d._id;
+                    return (
+                      <button key={d._id} onClick={()=>setSelectedDriverId(d._id)} className={`w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium">{name}</div>
+                            <div className="text-xs text-gray-500">Employee ID: {d.employeeId}</div>
+                          </div>
+                          <span className={`text-xs px-2 py-1 rounded-full ${status==='Available'?'bg-green-100 text-green-700': 'bg-gray-100 text-gray-700'}`}>{status}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {drivers.length === 0 && (
+                    <div className="p-4 text-gray-600">No drivers found</div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="md:col-span-1">
+              <label className="block text-sm font-medium mb-1">Schedule a Pick Up Time</label>
+              <input type="datetime-local" className="border rounded-lg px-3 py-2 w-full" value={scheduledAt} onChange={(e)=>setScheduledAt(e.target.value)} />
+              <div className="text-xs text-gray-500 mt-1">Schedule when the driver should pick bottles at the collector location.</div>
+            </div>
+          </div>
+          <div className="px-5 pb-5 flex justify-end gap-2">
+            <button className="border px-4 py-2 rounded-lg" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setAssignNotice({type:'', text:''}); }}>Cancel</button>
+            <button disabled={assignSubmitting} className={`px-4 py-2 rounded-lg ${assignSubmitting ? 'bg-blue-300 text-white' : 'bg-blue-600 text-white'}`} onClick={async ()=>{
+              try {
+                setAssignNotice({ type: '', text: '' });
+                if (!assignRequestId) { setAssignNotice({ type:'error', text:'Invalid request selected' }); return; }
+                if (!selectedDriverId) { setAssignNotice({ type:'error', text:'Please select a driver' }); return; }
+                if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup time' }); return; }
+                setAssignSubmitting(true);
+                await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/assign-driver`, {
+                  driverId: selectedDriverId,
+                  scheduledAt,
+                });
+                // Ensure status is set to Assigned so Collectors page and Assigned tab reflect it
+                try {
+                  await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/status`, { status: 'Assigned' });
+                } catch (err) { console.error('Failed to update status to Assigned', err); }
+                setAssignNotice({ type:'success', text:'Assigned successfully' });
+                // brief delay to show success
+                setTimeout(()=>{
+                  setShowAssignModal(false);
+                  setAssignRequestId(null);
+                  setSelectedDriverId("");
+                  setAssignSubmitting(false);
+                  fetchRequests();
+                  fetchAssigned();
+                }, 600);
+              } catch (err) {
+                console.error('Assign failed', err);
+                setAssignSubmitting(false);
+                setAssignNotice({ type:'error', text: err?.response?.data?.message || 'Failed to assign. Please try again.' });
+              }
+            }}>{assignSubmitting ? 'Assigning...' : 'Confirm'}</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const fetchVehiclesList = async () => {
+    try {
+      setLoadingVehiclesList(true);
+      const res = await axios.get('http://localhost:5000/api/transport/vehicles', {
+        params: {
+          search: vehicleSearch || undefined,
+          type: vehicleTypeFilter || undefined,
+          status: vehicleStatusFilter || undefined,
+        }
+      });
+      // Support both shapes: raw array and { success, data }
+      const payload = res?.data;
+      const list = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+      setVehiclesList(list);
+    } catch (err) { console.error('Failed to fetch vehicles', err); }
+    finally { setLoadingVehiclesList(false); }
+  };
+
+  // Refetch vehicles when filters/search change and Vehicles tab is active
+  useEffect(() => {
+    if (activeTab === 'vehicles') fetchVehiclesList();
+  }, [vehicleSearch, vehicleTypeFilter, vehicleStatusFilter]);
 
   const renderOverview = () => (
     <>
@@ -331,95 +527,6 @@ export default function TransportDashboard() {
       </div>
     </Card>
   );
-
-  // Modal to select driver and schedule time
-  const AssignModal = () => {
-    if (!showAssignModal) return null;
-    return (
-      <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-        <div className="bg-white w-[760px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
-          <div className="px-5 py-3 border-b flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Assign Driver & Schedule Pickup</h3>
-            <button className="text-gray-500 hover:text-gray-700" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setAssignNotice({type:'', text:''}); }}>✕</button>
-          </div>
-          <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2">
-              <h4 className="font-medium mb-2">Select a Driver</h4>
-              {assignNotice.text && (
-                <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${assignNotice.type==='error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>{assignNotice.text}</div>
-              )}
-              {loadingDrivers ? (
-                <div className="text-gray-600">Loading drivers...</div>
-              ) : (
-                <div className="max-h-72 overflow-auto border rounded-xl">
-                  {drivers.map((d)=>{
-                    const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
-                    const status = d.currentStatus;
-                    const selected = selectedDriverId === d._id;
-                    return (
-                      <button key={d._id} onClick={()=>setSelectedDriverId(d._id)} className={`w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="font-medium">{name}</div>
-                            <div className="text-xs text-gray-500">Employee ID: {d.employeeId}</div>
-                          </div>
-                          <span className={`text-xs px-2 py-1 rounded-full ${status==='Available'?'bg-green-100 text-green-700': 'bg-gray-100 text-gray-700'}`}>{status}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {drivers.length === 0 && (
-                    <div className="p-4 text-gray-600">No drivers found</div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="md:col-span-1">
-              <label className="block text-sm font-medium mb-1">Schedule a Pick Up Time</label>
-              <input type="datetime-local" className="border rounded-lg px-3 py-2 w-full" value={scheduledAt} onChange={(e)=>setScheduledAt(e.target.value)} />
-              <div className="text-xs text-gray-500 mt-1">Schedule when the driver should pick bottles at the collector location.</div>
-            </div>
-          </div>
-          <div className="px-5 pb-5 flex justify-end gap-2">
-            <button className="border px-4 py-2 rounded-lg" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setAssignNotice({type:'', text:''}); }}>Cancel</button>
-            <button disabled={assignSubmitting} className={`px-4 py-2 rounded-lg ${assignSubmitting ? 'bg-blue-300 text-white' : 'bg-blue-600 text-white'}`} onClick={async ()=>{
-              try {
-                setAssignNotice({ type: '', text: '' });
-                if (!assignRequestId) { setAssignNotice({ type:'error', text:'Invalid request selected' }); return; }
-                if (!selectedDriverId) { setAssignNotice({ type:'error', text:'Please select a driver' }); return; }
-                if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup time' }); return; }
-                setAssignSubmitting(true);
-                await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/assign-driver`, {
-                  driverId: selectedDriverId,
-                  scheduledAt,
-                });
-                // Ensure status is set to Assigned so Collectors page reflects it
-                try {
-                  await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/status`, { status: 'Assigned' });
-                } catch (err) {
-                  console.error('Failed to update status to Assigned', err);
-                }
-                setAssignNotice({ type:'success', text:'Assigned successfully' });
-                // brief delay to show success
-                setTimeout(()=>{
-                  setShowAssignModal(false);
-                  setAssignRequestId(null);
-                  setSelectedDriverId("");
-                  setAssignSubmitting(false);
-                  fetchRequests();
-                  fetchAssigned();
-                }, 600);
-              } catch (err) {
-                console.error('Assign failed', err);
-                setAssignSubmitting(false);
-                setAssignNotice({ type:'error', text: err?.response?.data?.message || 'Failed to assign. Please try again.' });
-              }
-            }}>{assignSubmitting ? 'Assigning...' : 'Confirm'}</button>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   const renderRequests = () => (
     <Card className="p-4 shadow-lg rounded-2xl">
@@ -624,128 +731,479 @@ export default function TransportDashboard() {
     <Card className="p-4 shadow-lg rounded-2xl">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-bold">Transport Routes</h2>
-        <Button className="bg-purple-600 text-white"><Plus size={16} className="mr-2" />Add Route</Button>
+        <Button className="bg-purple-600 text-white" onClick={async ()=>{
+          try {
+            setShowAddRoute(true);
+            // fetch options for dropdowns
+            setLoadingDriversList(true);
+            const [drv, veh] = await Promise.all([
+              axios.get('http://localhost:5000/api/transport/drivers').catch(()=>({ data: [] })),
+              axios.get('http://localhost:5000/api/transport/vehicles').catch(()=>({ data: [] })),
+            ]);
+            setDriversList(Array.isArray(drv?.data?.data) ? drv.data.data : Array.isArray(drv?.data) ? drv.data : []);
+            setVehiclesList(Array.isArray(veh?.data?.data) ? veh.data.data : Array.isArray(veh?.data) ? veh.data : []);
+          } catch (e) { console.error(e); }
+          finally { setLoadingDriversList(false); }
+        }}><Plus size={16} className="mr-2" />Add Route</Button>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-200">
-              <th className="p-3">Route ID</th>
-              <th className="p-3">Route Name</th>
-              <th className="p-3">Locations</th>
-              <th className="p-3">Distance</th>
-              <th className="p-3">Avg Time</th>
-              <th className="p-3">Frequency</th>
-              <th className="p-3">Status</th>
-              <th className="p-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {transportRoutes.map(route => (
-              <tr key={route.id} className="border-b hover:bg-gray-50">
-                <td className="p-3 font-medium">{route.id}</td>
-                <td className="p-3">{route.name}</td>
-                <td className="p-3">{route.locations} stops</td>
-                <td className="p-3">{route.distance}</td>
-                <td className="p-3">{route.avgTime}</td>
-                <td className="p-3">{route.frequency}</td>
-                <td className="p-3">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(route.status)}`}>
-                    {route.status}
-                  </span>
-                </td>
-                <td className="p-3">
-                  <div className="flex space-x-2">
-                    <Button variant="outline" size="sm">Edit</Button>
-                    <Button variant="outline" size="sm"><MapPin size={16} /></Button>
-                  </div>
-                </td>
+        {loadingRoutesList ? (
+          <div className="p-3 text-gray-600">Loading routes...</div>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-200">
+                <th className="p-3">Route ID</th>
+                <th className="p-3">Route Name</th>
+                <th className="p-3">Locations</th>
+                <th className="p-3">Distance</th>
+                <th className="p-3">Estimated Time</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {routesList.map(route => (
+                <tr key={route._id || route.routeId} className="border-b hover:bg-gray-50">
+                  <td className="p-3 font-medium">{route.routeId}</td>
+                  <td className="p-3">{route.name}</td>
+                  <td className="p-3">{Array.isArray(route.locations) ? route.locations.length : 0} stops</td>
+                  <td className="p-3">{route.distance?.total} {route.distance?.unit || 'km'}</td>
+                  <td className="p-3">{route.estimatedDuration} mins</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(route.status)}`}>
+                      {route.status}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex space-x-2">
+                      <Button variant="outline" size="sm">Edit</Button>
+                      <Button variant="outline" size="sm"><MapPin size={16} /></Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {routesList.length === 0 && (
+                <tr><td className="p-3 text-gray-500" colSpan={7}>No routes found</td></tr>
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
+      {showAddRoute && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white w-[920px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
+            <div className="px-5 py-3 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Add Route</h3>
+              <button className="text-gray-500 hover:text-gray-700" onClick={()=>setShowAddRoute(false)}>✕</button>
+            </div>
+            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
+              <div>
+                <label className="block text-sm font-medium mb-1">Route Name</label>
+                <input className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.name ? 'border-red-500' : ''}`} value={addRouteForm.name} onChange={(e)=>{ setAddRouteForm({...addRouteForm, name: e.target.value}); if (addRouteErrors.name) setAddRouteErrors({...addRouteErrors, name: ''}); }} />
+                {addRouteErrors.name && <p className="mt-1 text-sm text-red-600">{addRouteErrors.name}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Estimated Duration (mins)</label>
+                <input type="number" className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.estimatedDuration ? 'border-red-500' : ''}`} value={addRouteForm.estimatedDuration} onChange={(e)=>{ setAddRouteForm({...addRouteForm, estimatedDuration: e.target.value}); if (addRouteErrors.estimatedDuration) setAddRouteErrors({...addRouteErrors, estimatedDuration: ''}); }} />
+                {addRouteErrors.estimatedDuration && <p className="mt-1 text-sm text-red-600">{addRouteErrors.estimatedDuration}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Distance Total</label>
+                <input type="number" className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.distanceTotal ? 'border-red-500' : ''}`} value={addRouteForm.distanceTotal} onChange={(e)=>{ setAddRouteForm({...addRouteForm, distanceTotal: e.target.value}); if (addRouteErrors.distanceTotal) setAddRouteErrors({...addRouteErrors, distanceTotal: ''}); }} />
+                {addRouteErrors.distanceTotal && <p className="mt-1 text-sm text-red-600">{addRouteErrors.distanceTotal}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Distance Unit</label>
+                <select className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.distanceUnit ? 'border-red-500' : ''}`} value={addRouteForm.distanceUnit} onChange={(e)=>{ setAddRouteForm({...addRouteForm, distanceUnit: e.target.value}); if (addRouteErrors.distanceUnit) setAddRouteErrors({...addRouteErrors, distanceUnit: ''}); }}>
+                  <option>km</option>
+                  <option>miles</option>
+                </select>
+                {addRouteErrors.distanceUnit && <p className="mt-1 text-sm text-red-600">{addRouteErrors.distanceUnit}</p>}
+              </div>
+              <div className="md:col-span-1">
+                <label className="block text-sm font-medium mb-1">Assign Vehicle</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addRouteForm.assignedVehicleId} onChange={(e)=>setAddRouteForm({...addRouteForm, assignedVehicleId: e.target.value})}>
+                  <option value="">Select vehicle</option>
+                  {vehiclesList.map(v=> (
+                    <option key={v._id} value={v._id}>{v.vehicleId} · {v.type}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-1">
+                <label className="block text-sm font-medium mb-1">Assign Driver</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addRouteForm.assignedDriverId} onChange={(e)=>setAddRouteForm({...addRouteForm, assignedDriverId: e.target.value})}>
+                  <option value="">Select driver</option>
+                  {driversList.map(d=>{
+                    const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+                    return <option key={d._id} value={d._id}>{name} · {d.employeeId}</option>
+                  })}
+                </select>
+              </div>
+              <div className="md:col-span-3">
+                <label className="block text-sm font-medium mb-1">Locations (comma separated)</label>
+                <textarea className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.locationsText ? 'border-red-500' : ''}`} rows={3} placeholder="Location A, Location B, ..." value={addRouteForm.locationsText} onChange={(e)=>{ setAddRouteForm({...addRouteForm, locationsText: e.target.value}); if (addRouteErrors.locationsText) setAddRouteErrors({...addRouteErrors, locationsText: ''}); }} />
+                {addRouteErrors.locationsText && <p className="mt-1 text-sm text-red-600">{addRouteErrors.locationsText}</p>}
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex justify-end gap-2">
+              <button className="border px-4 py-2 rounded-lg" onClick={()=>setShowAddRoute(false)}>Cancel</button>
+              <button className="bg-purple-600 text-white px-4 py-2 rounded-lg" onClick={async ()=>{
+                try {
+                  const { valid } = validateAddRouteForm();
+                  if (!valid) return;
+                  const locations = (addRouteForm.locationsText || '')
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean)
+                    .map((n, idx)=>({ name: n, order: idx+1 }));
+                  const payload = {
+                    name: addRouteForm.name,
+                    description: '',
+                    locations,
+                    distance: { total: Number(addRouteForm.distanceTotal) || 0, unit: addRouteForm.distanceUnit },
+                    estimatedDuration: Number(addRouteForm.estimatedDuration) || 0,
+                    assignedVehicles: addRouteForm.assignedVehicleId ? [addRouteForm.assignedVehicleId] : [],
+                  };
+                  await axios.post('http://localhost:5000/api/transport/routes', payload);
+                  setShowAddRoute(false);
+                  setAddRouteForm({ name: "", estimatedDuration: "", distanceTotal: "", distanceUnit: "km", locationsText: "", assignedVehicleId: "", assignedDriverId: "" });
+                  setAddRouteErrors({});
+                } catch (err) { console.error('Create route failed', err); }
+              }}>Save Route</button>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 
   const renderVehicles = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 gap-6">
       <Card className="p-4 shadow-lg rounded-2xl">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-bold">Vehicle Fleet</h2>
-          <Button className="bg-blue-600 text-white"><Plus size={16} className="mr-2" />Add Vehicle</Button>
+          <Button className="bg-blue-600 text-white" onClick={() => setShowAddVehicle(true)}>
+            <Plus size={16} className="mr-2" />Add Vehicle
+          </Button>
         </div>
-        <div className="space-y-4">
-          {vehicles.map(vehicle => (
-            <div key={vehicle.id} className="border rounded-lg p-4">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h3 className="font-medium">{vehicle.id} - {vehicle.type}</h3>
-                  <p className="text-sm text-gray-500">Driver: {vehicle.driver}</p>
-                  <p className="text-sm text-gray-500">Capacity: {vehicle.capacity} bottles</p>
-                </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(vehicle.status)}`}>
-                  {vehicle.status}
-                </span>
+        <div className="flex flex-col md:flex-row gap-3 mb-4">
+          <input
+            type="text"
+            placeholder="Search by ID, type, model, plate..."
+            className="border rounded-lg px-3 py-2 w-full md:w-1/3"
+            value={vehicleSearch}
+            onChange={(e)=>setVehicleSearch(e.target.value)}
+          />
+          <select className="border rounded-lg px-3 py-2 w-full md:w-48" value={vehicleTypeFilter} onChange={(e)=>setVehicleTypeFilter(e.target.value)}>
+            <option value="">All Types</option>
+            <option>Small Truck</option>
+            <option>Medium Truck</option>
+            <option>Large Truck</option>
+            <option>Van</option>
+          </select>
+          <select className="border rounded-lg px-3 py-2 w-full md:w-48" value={vehicleStatusFilter} onChange={(e)=>setVehicleStatusFilter(e.target.value)}>
+            <option value="">All Statuses</option>
+            <option>Active</option>
+            <option>Inactive</option>
+            <option>Maintenance</option>
+            <option>Out of Service</option>
+          </select>
+          <button className="border rounded-lg px-3 py-2" onClick={fetchVehiclesList}>Refresh</button>
+        </div>
+        {loadingVehiclesList ? (
+          <div className="p-4 text-gray-600">Loading vehicles...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vehicle ID</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capacity</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">License Plate</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fuel</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Maintenance</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {vehiclesList.map((v) => {
+                  return (
+                    <tr key={v._id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{v.vehicleId}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{v.type}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{v.capacity?.bottles || 0} bottles · {v.capacity?.weight || 0} kg</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{v.specifications?.licensePlate || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{v.fuel?.level ?? 0}% {v.fuel?.fuelType ? `· ${v.fuel.fuelType}` : ''}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{v.maintenance?.status || 'Good'}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(v.status)}`}>
+                          {v.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        <div className="flex gap-2">
+                          <button className="px-3 py-1 border rounded" onClick={() => {
+                            setEditingVehicle(v);
+                            setEditVehicleForm({
+                              vehicleId: v.vehicleId || "",
+                              type: v.type || "Medium Truck",
+                              capacityBottles: v.capacity?.bottles ?? "",
+                              capacityWeight: v.capacity?.weight ?? "",
+                              licensePlate: v.specifications?.licensePlate || "",
+                              status: v.status || "Active",
+                              fuelLevel: v.fuel?.level ?? 100,
+                              fuelType: v.fuel?.fuelType || "Diesel",
+                              maintenanceStatus: v.maintenance?.status || "Good",
+                            });
+                            setShowEditVehicle(true);
+                          }}>Edit</button>
+                          <button className="px-3 py-1 border rounded text-red-600" onClick={async () => {
+                            if (!window.confirm('Delete this vehicle permanently?')) return;
+                            try {
+                              await axios.delete(`http://localhost:5000/api/transport/vehicles/${v._id}`);
+                              fetchVehiclesList();
+                            } catch (err) { console.error('Delete vehicle failed', err); }
+                          }}>Remove</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {vehiclesList.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-6 text-center text-gray-600">No vehicles found</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {showAddVehicle && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white w-[900px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
+            <div className="px-5 py-3 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Add Vehicle</h3>
+              <button className="text-gray-500 hover:text-gray-700" onClick={() => setShowAddVehicle(false)}>✕</button>
+            </div>
+            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
+              <div>
+                <label className="block text-sm font-medium mb-1">Vehicle ID</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.vehicleId} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, vehicleId: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-3">
-                <div>
-                  <p className="text-xs text-gray-500">Current Location</p>
-                  <p className="text-sm font-medium">{vehicle.location}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Fuel Level</p>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-16 bg-gray-200 rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full ${vehicle.fuel > 50 ? 'bg-green-600' : vehicle.fuel > 25 ? 'bg-yellow-600' : 'bg-red-600'}`}
-                        style={{ width: `${vehicle.fuel}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-xs">{vehicle.fuel}%</span>
-                  </div>
-                </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Type</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.type} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, type: e.target.value })}>
+                  <option>Small Truck</option>
+                  <option>Medium Truck</option>
+                  <option>Large Truck</option>
+                  <option>Van</option>
+                </select>
               </div>
-              <div className="flex justify-between items-center mt-3">
-                <span className={`text-xs ${vehicle.maintenance === 'Good' ? 'text-green-600' : 'text-orange-600'}`}>
-                  {vehicle.maintenance}
-                </span>
-                <div className="flex space-x-2">
-                  <Button variant="outline" size="sm">Track</Button>
-                  <Button variant="outline" size="sm">Maintain</Button>
-                </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Status</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.status} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, status: e.target.value })}>
+                  <option>Active</option>
+                  <option>Inactive</option>
+                  <option>Maintenance</option>
+                  <option>Out of Service</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Capacity (Bottles)</label>
+                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.capacityBottles} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, capacityBottles: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Capacity (Weight kg)</label>
+                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.capacityWeight} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, capacityWeight: e.target.value })} />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">Model</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.model} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, model: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">License Plate</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.licensePlate} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, licensePlate: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Color</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.color} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, color: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Fuel Level (%)</label>
+                <input type="number" min="0" max="100" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.fuelLevel} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, fuelLevel: Number(e.target.value) })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Fuel Type</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.fuelType} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, fuelType: e.target.value })}>
+                  <option>Diesel</option>
+                  <option>Petrol</option>
+                  <option>Electric</option>
+                  <option>Hybrid</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Maintenance Status</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.maintenanceStatus} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, maintenanceStatus: e.target.value })}>
+                  <option>Good</option>
+                  <option>Service Due</option>
+                  <option>Needs Repair</option>
+                  <option>In Service</option>
+                </select>
               </div>
             </div>
-          ))}
+            <div className="px-5 pb-5 flex justify-end gap-2">
+              <button className="border px-4 py-2 rounded-lg" onClick={() => setShowAddVehicle(false)}>Cancel</button>
+              <button className="bg-blue-600 text-white px-4 py-2 rounded-lg" onClick={async () => {
+                try {
+                  // Basic validation
+                  if (!addVehicleForm.vehicleId || !addVehicleForm.type) return;
+                  const payload = {
+                    vehicleId: addVehicleForm.vehicleId,
+                    type: addVehicleForm.type,
+                    capacity: {
+                      bottles: Number(addVehicleForm.capacityBottles) || 0,
+                      weight: Number(addVehicleForm.capacityWeight) || 0,
+                    },
+                    specifications: {
+                      model: addVehicleForm.model,
+                      licensePlate: addVehicleForm.licensePlate,
+                      color: addVehicleForm.color,
+                    },
+                    status: addVehicleForm.status,
+                    fuel: {
+                      level: Number(addVehicleForm.fuelLevel) || 0,
+                      fuelType: addVehicleForm.fuelType,
+                    },
+                    maintenance: {
+                      status: addVehicleForm.maintenanceStatus,
+                    },
+                  };
+                  await axios.post('http://localhost:5000/api/transport/vehicles', payload);
+                  setShowAddVehicle(false);
+                  setAddVehicleForm({
+                    vehicleId: "", type: "Medium Truck", capacityBottles: "", capacityWeight: "",
+                    model: "", licensePlate: "", color: "", status: "Active",
+                    fuelLevel: 100, fuelType: "Diesel", maintenanceStatus: "Good",
+                  });
+                  fetchVehiclesList();
+                } catch (err) { console.error('Create vehicle failed', err); }
+              }}>Save Vehicle</button>
+            </div>
+          </div>
         </div>
-      </Card>
-      <Card className="p-4 shadow-lg rounded-2xl">
-        <h2 className="text-lg font-bold mb-4">Fleet Performance</h2>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={collectionData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="efficiency" stroke="#16a34a" strokeWidth={3} name="Efficiency %" />
-          </LineChart>
-        </ResponsiveContainer>
-        <div className="mt-4 space-y-2">
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Average Efficiency</span>
-            <span className="text-sm font-medium">92.2%</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Total Distance (Month)</span>
-            <span className="text-sm font-medium">2,450 km</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Fuel Consumption</span>
-            <span className="text-sm font-medium">485 L</span>
+      )}
+
+      {showEditVehicle && editingVehicle && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white w-[900px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
+            <div className="px-5 py-3 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Edit Vehicle - {editingVehicle.vehicleId}</h3>
+              <button className="text-gray-500 hover:text-gray-700" onClick={()=>{ setShowEditVehicle(false); setEditingVehicle(null); }}>✕</button>
+            </div>
+            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
+              <div>
+                <label className="block text-sm font-medium mb-1">Vehicle ID</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.vehicleId} onChange={(e)=>setEditVehicleForm({...editVehicleForm, vehicleId: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Type</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.type} onChange={(e)=>setEditVehicleForm({...editVehicleForm, type: e.target.value})}>
+                  <option>Small Truck</option>
+                  <option>Medium Truck</option>
+                  <option>Large Truck</option>
+                  <option>Van</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Status</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.status} onChange={(e)=>setEditVehicleForm({...editVehicleForm, status: e.target.value})}>
+                  <option>Active</option>
+                  <option>Inactive</option>
+                  <option>Maintenance</option>
+                  <option>Out of Service</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Capacity (Bottles)</label>
+                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.capacityBottles} onChange={(e)=>setEditVehicleForm({...editVehicleForm, capacityBottles: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Capacity (Weight kg)</label>
+                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.capacityWeight} onChange={(e)=>setEditVehicleForm({...editVehicleForm, capacityWeight: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">License Plate</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.licensePlate} onChange={(e)=>setEditVehicleForm({...editVehicleForm, licensePlate: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Fuel Level (%)</label>
+                <input type="number" min="0" max="100" className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.fuelLevel} onChange={(e)=>setEditVehicleForm({...editVehicleForm, fuelLevel: Number(e.target.value)})} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Fuel Type</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.fuelType} onChange={(e)=>setEditVehicleForm({...editVehicleForm, fuelType: e.target.value})}>
+                  <option>Diesel</option>
+                  <option>Petrol</option>
+                  <option>Electric</option>
+                  <option>Hybrid</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Maintenance Status</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.maintenanceStatus} onChange={(e)=>setEditVehicleForm({...editVehicleForm, maintenanceStatus: e.target.value})}>
+                  <option>Good</option>
+                  <option>Service Due</option>
+                  <option>Needs Repair</option>
+                  <option>In Service</option>
+                </select>
+              </div>
+            </div>
+            <div className="px-5 pb-5 flex justify-end gap-2">
+              <button className="border px-4 py-2 rounded-lg" onClick={()=>{ setShowEditVehicle(false); setEditingVehicle(null); }}>Cancel</button>
+              <button className="bg-blue-600 text-white px-4 py-2 rounded-lg" onClick={async ()=>{
+                try {
+                  if (!editingVehicle?._id) return;
+                  const payload = {
+                    vehicleId: editVehicleForm.vehicleId,
+                    type: editVehicleForm.type,
+                    capacity: {
+                      bottles: Number(editVehicleForm.capacityBottles) || 0,
+                      weight: Number(editVehicleForm.capacityWeight) || 0,
+                    },
+                    specifications: {
+                      licensePlate: editVehicleForm.licensePlate,
+                    },
+                    status: editVehicleForm.status,
+                    fuel: {
+                      level: Number(editVehicleForm.fuelLevel) || 0,
+                      fuelType: editVehicleForm.fuelType,
+                    },
+                    maintenance: {
+                      status: editVehicleForm.maintenanceStatus,
+                    },
+                  };
+                  await axios.put(`http://localhost:5000/api/transport/vehicles/${editingVehicle._id}`, payload);
+                  setShowEditVehicle(false);
+                  setEditingVehicle(null);
+                  fetchVehiclesList();
+                } catch (err) { console.error('Update vehicle failed', err); }
+              }}>Save Changes</button>
+            </div>
           </div>
         </div>
-      </Card>
+      )}
     </div>
   );
 
@@ -753,14 +1211,14 @@ export default function TransportDashboard() {
     <Card className="p-4 shadow-lg rounded-2xl">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-bold">Driver Management</h2>
-        <Button className="bg-indigo-600 text-white" onClick={()=>setShowAddDriver(true)}><Plus size={16} className="mr-2" />Add Driver</Button>
+        <button className="border rounded-lg px-3 py-2" onClick={fetchDriversList}>Refresh</button>
       </div>
       {loadingDriversList ? (
         <div className="p-4 text-gray-600">Loading drivers...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {driversList.map(d => {
-            const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+            const name = (d.fullName || '').trim() || d.employeeId;
             return (
               <div key={d._id} className="border rounded-lg p-4">
                 <div className="flex items-center space-x-3 mb-3">
@@ -773,10 +1231,11 @@ export default function TransportDashboard() {
                   </div>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Email</span><span>{d.personalInfo?.email || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Phone</span><span>{d.personalInfo?.phone || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Status</span><span className={`font-medium ${d.currentStatus==='Available'?'text-green-600':'text-gray-700'}`}>{d.currentStatus}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Shift</span><span>{d.employment?.shift || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Email</span><span>{d.email || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Phone</span><span>{d.phone || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Department</span><span>{d.department}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Position</span><span>{d.position}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Status</span><span className={`font-medium ${String(d.status).toLowerCase()==='active'?'text-green-600':'text-gray-700'}`}>{d.status}</span></div>
                 </div>
               </div>
             );
@@ -784,141 +1243,6 @@ export default function TransportDashboard() {
           {driversList.length === 0 && (
             <div className="p-4 text-gray-600">No drivers found</div>
           )}
-        </div>
-      )}
-      {showAddDriver && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          <div className="bg-white w-[900px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
-            <div className="px-5 py-3 border-b flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Add Driver</h3>
-              <button className="text-gray-500 hover:text-gray-700" onClick={()=>setShowAddDriver(false)}>✕</button>
-            </div>
-            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
-              <div className="md:col-span-1">
-                <label className="block text-sm font-medium mb-1">Employee ID</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.employeeId} onChange={(e)=>setAddDriverForm({...addDriverForm, employeeId: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">First Name</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.firstName} onChange={(e)=>setAddDriverForm({...addDriverForm, firstName: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Last Name</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.lastName} onChange={(e)=>setAddDriverForm({...addDriverForm, lastName: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
-                <input type="email" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.email} onChange={(e)=>setAddDriverForm({...addDriverForm, email: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Phone</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.phone} onChange={(e)=>setAddDriverForm({...addDriverForm, phone: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Date of Birth</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.dateOfBirth} onChange={(e)=>setAddDriverForm({...addDriverForm, dateOfBirth: e.target.value})} />
-              </div>
-              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Street</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.street} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, street: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">City</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.city} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, city: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">State</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.state} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, state: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Zip Code</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.zipCode} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, zipCode: e.target.value}})} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Number</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseNumber} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseNumber: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Type</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseType} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseType: e.target.value})}>
-                  <option>Class A</option>
-                  <option>Class B</option>
-                  <option>Class C</option>
-                  <option>CDL</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Expiry</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseExpiry} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseExpiry: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Hire Date</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.hireDate} onChange={(e)=>setAddDriverForm({...addDriverForm, hireDate: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Employment Status</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.employmentStatus} onChange={(e)=>setAddDriverForm({...addDriverForm, employmentStatus: e.target.value})}>
-                  <option>Active</option>
-                  <option>Inactive</option>
-                  <option>On Leave</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Shift</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.shift} onChange={(e)=>setAddDriverForm({...addDriverForm, shift: e.target.value})}>
-                  <option>Morning</option>
-                  <option>Afternoon</option>
-                  <option>Night</option>
-                  <option>Flexible</option>
-                </select>
-              </div>
-              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Username</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.username} onChange={(e)=>setAddDriverForm({...addDriverForm, username: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Password</label>
-                  <input type="password" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.password} onChange={(e)=>setAddDriverForm({...addDriverForm, password: e.target.value})} />
-                </div>
-              </div>
-            </div>
-            <div className="px-5 pb-5 flex justify-end gap-2">
-              <button className="border px-4 py-2 rounded-lg" onClick={()=>setShowAddDriver(false)}>Cancel</button>
-              <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg" onClick={async ()=>{
-                try {
-                  const payload = {
-                    employeeId: addDriverForm.employeeId,
-                    firstName: addDriverForm.firstName,
-                    lastName: addDriverForm.lastName,
-                    email: addDriverForm.email,
-                    phone: addDriverForm.phone,
-                    dateOfBirth: addDriverForm.dateOfBirth,
-                    address: addDriverForm.address,
-                    licenseNumber: addDriverForm.licenseNumber,
-                    licenseType: addDriverForm.licenseType,
-                    licenseExpiry: addDriverForm.licenseExpiry,
-                    hireDate: addDriverForm.hireDate,
-                    employmentStatus: addDriverForm.employmentStatus,
-                    shift: addDriverForm.shift,
-                    username: addDriverForm.username,
-                    password: addDriverForm.password,
-                  };
-                  await axios.post('http://localhost:5000/api/transport/drivers', payload);
-                  setShowAddDriver(false);
-                  setAddDriverForm({
-                    employeeId: "", firstName: "", lastName: "", email: "", phone: "",
-                    address: { street: "", city: "", state: "", zipCode: "" }, dateOfBirth: "",
-                    licenseNumber: "", licenseType: "Class C", licenseExpiry: "", hireDate: "",
-                    employmentStatus: "Active", shift: "Morning", username: "", password: "",
-                  });
-                  fetchDriversList();
-                } catch (err) { console.error('Create driver failed', err); }
-              }}>Save Driver</button>
-            </div>
-          </div>
         </div>
       )}
     </Card>
@@ -952,6 +1276,8 @@ export default function TransportDashboard() {
     if (activeTab === 'requests') fetchRequests();
     if (activeTab === 'assigned') fetchAssigned();
     if (activeTab === 'drivers') fetchDriversList();
+    if (activeTab === 'vehicles') fetchVehiclesList();
+    if (activeTab === 'routes') fetchRoutesList();
   }, [activeTab]);
 
   return (
@@ -1000,9 +1326,6 @@ export default function TransportDashboard() {
             </div>
             <div className="flex space-x-3">
               <Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50">Export Report</Button>
-              <Button className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200">
-                <Plus size={16} className="mr-2" />Quick Collection
-              </Button>
             </div>
           </div>
         </header>
