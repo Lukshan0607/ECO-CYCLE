@@ -303,12 +303,12 @@ export default function TransportDashboard() {
                 <th className="p-3">Scheduled Time</th>
                 <th className="p-3">Driver</th>
                 <th className="p-3">Collector</th>
-                <th className="p-3">Bottle Type</th>
-                <th className="p-3">Quantity</th>
+                <th className="p-3">Weight (kg)</th>
                 <th className="p-3">Location</th>
                 <th className="p-3">Status</th>
               </tr>
             </thead>
+
             <tbody>
               {assigned.map(r => (
                 <tr key={r._id} className="border-b hover:bg-gray-50">
@@ -316,15 +316,15 @@ export default function TransportDashboard() {
                   <td className="p-3">{r.scheduledAt ? new Date(r.scheduledAt).toLocaleString() : '-'}</td>
                   <td className="p-3">{getDriverNameById(r.assignedDriverId)}</td>
                   <td className="p-3">{r.collectorName}</td>
-                  <td className="p-3">{r.bottleType}</td>
                   <td className="p-3 font-semibold">{r.quantity}</td>
                   <td className="p-3">{r.location || '-'}</td>
                   <td className="p-3"><span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{r.status}</span></td>
                 </tr>
               ))}
               {assigned.length === 0 && (
-                <tr><td className="p-3 text-gray-500" colSpan={8}>No assigned requests</td></tr>
+                <tr><td className="p-3 text-gray-500" colSpan={7}>No assigned requests</td></tr>
               )}
+
             </tbody>
           </table>
         )}
@@ -375,7 +375,7 @@ export default function TransportDashboard() {
               )}
             </div>
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium mb-1">Pickup Time</label>
+              <label className="block text-sm font-medium mb-1">Schedule a Pick Up Time</label>
               <input type="datetime-local" className="border rounded-lg px-3 py-2 w-full" value={scheduledAt} onChange={(e)=>setScheduledAt(e.target.value)} />
               <div className="text-xs text-gray-500 mt-1">Schedule when the driver should pick bottles at the collector location.</div>
             </div>
@@ -393,6 +393,12 @@ export default function TransportDashboard() {
                   driverId: selectedDriverId,
                   scheduledAt,
                 });
+                // Ensure status is set to Assigned so Collectors page reflects it
+                try {
+                  await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/status`, { status: 'Assigned' });
+                } catch (err) {
+                  console.error('Failed to update status to Assigned', err);
+                }
                 setAssignNotice({ type:'success', text:'Assigned successfully' });
                 // brief delay to show success
                 setTimeout(()=>{
@@ -401,6 +407,7 @@ export default function TransportDashboard() {
                   setSelectedDriverId("");
                   setAssignSubmitting(false);
                   fetchRequests();
+                  fetchAssigned();
                 }, 600);
               } catch (err) {
                 console.error('Assign failed', err);
@@ -432,8 +439,7 @@ export default function TransportDashboard() {
                 <th className="p-3">Request ID</th>
                 <th className="p-3">Requested At</th>
                 <th className="p-3">Collector</th>
-                <th className="p-3">Bottle Type</th>
-                <th className="p-3">Quantity</th>
+                <th className="p-3">Weight (kg)</th>
                 <th className="p-3">Location</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Actions</th>
@@ -445,7 +451,6 @@ export default function TransportDashboard() {
                   <td className="p-3 font-mono text-xs">{r.requestId || (r._id?.slice(-6) || '-')}</td>
                   <td className="p-3">{new Date(r.createdAt).toLocaleString()}</td>
                   <td className="p-3">{r.collectorName}</td>
-                  <td className="p-3">{r.bottleType}</td>
                   <td className="p-3 font-semibold">{r.quantity}</td>
                   <td className="p-3">{r.location || '-'}</td>
                   <td className="p-3"><span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{r.status}</span></td>

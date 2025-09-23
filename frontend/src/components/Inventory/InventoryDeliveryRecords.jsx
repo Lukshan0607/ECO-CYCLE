@@ -162,8 +162,8 @@ export default function InventoryDeliveryRecords() {
                     <th className="py-3 px-4 font-semibold">Name</th>
                     <th className="py-3 px-4 font-semibold">Stock ID</th>
                     <th className="py-3 px-4 font-semibold">Driver Name</th>
-                    <th className="py-3 px-4 font-semibold">Bottle Type</th>
-                    <th className="py-3 px-4 font-semibold">Quantity</th>
+                    <th className="py-3 px-4 font-semibold">Scheduled Pickup Time</th>
+                    <th className="py-3 px-4 font-semibold">Weight (kg)</th>
                     <th className="py-3 px-4 font-semibold">Status</th>
                     <th className="py-3 px-4 font-semibold">Delivered Time</th>
                     <th className="py-3 px-4 font-semibold">Action</th>
@@ -175,7 +175,7 @@ export default function InventoryDeliveryRecords() {
                       <td className="py-3 px-4">{r.collectorName || '-'}</td>
                       <td className="py-3 px-4 font-mono">{r.requestId || (r._id?.slice(-6) || '-')}</td>
                       <td className="py-3 px-4">{driverName(r.assignedDriverId)}</td>
-                      <td className="py-3 px-4">{r.bottleType}</td>
+                      <td className="py-3 px-4">{r.scheduledAt ? new Date(r.scheduledAt).toLocaleString() : '-'}</td>
                       <td className="py-3 px-4 font-semibold">{r.quantity}</td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'Delivered' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
@@ -186,8 +186,9 @@ export default function InventoryDeliveryRecords() {
                       <td className="py-3 px-4">
                         <button
                           onClick={()=>{ if(r.status!== 'Delivered'){ markDelivered(r); } }}
-                          disabled={r.status === 'Delivered'}
-                          className={`px-3 py-1 rounded ${r.status==='Delivered' ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-green-600 text-white'}`}
+                          disabled={r.status === 'Delivered' || !(r.scheduledAt && new Date(r.scheduledAt) <= new Date())}
+                          title={!(r.scheduledAt && new Date(r.scheduledAt) <= new Date()) ? 'Enabled at the scheduled pickup time' : ''}
+                          className={`px-3 py-1 rounded ${r.status === 'Delivered' || !(r.scheduledAt && new Date(r.scheduledAt) <= new Date()) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-green-600 text-white'}`}
                         >Delivered</button>
                       </td>
                     </tr>
