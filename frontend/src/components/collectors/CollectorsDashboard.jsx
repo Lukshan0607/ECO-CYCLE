@@ -880,6 +880,7 @@ export default function CollectorsDashboard() {
                         await axios.post(`http://localhost:5000/api/transport-requests/${r._id}/status`, { status: 'PickedUp' });
                         setTransportReqs(prev => prev.map(x => x._id === r._id ? { ...x, status: 'PickedUp' } : x));
                         setToast('Marked as handed over.');
+                        try { window.dispatchEvent(new CustomEvent('transport:status-updated', { detail: { id: r._id, status: 'PickedUp' } })); } catch {}
                         setTimeout(()=>setToast(''), 2000);
                       } catch (e) {
                         setToast('Failed to update status.');
