@@ -178,6 +178,7 @@ export default function TransportDashboard() {
     { name: "Deliveries", key: "deliveries", icon: <Package size={20} /> },
     { name: "Route Management", key: "routes", icon: <MapPin size={20} /> },
     { name: "Vehicle Fleet", key: "vehicles", icon: <Truck size={20} /> },
+    { name: "Drivers", key: "drivers", icon: <Users size={20} /> },
   ];
 
   const getStatusColor = (status) => {
@@ -196,8 +197,12 @@ export default function TransportDashboard() {
   const fetchDriversList = async () => {
     try {
       setLoadingDriversList(true);
-      const res = await axios.get('http://localhost:5000/api/transport/drivers');
-      setDriversList(Array.isArray(res.data) ? res.data : []);
+      const res = await axios.get('http://localhost:5000/api/employees', {
+        params: { department: 'transport', position: 'Driver', status: 'active' }
+      });
+      const payload = res?.data;
+      const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+      setDriversList(list);
     } catch (err) { console.error('Failed to fetch drivers', err); }
     finally { setLoadingDriversList(false); }
   };
@@ -1161,14 +1166,14 @@ export default function TransportDashboard() {
     <Card className="p-4 shadow-lg rounded-2xl">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-bold">Driver Management</h2>
-        <Button className="bg-indigo-600 text-white" onClick={()=>setShowAddDriver(true)}><Plus size={16} className="mr-2" />Add Driver</Button>
+        <button className="border rounded-lg px-3 py-2" onClick={fetchDriversList}>Refresh</button>
       </div>
       {loadingDriversList ? (
         <div className="p-4 text-gray-600">Loading drivers...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {driversList.map(d => {
-            const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+            const name = (d.fullName || '').trim() || d.employeeId;
             return (
               <div key={d._id} className="border rounded-lg p-4">
                 <div className="flex items-center space-x-3 mb-3">
@@ -1181,10 +1186,11 @@ export default function TransportDashboard() {
                   </div>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Email</span><span>{d.personalInfo?.email || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Phone</span><span>{d.personalInfo?.phone || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Status</span><span className={`font-medium ${d.currentStatus==='Available'?'text-green-600':'text-gray-700'}`}>{d.currentStatus}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Shift</span><span>{d.employment?.shift || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Email</span><span>{d.email || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Phone</span><span>{d.phone || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Department</span><span>{d.department}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Position</span><span>{d.position}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Status</span><span className={`font-medium ${String(d.status).toLowerCase()==='active'?'text-green-600':'text-gray-700'}`}>{d.status}</span></div>
                 </div>
               </div>
             );
@@ -1192,141 +1198,6 @@ export default function TransportDashboard() {
           {driversList.length === 0 && (
             <div className="p-4 text-gray-600">No drivers found</div>
           )}
-        </div>
-      )}
-      {showAddDriver && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          <div className="bg-white w-[900px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
-            <div className="px-5 py-3 border-b flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Add Driver</h3>
-              <button className="text-gray-500 hover:text-gray-700" onClick={()=>setShowAddDriver(false)}>✕</button>
-            </div>
-            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
-              <div className="md:col-span-1">
-                <label className="block text-sm font-medium mb-1">Employee ID</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.employeeId} onChange={(e)=>setAddDriverForm({...addDriverForm, employeeId: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">First Name</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.firstName} onChange={(e)=>setAddDriverForm({...addDriverForm, firstName: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Last Name</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.lastName} onChange={(e)=>setAddDriverForm({...addDriverForm, lastName: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
-                <input type="email" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.email} onChange={(e)=>setAddDriverForm({...addDriverForm, email: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Phone</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.phone} onChange={(e)=>setAddDriverForm({...addDriverForm, phone: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Date of Birth</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.dateOfBirth} onChange={(e)=>setAddDriverForm({...addDriverForm, dateOfBirth: e.target.value})} />
-              </div>
-              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Street</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.street} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, street: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">City</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.city} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, city: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">State</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.state} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, state: e.target.value}})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Zip Code</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.address.zipCode} onChange={(e)=>setAddDriverForm({...addDriverForm, address: {...addDriverForm.address, zipCode: e.target.value}})} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Number</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseNumber} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseNumber: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Type</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseType} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseType: e.target.value})}>
-                  <option>Class A</option>
-                  <option>Class B</option>
-                  <option>Class C</option>
-                  <option>CDL</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">License Expiry</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.licenseExpiry} onChange={(e)=>setAddDriverForm({...addDriverForm, licenseExpiry: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Hire Date</label>
-                <input type="date" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.hireDate} onChange={(e)=>setAddDriverForm({...addDriverForm, hireDate: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Employment Status</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.employmentStatus} onChange={(e)=>setAddDriverForm({...addDriverForm, employmentStatus: e.target.value})}>
-                  <option>Active</option>
-                  <option>Inactive</option>
-                  <option>On Leave</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Shift</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.shift} onChange={(e)=>setAddDriverForm({...addDriverForm, shift: e.target.value})}>
-                  <option>Morning</option>
-                  <option>Afternoon</option>
-                  <option>Night</option>
-                  <option>Flexible</option>
-                </select>
-              </div>
-              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Username</label>
-                  <input className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.username} onChange={(e)=>setAddDriverForm({...addDriverForm, username: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text sm font-medium mb-1">Password</label>
-                  <input type="password" className="border rounded-lg px-3 py-2 w-full" value={addDriverForm.password} onChange={(e)=>setAddDriverForm({...addDriverForm, password: e.target.value})} />
-                </div>
-              </div>
-            </div>
-            <div className="px-5 pb-5 flex justify-end gap-2">
-              <button className="border px-4 py-2 rounded-lg" onClick={()=>setShowAddDriver(false)}>Cancel</button>
-              <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg" onClick={async ()=>{
-                try {
-                  const payload = {
-                    employeeId: addDriverForm.employeeId,
-                    firstName: addDriverForm.firstName,
-                    lastName: addDriverForm.lastName,
-                    email: addDriverForm.email,
-                    phone: addDriverForm.phone,
-                    dateOfBirth: addDriverForm.dateOfBirth,
-                    address: addDriverForm.address,
-                    licenseNumber: addDriverForm.licenseNumber,
-                    licenseType: addDriverForm.licenseType,
-                    licenseExpiry: addDriverForm.licenseExpiry,
-                    hireDate: addDriverForm.hireDate,
-                    employmentStatus: addDriverForm.employmentStatus,
-                    shift: addDriverForm.shift,
-                    username: addDriverForm.username,
-                    password: addDriverForm.password,
-                  };
-                  await axios.post('http://localhost:5000/api/transport/drivers', payload);
-                  setShowAddDriver(false);
-                  setAddDriverForm({
-                    employeeId: "", firstName: "", lastName: "", email: "", phone: "",
-                    address: { street: "", city: "", state: "", zipCode: "" }, dateOfBirth: "",
-                    licenseNumber: "", licenseType: "Class C", licenseExpiry: "", hireDate: "",
-                    employmentStatus: "Active", shift: "Morning", username: "", password: "",
-                  });
-                  fetchDriversList();
-                } catch (err) { console.error('Create driver failed', err); }
-              }}>Save Driver</button>
-            </div>
-          </div>
         </div>
       )}
     </Card>
@@ -1410,9 +1281,6 @@ export default function TransportDashboard() {
             </div>
             <div className="flex space-x-3">
               <Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50">Export Report</Button>
-              <Button className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200">
-                <Plus size={16} className="mr-2" />Quick Collection
-              </Button>
             </div>
           </div>
         </header>
