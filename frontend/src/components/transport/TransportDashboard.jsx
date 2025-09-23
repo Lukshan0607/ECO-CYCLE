@@ -207,6 +207,35 @@ export default function TransportDashboard() {
     finally { setLoadingDriversList(false); }
   };
 
+  // Ensure drivers are available for name lookups (Assigned tab displays names)
+  useEffect(() => {
+    fetchDriversList();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'assigned') {
+      fetchDriversList();
+      fetchAssigned();
+    }
+  }, [activeTab]);
+
+  // Auto-refresh while viewing Assigned to reflect status updates from Inventory
+  useEffect(() => {
+    if (activeTab !== 'assigned') return;
+    const t = setInterval(() => { fetchAssigned(); }, 10000);
+    return () => clearInterval(t);
+  }, [activeTab]);
+
+  const getDriverNameById = (id) => {
+    if (!id) return '-';
+    const d = driversList.find(x => (x._id === id) || (String(x._id) === String(id)));
+    if (!d) return id; // fallback
+    const first = d.personalInfo?.firstName || '';
+    const last = d.personalInfo?.lastName || '';
+    const name = `${first} ${last}`.trim();
+    return name || d.employeeId || id;
+  };
+
   const fetchRequests = async () => {
     try {
       setLoadingRequests(true);
@@ -223,9 +252,20 @@ export default function TransportDashboard() {
   const fetchAssigned = async () => {
     try {
       setLoadingAssigned(true);
-      const res = await axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Assigned' } });
-      const arr = res?.data?.requests || [];
-      setAssigned(arr);
+      const [aRes, dRes] = await Promise.all([
+        axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Assigned' } }),
+        axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Delivered' } }),
+      ]);
+      const a = aRes?.data?.requests || [];
+      const d = dRes?.data?.requests || [];
+      // Merge so that already delivered items still show with Delivered status
+      // Sort by Stock ID (requestId) ascending
+      const merged = [...a, ...d].sort((x,y)=>{
+        const kx = (x.requestId || x._id || '').toString();
+        const ky = (y.requestId || y._id || '').toString();
+        if (kx < ky) return -1; if (kx > ky) return 1; return 0;
+      });
+      setAssigned(merged);
     } catch (err) { console.error('Failed to fetch assigned requests', err); }
     finally { setLoadingAssigned(false); }
   };
@@ -448,7 +488,7 @@ export default function TransportDashboard() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-200">
-                <th className="p-3">Request ID</th>
+                <th className="p-3">Stock ID</th>
                 <th className="p-3">Scheduled Time</th>
                 <th className="p-3">Driver</th>
                 <th className="p-3">Collector</th>
@@ -461,9 +501,9 @@ export default function TransportDashboard() {
             <tbody>
               {assigned.map(r => (
                 <tr key={r._id} className="border-b hover:bg-gray-50">
-                  <td className="p-3 font-mono text-xs">{r._id?.slice(-6) || '-'}</td>
+                  <td className="p-3 font-mono text-xs">{r.requestId || (r._id?.slice(-6) || '-')}</td>
                   <td className="p-3">{r.scheduledAt ? new Date(r.scheduledAt).toLocaleString() : '-'}</td>
-                  <td className="p-3 font-mono text-xs">{r.assignedDriverId ? r.assignedDriverId.slice(-6) : '-'}</td>
+                  <td className="p-3">{getDriverNameById(r.assignedDriverId)}</td>
                   <td className="p-3">{r.collectorName}</td>
                   <td className="p-3">{r.bottleType}</td>
                   <td className="p-3 font-semibold">{r.quantity}</td>
@@ -509,7 +549,7 @@ export default function TransportDashboard() {
             <tbody>
               {requests.map(r => (
                 <tr key={r._id} className="border-b hover:bg-gray-50">
-                  <td className="p-3 font-mono text-xs">{r._id?.slice(-6) || '-'}</td>
+                  <td className="p-3 font-mono text-xs">{r.requestId || (r._id?.slice(-6) || '-')}</td>
                   <td className="p-3">{new Date(r.createdAt).toLocaleString()}</td>
                   <td className="p-3">{r.collectorName}</td>
                   <td className="p-3">{r.bottleType}</td>

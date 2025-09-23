@@ -9,12 +9,19 @@ import {
   ClipboardDocumentListIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import LogoutButton from "../common/LogoutButton";
 
 export default function InventoryMaterials() {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const highlightByQuery = ["1", "true", "low", "yes"].includes((searchParams.get("highlight") || "").toLowerCase());
+  const highlightLowStock = Boolean(location.state?.highlightLowStock) || highlightByQuery;
+  const LOW_STOCK_THRESHOLD = 10;
   const [inventory, setInventory] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editItemId, setEditItemId] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const today = new Date();
   const todayDateString = today.toISOString().split("T")[0];
@@ -29,6 +36,17 @@ export default function InventoryMaterials() {
     lastUpdatedTime: "",
     image: null,
     imagePreview: null,
+  });
+
+  // Derived: filtered inventory by search term (name, color, type)
+  const filteredInventory = inventory.filter((item) => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      String(item.name || "").toLowerCase().includes(needle) ||
+      String(item.color || "").toLowerCase().includes(needle) ||
+      String(item.type || "").toLowerCase().includes(needle)
+    );
   });
 
   // Fetch inventory
@@ -46,14 +64,26 @@ export default function InventoryMaterials() {
     fetchInventory();
   }, []);
 
+  // Auto-scroll to the first low stock row when coming from dashboard
+  useEffect(() => {
+    if (!highlightLowStock || !Array.isArray(inventory) || inventory.length === 0) return;
+    const firstLow = inventory.find((it) => Number(it.stock) < LOW_STOCK_THRESHOLD);
+    if (firstLow) {
+      const el = document.getElementById(`row-${firstLow._id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [highlightLowStock, inventory]);
+
   // Input change with validation
   const handleInputChange = (e) => {
     const { name, value, files } = e.target;
     
     // Validation logic
     if (name === "name") {
-      // Item Name: only letters and spaces allowed
-      const nameRegex = /^[A-Za-z\s]*$/;
+      // Item Name: only letters (all languages) and spaces allowed
+      const nameRegex = /^[\p{L}\s]*$/u;
       if (!nameRegex.test(value)) {
         return; // Don't update if invalid
       }
@@ -77,7 +107,7 @@ export default function InventoryMaterials() {
     }
     
     if (name === "lastUpdatedDate") {
-      setNewItem({ ...newItem, lastUpdatedDate: value });
+      setNewItem((prev) => ({ ...prev, lastUpdatedDate: value }));
       if (value === todayDateString) {
         const hours = today.getHours().toString().padStart(2, "0");
         const minutes = today.getMinutes().toString().padStart(2, "0");
@@ -88,14 +118,14 @@ export default function InventoryMaterials() {
     } else if (name === "image") {
       const file = files[0];
       if (file) {
-        setNewItem({
-          ...newItem,
+        setNewItem((prev) => ({
+          ...prev,
           image: file,
           imagePreview: URL.createObjectURL(file),
-        });
+        }));
       }
     } else {
-      setNewItem({ ...newItem, [name]: value });
+      setNewItem((prev) => ({ ...prev, [name]: value }));
     }
   };
 
@@ -379,6 +409,12 @@ export default function InventoryMaterials() {
                 <option value="Powder">Powder</option>
                 <option value="Pieces">Pieces</option>
                 <option value="Wire">Wire</option>
+                <option value="Plastic Bottle Cap/Lid">Plastic Bottle Cap/Lid</option>
+                <option value="Plastic Bottle Yarn">Plastic Bottle Yarn</option>
+                <option value="Pellets">Pellets</option>
+                <option value="Granules">Granules</option>
+                <option value="Bales">Bales</option>
+                <option value="Regrind">Regrind</option>
               </select>
             </div>
 
@@ -426,10 +462,24 @@ export default function InventoryMaterials() {
 
         {/* Table */}
         <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
-          <div className="flex items-center justify-between mb-6">
+          {highlightLowStock && (
+            <div className="mb-4 p-3 rounded-lg border border-red-200 bg-red-50 text-red-800 text-sm">
+              Low stock items are highlighted in red.
+            </div>
+          )}
+          <div className="flex items-center justify-between mb-6 gap-4">
             <h2 className="text-xl font-bold text-gray-900">Inventory List</h2>
             <div className="text-sm text-gray-500">
               Total Items: <span className="font-semibold text-gray-900">{inventory.length}</span>
+            </div>
+            <div className="ml-auto w-full max-w-md relative">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by Item Name, Color, or Processed Form..."
+                className="w-full pl-3 pr-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -447,7 +497,7 @@ export default function InventoryMaterials() {
                 </tr>
               </thead>
               <tbody>
-                {inventory.map((item) => {
+                {filteredInventory.map((item) => {
                   const getColorBadge = (color) => {
                     const colorClasses = {
                       'Clear': 'bg-gray-100 text-gray-800 border border-gray-300',
@@ -465,13 +515,23 @@ export default function InventoryMaterials() {
                       'Crushed': 'bg-orange-100 text-orange-800',
                       'Powder': 'bg-pink-100 text-pink-800',
                       'Pieces': 'bg-cyan-100 text-cyan-800',
-                      'Wire': 'bg-indigo-100 text-indigo-800'
+                      'Wire': 'bg-indigo-100 text-indigo-800',
+                      'Plastic Bottle Cap/Lid': 'bg-blue-100 text-blue-800',
+                      'Plastic Bottle Yarn': 'bg-purple-100 text-purple-800',
+                      'Pellets': 'bg-teal-100 text-teal-800',
+                      'Granules': 'bg-lime-100 text-lime-800',
+                      'Bales': 'bg-amber-100 text-amber-800',
+                      'Regrind': 'bg-rose-100 text-rose-800'
                     };
                     return typeClasses[type] || 'bg-gray-100 text-gray-800';
                   };
 
                   return (
-                    <tr key={item._id} className="hover:bg-gray-50 transition-colors duration-200">
+                    <tr
+                      key={item._id}
+                      id={`row-${item._id}`}
+                      className={`${highlightLowStock && Number(item.stock) < LOW_STOCK_THRESHOLD ? 'bg-red-100 ring-2 ring-red-200' : ''} hover:bg-gray-50 transition-colors duration-200`}
+                    >
                       <td className="p-3 border border-gray-200 font-mono text-sm font-semibold text-blue-600">
                         {item.itemCode}
                       </td>
@@ -543,6 +603,15 @@ export default function InventoryMaterials() {
                     </tr>
                   );
                 })}
+                {inventory.length > 0 && filteredInventory.length === 0 && (
+                  <tr>
+                    <td colSpan="8" className="p-8 text-center text-gray-500 bg-gray-50">
+                      <CubeIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                      <p className="text-lg font-medium">No items match your search</p>
+                      <p className="text-sm">Try a different Item Name, Color, or Processed Form</p>
+                    </td>
+                  </tr>
+                )}
                 {inventory.length === 0 && (
                   <tr>
                     <td colSpan="8" className="p-8 text-center text-gray-500 bg-gray-50">

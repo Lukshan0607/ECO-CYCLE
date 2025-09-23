@@ -3,11 +3,31 @@ const TransportRequest = require('../Model/TransportRequestModel');
 // Create a new transport request (status defaults to Pending)
 const createTransportRequest = async (req, res) => {
   try {
-    const { collectionId, collectorName, bottleType, quantity, location, notes } = req.body;
+    const { collectionId, collectorName, bottleType, quantity, location, notes, requestId } = req.body;
     if (!collectorName || !bottleType || !Number(quantity)) {
       return res.status(400).json({ success: false, message: 'collectorName, bottleType and positive quantity are required' });
     }
+    // Determine requestId: if provided, use it; otherwise generate next CSTxxxx
+    let finalRequestId = String(requestId || '').trim();
+    const pad4 = (n) => String(n).padStart(4, '0');
+    const genNextReqId = async () => {
+      const last = await TransportRequest.findOne({ requestId: /^CST\d{4}$/ }).sort({ requestId: -1 }).select('requestId');
+      let nextNum = 1;
+      if (last && last.requestId) {
+        const m = last.requestId.match(/CST(\d{4})/);
+        if (m) nextNum = Number(m[1]) + 1;
+      }
+      return `CST${pad4(nextNum)}`;
+    };
+    if (!finalRequestId) {
+      finalRequestId = await genNextReqId();
+    } else {
+      // If provided ID already exists, fallback to generating the next
+      const exists = await TransportRequest.findOne({ requestId: finalRequestId }).select('_id');
+      if (exists) finalRequestId = await genNextReqId();
+    }
     const doc = await TransportRequest.create({
+      requestId: finalRequestId,
       collectionId: collectionId || null,
       collectorName,
       bottleType,
