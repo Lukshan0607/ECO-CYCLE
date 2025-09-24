@@ -1,9 +1,21 @@
 const Product = require('../Model/ProductModel');
 
+// Helper: generate next sequential productId like RIP-0001
+const generateNextProductId = async () => {
+  // Get all existing productIds and compute max sequence
+  const ids = await Product.find({}, { productId: 1, _id: 0 }).lean();
+  const seqs = ids
+    .map((d) => (d.productId && /^RIP-(\d{4})$/.test(d.productId) ? parseInt(d.productId.slice(4), 10) : 0))
+    .filter((n) => Number.isFinite(n));
+  const max = seqs.length ? Math.max(...seqs) : 0;
+  const next = Math.min(max + 1, 9999);
+  return `RIP-${String(next).padStart(4, '0')}`;
+};
+
 // Create a new product
 exports.createProduct = async (req, res) => {
   try {
-    const { name, price, stock, category, imageUrl, description, points } = req.body;
+    const { name, price, stock, category, imageUrl, description, points, productId } = req.body;
 
     // Validate required fields
     if (!name || !price || !category) {
@@ -41,6 +53,7 @@ exports.createProduct = async (req, res) => {
 
     // Create new product
     const newProduct = new Product({
+      productId: productId && /^RIP-\d{4}$/.test(productId) ? productId : await generateNextProductId(),
       name: name.trim(),
       price: parseFloat(price),
       stock: parseInt(stock) || 0,

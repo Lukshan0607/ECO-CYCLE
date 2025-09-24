@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema({
+  productId: {
+    type: String,
+    required: true,
+    unique: true,
+    match: [/^RIP-\d{4}$/, 'Product ID must match RIP-0001 format']
+  },
   name: {
     type: String,
     required: true,

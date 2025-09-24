@@ -1,6 +1,6 @@
           import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import LogoutButton from "../common/LogoutButton";
 import {
   LayoutDashboard,
@@ -22,27 +22,19 @@ import {
   PackagePlus,
   DollarSign,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  Legend,
-} from "recharts";
+ 
 
 const ProductionDashboard = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("overview");
   const [inventoryItems, setInventoryItems] = useState([]);
   const [acceptedMaterials, setAcceptedMaterials] = useState([]);
   const [requests, setRequests] = useState([]);
+  // Pagination and filtering for Production Requests
+  const [requestPage, setRequestPage] = useState(1);
+  const [requestPageSize, setRequestPageSize] = useState(10);
+  const [requestQuery, setRequestQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -96,15 +88,6 @@ const ProductionDashboard = () => {
     planId: ''
   });
 
-  // Production vs Sales data for analytics
-  const productionData = [
-    { month: "Jan", produced: 1200, sold: 1100 },
-    { month: "Feb", produced: 1350, sold: 1250 },
-    { month: "Mar", produced: 1400, sold: 1380 },
-    { month: "Apr", produced: 1300, sold: 1200 },
-    { month: "May", produced: 1500, sold: 1450 },
-    { month: "Jun", produced: 1600, sold: 1550 },
-  ];
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [products, setProducts] = useState([]);
@@ -117,23 +100,43 @@ const ProductionDashboard = () => {
     imageUrl: "",
     description: "",
     category: "",
+    points: "",
   });
 
-  // Loyalty: points per 1 rupee setting (persisted locally for now)
+  // Loyalty: points per 1 rupee setting (persisted in backend)
   const [pointsPerRupee, setPointsPerRupee] = useState("");
+  const [pointsSavedAt, setPointsSavedAt] = useState("");
+
+  // Load loyalty settings from backend
   useEffect(() => {
-    const saved = localStorage.getItem('pointsPerRupee');
-    if (saved !== null) setPointsPerRupee(saved);
-    const savedAt = localStorage.getItem('pointsPerRupeeSavedAt');
-    if (savedAt) setPointsSavedAt(savedAt);
+    const loadSettings = async () => {
+      try {
+        const res = await axios.get('http://localhost:5000/api/points/settings');
+        const rate = res.data?.settings?.pointsPerRupee;
+        const updatedAt = res.data?.settings?.updatedAt;
+        if (rate !== undefined) setPointsPerRupee(String(rate));
+        if (updatedAt) setPointsSavedAt(updatedAt);
+      } catch (err) {
+        console.error('Failed to load loyalty settings', err);
+      }
+    };
+    loadSettings();
   }, []);
-  const handleSavePointsPerRupee = (e) => {
+
+  const handleSavePointsPerRupee = async (e) => {
     e.preventDefault();
-    localStorage.setItem('pointsPerRupee', pointsPerRupee);
-    const ts = new Date().toISOString();
-    localStorage.setItem('pointsPerRupeeSavedAt', ts);
-    setPointsSavedAt(ts);
-    alert('Saved: points per 1 rupee updated.');
+    try {
+      const body = { pointsPerRupee: Number(pointsPerRupee) };
+      const res = await axios.post('http://localhost:5000/api/points/settings', body);
+      const updatedAt = res.data?.settings?.updatedAt || new Date().toISOString();
+      setPointsSavedAt(updatedAt);
+      // Refresh products so updated points reflect in table
+      await fetchProducts();
+      alert(`Saved: points per 1 rupee updated. Products recalculated: ${res.data?.updatedProducts ?? 0}`);
+    } catch (err) {
+      console.error('Failed to save loyalty settings', err);
+      alert('Failed to save loyalty settings. Please ensure the backend is running.');
+    }
   };
 
   // Fetch quality records
@@ -504,7 +507,7 @@ const ProductionDashboard = () => {
     return `RIP-${String(next).padStart(4, '0')}`;
   };
 
-  const [pointsSavedAt, setPointsSavedAt] = useState("");
+  
 
   // Sample data (replace with API calls later)
   const overview = {
@@ -532,27 +535,36 @@ const ProductionDashboard = () => {
     { name: "Green HDPE Bottles", qty: 35000, weight: "890.2kg" },
   ];
 
+  // Derived: filtered and paginated production requests
+  const filteredRequests = (requests || []).filter((r) => {
+    if (!requestQuery) return true;
+    const q = requestQuery.toLowerCase();
+    return (
+      String(r._id || '').toLowerCase().includes(q) ||
+      String(r.team || '').toLowerCase().includes(q) ||
+      String(r.priority || '').toLowerCase().includes(q) ||
+      String(r.status || '').toLowerCase().includes(q) ||
+      String(r?.inventoryItemId?.name || '').toLowerCase().includes(q)
+    );
+  });
+  const totalRequestPages = Math.max(1, Math.ceil(filteredRequests.length / requestPageSize) || 1);
+  const currentRequestPage = Math.min(requestPage, totalRequestPages);
+  const pagedRequests = filteredRequests.slice(
+    (currentRequestPage - 1) * requestPageSize,
+    currentRequestPage * requestPageSize
+  );
+
+  useEffect(() => {
+    // Reset to first page when filters or data change
+    setRequestPage(1);
+  }, [requestQuery, requestPageSize, requests]);
+
   // Filtered products by search
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const productionSales = [
-    { month: "Jan", produced: 120, sold: 100 },
-    { month: "Feb", produced: 140, sold: 110 },
-    { month: "Mar", produced: 160, sold: 120 },
-    { month: "Apr", produced: 180, sold: 150 },
-    { month: "May", produced: 130, sold: 115 },
-    { month: "Jun", produced: 150, sold: 135 },
-  ];
-
-  const revenueData = [
-    { product: "Bottles", revenue: 4 },
-    { product: "Containers", revenue: 3 },
-    { product: "Bags", revenue: 2 },
-    { product: "Sheets", revenue: 1 },
-    { product: "Other", revenue: 0.5 },
-  ];
+  // Analytics visualizations have been moved to a dedicated page.
 
   const recentActivity = [
     { type: "Production", detail: "100 units of Recycled PET Filament completed" },
@@ -711,6 +723,16 @@ const ProductionDashboard = () => {
     }
   };
 
+  // Sync activeTab with URL query (?tab=...)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab && tab !== activeTab) {
+      setActiveTab(tab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   // Load data when component mounts and when tabs change
   useEffect(() => {
     if (activeTab === 'products') {
@@ -842,12 +864,8 @@ const ProductionDashboard = () => {
         imageUrl: newProduct.imageUrl || '',
         description: newProduct.description?.trim() || '',
         category: newProduct.category,
+        points: newProduct.points ? parseInt(newProduct.points) : 0,
       };
-
-      // Only generate and set productId when creating a new product
-      if (!editingProduct) {
-        productData.productId = generateUniqueProductId();
-      }
 
       console.log('Sending product data:', productData);
 
@@ -886,6 +904,7 @@ const ProductionDashboard = () => {
           imageUrl: "",
           description: "",
           category: "",
+          points: "",
         });
         setEditingProduct(null);
         setShowAddForm(false);
@@ -934,10 +953,19 @@ const ProductionDashboard = () => {
                 {item.icon}
                 <span className="font-medium">{item.name}</span>
               </Link>
+            ) : item.key === 'analytics' ? (
+              <Link
+                key={item.key}
+                to="/production/analytics"
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </Link>
             ) : (
               <button
                 key={item.key}
-                onClick={() => setActiveTab(item.key)}
+                onClick={() => { setActiveTab(item.key); navigate(`/production?tab=${item.key}`); }}
                 className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${
                   activeTab === item.key
                     ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
@@ -1088,37 +1116,7 @@ const ProductionDashboard = () => {
             )}
           </div>
 
-          {/* Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white shadow rounded-2xl p-4">
-              <h3 className="font-bold text-lg mb-4">Production vs Sales</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={productionSales}>
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="produced" fill="#3b82f6" /> {/* blue-500 */}
-                  <Bar dataKey="sold" fill="#22c55e" /> {/* green-500 */}
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="bg-white shadow rounded-2xl p-4">
-              <h3 className="font-bold text-lg mb-4">Revenue by Product</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={revenueData}>
-                  <XAxis dataKey="product" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#16a34a"
-                  />{" "}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          {/* Charts moved to Analytics page. */}
 
           {/* Raw Materials + Activity */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1279,12 +1277,7 @@ const ProductionDashboard = () => {
                               <p className="text-sm text-gray-600 truncate" title={p.description}>{p.description || 'No description available'}</p>
                             </td>
                             <td className="py-3 px-4 text-center"><span className="font-bold text-green-600">{parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></td>
-                            <td className="py-3 px-4 text-center"><span className="font-medium text-gray-900">{(() => {
-                              const price = parseFloat(p.price);
-                              const rate = parseFloat(pointsPerRupee || '0');
-                              if (Number.isNaN(price) || Number.isNaN(rate)) return 0;
-                              return Math.round(price * rate);
-                            })()}</span></td>
+                            <td className="py-3 px-4 text-center"><span className="font-medium text-gray-900">{p.points ?? 0}</span></td>
                             <td className="py-3 px-4 text-center">
                               <div className="flex flex-col items-center">
                                 <span className="font-medium text-gray-900">{p.stock}</span>
@@ -1641,8 +1634,28 @@ const ProductionDashboard = () => {
 
                   {/* Production Requests Table */}
                   <div className="bg-white shadow-lg rounded-2xl p-6 mt-6">
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Production Requests</h3>
-                    {requests.length === 0 ? (
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-xl font-bold text-gray-900">Production Requests</h3>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          value={requestQuery}
+                          onChange={(e) => setRequestQuery(e.target.value)}
+                          placeholder="Search (ID, team, item, status)"
+                          className="border rounded-lg px-3 py-2 text-sm"
+                        />
+                        <select
+                          value={requestPageSize}
+                          onChange={(e) => setRequestPageSize(parseInt(e.target.value) || 10)}
+                          className="border rounded-lg px-2 py-2 text-sm"
+                        >
+                          <option value={10}>10 / page</option>
+                          <option value={25}>25 / page</option>
+                          <option value={50}>50 / page</option>
+                        </select>
+                      </div>
+                    </div>
+                    {filteredRequests.length === 0 ? (
                       <div className="text-gray-600">No production requests found.</div>
                     ) : (
                       <div className="overflow-x-auto">
@@ -1661,7 +1674,7 @@ const ProductionDashboard = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {requests.map((req) => (
+                            {pagedRequests.map((req) => (
                               <tr key={req._id} className="border-t text-sm">
                                 <td className="py-3 px-4 text-gray-900">{req._id?.slice(-8) || '-'}</td>
                                 <td className="py-3 px-4">{req.team}</td>
@@ -1690,6 +1703,29 @@ const ProductionDashboard = () => {
                             ))}
                           </tbody>
                         </table>
+                        <div className="flex items-center justify-between mt-4 text-sm text-gray-700">
+                          <div>
+                            Showing {filteredRequests.length === 0 ? 0 : (currentRequestPage - 1) * requestPageSize + 1}
+                            -{Math.min(currentRequestPage * requestPageSize, filteredRequests.length)} of {filteredRequests.length}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setRequestPage((p) => Math.max(1, p - 1))}
+                              disabled={currentRequestPage === 1}
+                              className={`px-3 py-1 rounded border ${currentRequestPage === 1 ? 'text-gray-400 border-gray-200' : 'hover:bg-gray-50'}`}
+                            >
+                              Prev
+                            </button>
+                            <span className="px-2">Page {currentRequestPage} / {totalRequestPages}</span>
+                            <button
+                              onClick={() => setRequestPage((p) => Math.min(totalRequestPages, p + 1))}
+                              disabled={currentRequestPage === totalRequestPages}
+                              className={`px-3 py-1 rounded border ${currentRequestPage === totalRequestPages ? 'text-gray-400 border-gray-200' : 'hover:bg-gray-50'}`}
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1927,38 +1963,7 @@ const ProductionDashboard = () => {
             </div>
           )}
 
-          {/* Analytics Tab */}
-          {activeTab === "analytics" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-lg font-bold mb-4">Production vs Sales</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={productionData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="produced" fill="#3b82f6" name="Produced" />
-                      <Bar dataKey="sold" fill="#22c55e" name="Sold" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-lg font-bold mb-4">Revenue by Product</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={revenueData}>
-                      <XAxis dataKey="product" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="revenue" stroke="#16a34a" strokeWidth={3} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Analytics moved to separate page at /production/analytics */}
 
           {/* Reports Tab */}
           {activeTab === "reports" && (
