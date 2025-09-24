@@ -62,6 +62,7 @@ export default function TransportDashboard() {
   // Vehicles for Assign modal (active only)
   const [vehiclesAssign, setVehiclesAssign] = useState([]);
   const [loadingVehiclesAssign, setLoadingVehiclesAssign] = useState(false);
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
   // Driver management state
   const [driversList, setDriversList] = useState([]);
   const [loadingDriversList, setLoadingDriversList] = useState(false);
@@ -372,6 +373,25 @@ export default function TransportDashboard() {
     }
   }, [activeTab]);
 
+  // Ensure overview has up-to-date data for metrics
+  useEffect(() => {
+    if (activeTab === 'overview') {
+      fetchAssigned();
+      fetchVehiclesList();
+      fetchBinRoutes();
+      fetchDriversList();
+      fetchRequests();
+      // Load rejected (cancelled) count
+      (async ()=>{
+        try {
+          const res = await axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Cancelled' } });
+          const arr = res?.data?.requests || [];
+          setRejectedCount(Array.isArray(arr) ? arr.length : 0);
+        } catch (e) { console.error('Failed to fetch rejected count', e); setRejectedCount(0); }
+      })();
+    }
+  }, [activeTab]);
+
   // Auto-refresh while viewing Assigned to reflect status updates from Inventory
   useEffect(() => {
     if (activeTab !== 'assigned') return;
@@ -402,18 +422,21 @@ export default function TransportDashboard() {
   // Assigned Requests
   const [assigned, setAssigned] = useState([]);
   const [loadingAssigned, setLoadingAssigned] = useState(false);
+  const [rejectedCount, setRejectedCount] = useState(0);
   const fetchAssigned = async () => {
     try {
       setLoadingAssigned(true);
-      const [aRes, dRes] = await Promise.all([
+      const [aRes, pRes, dRes] = await Promise.all([
         axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Assigned' } }),
+        axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'PickedUp' } }),
         axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Delivered' } }),
       ]);
       const a = aRes?.data?.requests || [];
+      const p = pRes?.data?.requests || [];
       const d = dRes?.data?.requests || [];
       // Merge so that already delivered items still show with Delivered status
       // Sort by Stock ID (requestId) ascending
-      const merged = [...a, ...d].sort((x,y)=>{
+      const merged = [...a, ...p, ...d].sort((x,y)=>{
         const kx = (x.requestId || x._id || '').toString();
         const ky = (y.requestId || y._id || '').toString();
         if (kx < ky) return -1; if (kx > ky) return 1; return 0;
@@ -484,14 +507,23 @@ export default function TransportDashboard() {
                     {vehiclesAssign.map((v)=>{
                       const vid = v.vehicleId || v._id;
                       const vtype = v.type || '-';
+                      const selected = selectedVehicleId === vid;
                       return (
-                        <div key={v._id || vid} className="px-4 py-2 border-b last:border-b-0 flex items-center justify-between">
+                        <button
+                          key={v._id || vid}
+                          type="button"
+                          onClick={()=>setSelectedVehicleId(vid)}
+                          className={`w-full text-left px-4 py-2 border-b last:border-b-0 flex items-center justify-between hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}
+                        >
                           <div>
                             <div className="font-medium">{vtype}</div>
                             <div className="text-xs text-gray-500">Vehicle ID: {vid}</div>
                           </div>
-                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Active</span>
-                        </div>
+                          <div className="flex items-center gap-2">
+                            {selected && <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Selected</span>}
+                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Active</span>
+                          </div>
+                        </button>
                       );
                     })}
                     {vehiclesAssign.length === 0 && (
@@ -523,7 +555,7 @@ export default function TransportDashboard() {
             </div>
           </div>
           <div className="px-5 pb-5 flex justify-end gap-2">
-            <button className="border px-4 py-2 rounded-lg" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setAssignNotice({type:'', text:''}); }}>Cancel</button>
+            <button className="border px-4 py-2 rounded-lg" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setSelectedVehicleId(""); setAssignNotice({type:'', text:''}); }}>Cancel</button>
             <button disabled={assignSubmitting} className={`px-4 py-2 rounded-lg ${assignSubmitting ? 'bg-blue-300 text-white' : 'bg-blue-600 text-white'}`} onClick={async ()=>{
               try {
                 setAssignNotice({ type: '', text: '' });
@@ -531,10 +563,12 @@ export default function TransportDashboard() {
                 if (!selectedDriverId) { setAssignNotice({ type:'error', text:'Please select a driver' }); return; }
                 if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup schedule' }); return; }
                 if (scheduledAt && new Date(scheduledAt) < new Date()) { setAssignNotice({ type:'error', text:'Pickup schedule must be in the future.' }); return; }
+                if (!selectedVehicleId) { setAssignNotice({ type:'error', text:'Please select an active vehicle' }); return; }
                 setAssignSubmitting(true);
                 await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/assign-driver`, {
                   driverId: selectedDriverId,
                   scheduledAt,
+                  vehicleId: selectedVehicleId,
                 });
                 setAssignNotice({ type:'success', text:'Assigned successfully' });
                 // brief delay to show success
@@ -542,6 +576,7 @@ export default function TransportDashboard() {
                   setShowAssignModal(false);
                   setAssignRequestId(null);
                   setSelectedDriverId("");
+                  setSelectedVehicleId("");
                   setAssignSubmitting(false);
                   fetchRequests();
                 }, 600);
@@ -660,8 +695,19 @@ export default function TransportDashboard() {
             <Package className="text-green-600" size={32} />
             <div>
               <p className="text-gray-500">Bottles Collected Today</p>
-              <h2 className="text-xl font-bold">2,450</h2>
-              <p className="text-sm text-green-600">+15% from yesterday</p>
+              {(() => {
+                const today = new Date();
+                const isSameDay = (d) => {
+                  const dt = new Date(d);
+                  return dt.getFullYear() === today.getFullYear() && dt.getMonth() === today.getMonth() && dt.getDate() === today.getDate();
+                };
+                const total = assigned
+                  .filter(r => r?.scheduledAt && isSameDay(r.scheduledAt))
+                  .reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+                const formatted = total.toLocaleString();
+                return <h2 className="text-xl font-bold">{formatted}</h2>;
+              })()}
+              <p className="text-sm text-green-600">Updated from assigned requests</p>
             </div>
           </CardContent>
         </Card>
@@ -670,8 +716,17 @@ export default function TransportDashboard() {
             <Truck className="text-blue-600" size={32} />
             <div>
               <p className="text-gray-500">Active Vehicles</p>
-              <h2 className="text-xl font-bold">3/4</h2>
-              <p className="text-sm text-blue-600">1 in maintenance</p>
+              {(() => {
+                const total = vehiclesList.length;
+                const active = vehiclesList.filter(v => v.status === 'Active').length;
+                const maint = vehiclesList.filter(v => v.status === 'Maintenance').length;
+                return (
+                  <>
+                    <h2 className="text-xl font-bold">{active}/{total}</h2>
+                    <p className="text-sm text-blue-600">{maint} in maintenance</p>
+                  </>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -679,19 +734,31 @@ export default function TransportDashboard() {
           <CardContent className="flex items-center space-x-4">
             <MapPin className="text-purple-600" size={32} />
             <div>
-              <p className="text-gray-500">Routes Completed</p>
-              <h2 className="text-xl font-bold">26/30</h2>
-              <p className="text-sm text-purple-600">86.7% efficiency</p>
+              <p className="text-gray-500">Active Bin Locations</p>
+              {(() => {
+                const activeCount = binRoutes.filter(r => (r.status || '').toString() === 'Active').length;
+                return <h2 className="text-xl font-bold">{activeCount}</h2>;
+              })()}
+              <p className="text-sm text-purple-600">Currently active locations</p>
             </div>
           </CardContent>
         </Card>
         <Card className="p-4 shadow-lg rounded-2xl">
           <CardContent className="flex items-center space-x-4">
-            <Clock className="text-orange-600" size={32} />
+            <Users className="text-orange-600" size={32} />
             <div>
-              <p className="text-gray-500">Avg Collection Time</p>
-              <h2 className="text-xl font-bold">3.2 hrs</h2>
-              <p className="text-sm text-orange-600">-0.3 hrs from last week</p>
+              <p className="text-gray-500">Active Drivers</p>
+              {(() => {
+                const total = driversList.length;
+                const active = driversList.filter(d => {
+                  const cs = (d.currentStatus || '').toString().toLowerCase();
+                  const es = (d.employmentStatus || '').toString().toLowerCase();
+                  const s = (d.status || '').toString().toLowerCase();
+                  return cs === 'active' || es === 'active' || s === 'active';
+                }).length;
+                return <h2 className="text-xl font-bold">{active}/{total}</h2>;
+              })()}
+              <p className="text-sm text-orange-600">Transport department</p>
             </div>
           </CardContent>
         </Card>
@@ -700,39 +767,69 @@ export default function TransportDashboard() {
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <Card className="p-4 shadow-lg rounded-2xl">
-          <h2 className="text-lg font-bold mb-4">Monthly Collection Trends</h2>
+          <h2 className="text-lg font-bold mb-4">Transport Requests Status</h2>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={collectionData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
+            <PieChart>
+              {(() => {
+                const pending = requests.length;
+                const assignedCnt = assigned.filter(r => r.status === 'Assigned').length;
+                const pickedUpCnt = assigned.filter(r => r.status === 'PickedUp').length;
+                const deliveredCnt = assigned.filter(r => r.status === 'Delivered').length;
+                const data = [
+                  { name: 'Pending', value: pending },
+                  { name: 'Assigned', value: assignedCnt },
+                  { name: 'Picked Up', value: pickedUpCnt },
+                  { name: 'Delivered', value: deliveredCnt },
+                  { name: 'Rejected', value: rejectedCount },
+                ].filter(x => x.value > 0);
+                return (
+                  <Pie
+                    data={data}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {data.map((entry, index) => (
+                      <Cell key={`cell-req-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                );
+              })()}
               <Tooltip />
-              <Legend />
-              <Bar dataKey="collected" fill="#16a34a" name="Collected" />
-              <Bar dataKey="scheduled" fill="#3b82f6" name="Scheduled" />
-            </BarChart>
+            </PieChart>
           </ResponsiveContainer>
         </Card>
         <Card className="p-4 shadow-lg rounded-2xl">
-          <h2 className="text-lg font-bold mb-4">Route Status Distribution</h2>
+          <h2 className="text-lg font-bold mb-4">Monthly collection of bottles by status</h2>
           <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={routeStatusData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {routeStatusData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
+            {(() => {
+              const sumQty = (arr) => arr.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+              const pendingQty = sumQty(requests);
+              const assignedQty = sumQty(assigned.filter(r => r.status === 'Assigned'));
+              const pickedQty = sumQty(assigned.filter(r => r.status === 'PickedUp'));
+              const deliveredQty = sumQty(assigned.filter(r => r.status === 'Delivered'));
+              const rejectedQty = rejectedCount; // if needed as quantity, keep as count; often rejections have no qty moved
+              const data = [
+                { name: 'Pending', bottles: pendingQty },
+                { name: 'Assigned', bottles: assignedQty },
+                { name: 'Picked Up', bottles: pickedQty },
+                { name: 'Delivered', bottles: deliveredQty },
+              ];
+              return (
+                <BarChart data={data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="bottles" fill="#10b981" name="Bottles" />
+                </BarChart>
+              );
+            })()}
           </ResponsiveContainer>
         </Card>
       </div>
@@ -839,6 +936,7 @@ export default function TransportDashboard() {
                           const nowMin = new Date();
                           const minLocal = `${nowMin.getFullYear()}-${pad(nowMin.getMonth()+1)}-${pad(nowMin.getDate())}T${pad(nowMin.getHours())}:${pad(nowMin.getMinutes())}`;
                           setScheduleMin(minLocal);
+                          setSelectedVehicleId("");
                         } catch {}
                         // Fetch drivers list
                         try {
