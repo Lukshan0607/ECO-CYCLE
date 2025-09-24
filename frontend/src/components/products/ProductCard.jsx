@@ -172,6 +172,6 @@ function ProductCard({ product }) {
       </div>
     </div>
   );
-}
+}//end
 
 export default ProductCard;

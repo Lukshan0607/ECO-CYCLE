@@ -26,6 +26,7 @@ import TransportDashboard from "./components/transport/TransportDashboard";
 import TransportReports from "./components/transport/TransportReports";
 import CollectorsDashboard from "./components/collectors/CollectorsDashboard";
 import InventoryMaterials from "./components/Inventory/InventoryMaterials";
+import InventoryStockManagement from "./components/Inventory/InventoryStockManagement";
 import FAQ from "./components/business/FAQ";
 import Contact from "./components/business/Contact";
 import HelpCenter from "./components/business/HelpCenter";
@@ -121,6 +122,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <InventoryForms />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/stock"
+            element={
+              <ProtectedRoute>
+                <InventoryStockManagement />
               </ProtectedRoute>
             }
           />
