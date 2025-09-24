@@ -1,0 +1,219 @@
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+import { CheckCircle, FileText, Factory, Package, TrendingUp, AlertTriangle, Printer } from "lucide-react";
+
+const ProductionReportPage = () => {
+  const [acceptedMaterials, setAcceptedMaterials] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [machines, setMachines] = useState([]);
+  const [qualityRecords, setQualityRecords] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchAcceptedMaterials = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/production-requests/status/Approved');
+      setAcceptedMaterials(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error('Report: fetchAcceptedMaterials', e);
+    }
+  };
+
+  const fetchProductionPlans = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/production-plans');
+      setPlans(Array.isArray(res.data?.plans) ? res.data.plans : Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error('Report: fetchProductionPlans', e);
+    }
+  };
+
+  const fetchMachines = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/machines');
+      setMachines(Array.isArray(res.data?.machines) ? res.data.machines : Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error('Report: fetchMachines', e);
+    }
+  };
+
+  const fetchQuality = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/quality');
+      setQualityRecords(Array.isArray(res.data?.records) ? res.data.records : Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error('Report: fetchQuality', e);
+    }
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetchAcceptedMaterials(),
+      fetchProductionPlans(),
+      fetchMachines(),
+      fetchQuality(),
+    ]).finally(() => setLoading(false));
+  }, []);
+
+  const approvedRequestsCount = acceptedMaterials.length;
+  const approvedTotalQty = acceptedMaterials.reduce((sum, r) => sum + (parseFloat(r?.requestedQty) || 0), 0);
+  const inProgressPlans = plans.filter(p => p.status === 'In Progress').length;
+  const completedPlans = plans.filter(p => p.status === 'Completed').length;
+  const machinesRunning = machines.filter(m => (m.status || '').toLowerCase() === 'running').length;
+  const defectRate = (() => {
+    const totalInspected = qualityRecords.reduce((s, q) => s + (parseFloat(q?.inspectedQuantity) || 0), 0);
+    const totalDefects = qualityRecords.reduce((s, q) => s + (parseFloat(q?.defectCount) || 0), 0);
+    if (!totalInspected) return 0;
+    return (totalDefects / totalInspected) * 100;
+  })();
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
+      <header className="bg-white border border-gray-200 rounded-2xl p-6 mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
+            <FileText className="text-white" size={20} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Production Reports</h1>
+            <p className="text-gray-600">Summary of production KPIs and records</p>
+          </div>
+        </div>
+        <button onClick={handlePrint} className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
+          <Printer size={18} /> Print / Export
+        </button>
+      </header>
+
+      {loading ? (
+        <div className="text-center text-gray-600">Loading report...</div>
+      ) : (
+        <>
+          {/* KPI Row */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-gray-500">Approved Raw Materials</div>
+                  <div className="text-3xl font-bold">{approvedRequestsCount}</div>
+                  <div className="text-xs text-gray-500">Stock(Kg): {approvedTotalQty}</div>
+                </div>
+                <CheckCircle className="text-emerald-500" />
+              </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-gray-500">Plans In Progress</div>
+                  <div className="text-3xl font-bold">{inProgressPlans}</div>
+                  <div className="text-xs text-gray-500">Completed: {completedPlans}</div>
+                </div>
+                <TrendingUp className="text-blue-600" />
+              </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-gray-500">Machines Running</div>
+                  <div className="text-3xl font-bold">{machinesRunning}</div>
+                  <div className="text-xs text-gray-500">Total: {machines.length}</div>
+                </div>
+                <Factory className="text-purple-600" />
+              </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-gray-500">Defect Rate</div>
+                  <div className="text-3xl font-bold">{defectRate.toFixed(1)}%</div>
+                  <div className="text-xs text-gray-500">from {qualityRecords.length} inspections</div>
+                </div>
+                <AlertTriangle className="text-orange-600" />
+              </div>
+            </div>
+          </div>
+
+          {/* Tables */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Approved Materials */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold flex items-center gap-2"><Package size={18}/> Approved Raw Materials</h2>
+                <span className="text-xs text-gray-500">{new Date().toLocaleString()}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-600 border-b">
+                      <th className="py-2 pr-2">Material</th>
+                      <th className="py-2 pr-2">Color</th>
+                      <th className="py-2 pr-2">Type</th>
+                      <th className="py-2 pr-2 text-right">Qty (Kg)</th>
+                      <th className="py-2 pr-2">Approved Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {acceptedMaterials.length === 0 ? (
+                      <tr><td colSpan={5} className="py-4 text-center text-gray-500">No approved requests</td></tr>
+                    ) : (
+                      acceptedMaterials.map((r) => (
+                        <tr key={r._id} className="border-b last:border-b-0">
+                          <td className="py-2 pr-2">{r?.inventoryItemId?.name || '-'}</td>
+                          <td className="py-2 pr-2">{r?.inventoryItemId?.color || '-'}</td>
+                          <td className="py-2 pr-2">{r?.inventoryItemId?.type || '-'}</td>
+                          <td className="py-2 pr-2 text-right">{r?.requestedQty}</td>
+                          <td className="py-2 pr-2">{r?.approvedDate ? new Date(r.approvedDate).toLocaleDateString() : '-'}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Production Plans */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold flex items-center gap-2"><Factory size={18}/> Production Plans</h2>
+                <span className="text-xs text-gray-500">{plans.length} total</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-600 border-b">
+                      <th className="py-2 pr-2">Product</th>
+                      <th className="py-2 pr-2 text-right">Qty</th>
+                      <th className="py-2 pr-2">Start</th>
+                      <th className="py-2 pr-2">End</th>
+                      <th className="py-2 pr-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plans.length === 0 ? (
+                      <tr><td colSpan={5} className="py-4 text-center text-gray-500">No plans</td></tr>
+                    ) : (
+                      plans.slice(0, 10).map((p) => (
+                        <tr key={p._id} className="border-b last:border-b-0">
+                          <td className="py-2 pr-2">{p.productName || '-'}</td>
+                          <td className="py-2 pr-2 text-right">{p.quantity}</td>
+                          <td className="py-2 pr-2">{p.startDate ? new Date(p.startDate).toLocaleDateString() : '-'}</td>
+                          <td className="py-2 pr-2">{p.endDate ? new Date(p.endDate).toLocaleDateString() : '-'}</td>
+                          <td className="py-2 pr-2">{p.status}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+export default ProductionReportPage;

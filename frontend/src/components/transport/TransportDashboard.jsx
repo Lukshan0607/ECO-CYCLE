@@ -1,13 +1,12 @@
-
-
 // src/components/transport/TransportDashboard.jsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { validateVehicleForm, mapFormToVehiclePayload } from "../../models/vehicle";
 
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from "recharts";
-import { Truck, MapPin, Clock, Package, CheckCircle, AlertCircle, Plus, Search, Filter, Navigation, Users } from "lucide-react";
+import { Truck, MapPin, Clock, Package, CheckCircle, AlertCircle, Plus, Search, Filter, Navigation, Users, FileText } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import LogoutButton from "../common/LogoutButton";
@@ -47,13 +46,6 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
 export default function TransportDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
-  const [selectedCollection, setSelectedCollection] = useState(null);
-  // Deliveries workflow state
-  const [deliveries, setDeliveries] = useState([]);
-  const [loadingDeliveries, setLoadingDeliveries] = useState(false);
-  const [createForm, setCreateForm] = useState({ collectorId: "", bottleType: "PET", quantity: "" });
-  const [assignForm, setAssignForm] = useState({}); // { [deliveryId]: transportStaffId }
-  const [error, setError] = useState("");
   // Transport Requests (Pending list)
   const [requests, setRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -66,6 +58,10 @@ export default function TransportDashboard() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [assignNotice, setAssignNotice] = useState({ type: "", text: "" }); // {type: 'success'|'error'|'', text}
   const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [scheduleMin, setScheduleMin] = useState("");
+  // Vehicles for Assign modal (active only)
+  const [vehiclesAssign, setVehiclesAssign] = useState([]);
+  const [loadingVehiclesAssign, setLoadingVehiclesAssign] = useState(false);
   // Driver management state
   const [driversList, setDriversList] = useState([]);
   const [loadingDriversList, setLoadingDriversList] = useState(false);
@@ -90,20 +86,184 @@ export default function TransportDashboard() {
 
   // Add Route modal state
   const [showAddRoute, setShowAddRoute] = useState(false);
-  const [addRouteForm, setAddRouteForm] = useState({
-    name: "",
-    estimatedDuration: "",
-    distanceTotal: "",
-    distanceUnit: "km",
-    locationsText: "",
-    assignedVehicleId: "",
-    assignedDriverId: "",
+  // This modal is repurposed for adding Bin Routes
+  const [addBinRouteForm, setAddBinRouteForm] = useState({
+    location: "",
+    managerName: "",
+    status: "Active",
+    distanceKm: "",
   });
-  const [addRouteErrors, setAddRouteErrors] = useState({});
+  const [addBinRouteErrors, setAddBinRouteErrors] = useState({});
 
   // DB-backed routes list
   const [routesList, setRoutesList] = useState([]);
   const [loadingRoutesList, setLoadingRoutesList] = useState(false);
+
+  // Available Bin Routes (frontend-managed)
+  const [binRoutes, setBinRoutes] = useState([]);
+  const [binFilters, setBinFilters] = useState({ search: '', status: '', city: '', manager: '' });
+  const [loadingBinRoutes, setLoadingBinRoutes] = useState(false);
+  const [editingBinId, setEditingBinId] = useState(null);
+  const [editingBinData, setEditingBinData] = useState({ location: '', city: '', managerName: '', status: 'Active', distanceKm: '' });
+
+  const fetchBinRoutes = async () => {
+    try {
+      setLoadingBinRoutes(true);
+      const res = await axios.get('http://localhost:5000/api/transport/bin-routes', {
+        params: {
+          search: binFilters.search || undefined,
+          status: binFilters.status || undefined,
+          city: binFilters.city || undefined,
+          manager: binFilters.manager || undefined,
+        }
+      });
+      const payload = res?.data;
+      const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+      setBinRoutes(list);
+    } catch (err) { console.error('Failed to load bin routes', err); }
+    finally { setLoadingBinRoutes(false); }
+  };
+
+  // Reports: PDF download helpers using current dashboard state
+  const downloadSummaryPdf = () => {
+    const totalVehicles = vehiclesList.length;
+    const vehiclesActive = vehiclesList.filter(v => v.status === 'Active').length;
+    const vehiclesInactive = vehiclesList.filter(v => v.status === 'Inactive').length;
+    const vehiclesMaint = vehiclesList.filter(v => v.status === 'Maintenance').length;
+    const totalDrivers = driversList.length;
+    const totalBinLocations = binRoutes.length;
+    const pendingCount = requests.length;
+    const assignedCount = assigned.filter(x => x.status === 'Assigned').length;
+    const deliveredCount = assigned.filter(x => x.status === 'Delivered').length;
+    const columns = ['Metric','Value'];
+    const rows = [
+      ['Total Bin Locations', totalBinLocations],
+      ['Total Vehicles', totalVehicles],
+      ['Vehicles Active', vehiclesActive],
+      ['Vehicles Inactive', vehiclesInactive],
+      ['Vehicles Maintenance', vehiclesMaint],
+      ['Total Drivers', totalDrivers],
+      ['Pending Requests', pendingCount],
+      ['Assigned Deliveries', assignedCount],
+      ['Delivered', deliveredCount],
+    ];
+    openPdfWindow('Transport Summary', columns, rows);
+  };
+
+  const downloadBinLocationsPdf = () => {
+    const columns = ['Location ID', 'Location', 'City', 'Collection Manager', 'Status', 'Distance (km)'];
+    const rows = binRoutes.map(r => [r.routeId || r.id || '', r.location||'', r.city||'', r.managerName||'', r.status||'', r.distanceKm??'']);
+    openPdfWindow('Bin Locations', columns, rows);
+  };
+  const downloadVehiclesPdf = () => {
+    const columns = ['Vehicle ID', 'Type', 'Status', 'License Plate', 'Fuel Level', 'Fuel Type', 'Maintenance'];
+    const rows = vehiclesList.map(v => [v.vehicleId||'', v.type||'', v.status||'', v.specifications?.licensePlate||'', v.fuel?.level ?? '', v.fuel?.fuelType||'', v.maintenance?.status||'']);
+    openPdfWindow('Vehicles', columns, rows);
+  };
+  const downloadDriversPdf = () => {
+    const columns = ['Employee ID', 'First Name', 'Last Name', 'Status', 'Phone', 'Email'];
+    const rows = driversList.map(d => [d.employeeId||'', d.personalInfo?.firstName||'', d.personalInfo?.lastName||'', d.currentStatus||'', d.phone||d.personalInfo?.phone||'', d.email||d.personalInfo?.email||'']);
+    openPdfWindow('Drivers', columns, rows);
+  };
+  const downloadRequestsPdf = () => {
+    const columns = ['Request ID', 'Collector', 'Bottle Type', 'Quantity', 'Location', 'Status', 'Requested At'];
+    const rows = requests.map(r => [r.requestId||r._id||'', r.collectorName||'', r.bottleType||'', r.quantity??'', r.location||'', r.status||'', r.createdAt ? new Date(r.createdAt).toISOString() : '']);
+    openPdfWindow('Pending Requests', columns, rows);
+  };
+  const downloadAssignedPdf = () => {
+    const columns = ['Stock ID', 'Scheduled Time', 'Driver', 'Collector', 'Bottle Type', 'Quantity', 'Location', 'Status'];
+    const rows = assigned.map(r => [r.requestId||r._id||'', r.scheduledAt ? new Date(r.scheduledAt).toISOString() : '', getDriverNameById(r.assignedDriverId), r.collectorName||'', r.bottleType||'', r.quantity??'', r.location||'', r.status||'']);
+    openPdfWindow('Assigned & Delivered', columns, rows);
+  };
+
+  const renderReports = () => {
+    const totalVehicles = vehiclesList.length;
+    const vehiclesActive = vehiclesList.filter(v => v.status === 'Active').length;
+    const vehiclesInactive = vehiclesList.filter(v => v.status === 'Inactive').length;
+    const vehiclesMaint = vehiclesList.filter(v => v.status === 'Maintenance').length;
+    const totalDrivers = driversList.length;
+    const totalBinLocations = binRoutes.length;
+    const pendingRequests = requests.length;
+    const assignedCount = assigned.filter(x=>x.status==='Assigned').length;
+    const deliveredCount = assigned.filter(x=>x.status==='Delivered').length;
+
+    return (
+      <div className="grid grid-cols-1 gap-6">
+        <Card className="p-4 shadow-lg rounded-2xl">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold">Transport Summary</h2>
+            <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={downloadSummaryPdf}>Download Summary (PDF)</Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="border rounded-xl p-3">
+              <div className="text-sm text-gray-500">Bin Locations</div>
+              <div className="text-2xl font-bold">{totalBinLocations}</div>
+            </div>
+            <div className="border rounded-xl p-3">
+              <div className="text-sm text-gray-500">Vehicles (Active/Inactive/Maint.)</div>
+              <div className="text-2xl font-bold">{vehiclesActive} / {vehiclesInactive} / {vehiclesMaint}</div>
+            </div>
+            <div className="border rounded-xl p-3">
+              <div className="text-sm text-gray-500">Drivers</div>
+              <div className="text-2xl font-bold">{totalDrivers}</div>
+            </div>
+            <div className="border rounded-xl p-3">
+              <div className="text-sm text-gray-500">Pending Requests</div>
+              <div className="text-2xl font-bold">{pendingRequests}</div>
+            </div>
+            <div className="border rounded-xl p-3">
+              <div className="text-sm text-gray-500">Assigned Deliveries</div>
+              <div className="text-2xl font-bold">{assignedCount}</div>
+            </div>
+            <div className="border rounded-xl p-3">
+              <div className="text-sm text-gray-500">Delivered</div>
+              <div className="text-2xl font-bold">{deliveredCount}</div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-4 shadow rounded-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold">Bin Locations</h3>
+            <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={downloadBinLocationsPdf}>Download PDF</Button>
+          </div>
+          <div className="text-sm text-gray-600">Export the current list of bin locations.</div>
+        </Card>
+
+        <Card className="p-4 shadow rounded-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold">Vehicles</h3>
+            <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={downloadVehiclesPdf}>Download PDF</Button>
+          </div>
+          <div className="text-sm text-gray-600">Export the current vehicle fleet.</div>
+        </Card>
+
+        <Card className="p-4 shadow rounded-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold">Drivers</h3>
+            <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={downloadDriversPdf}>Download PDF</Button>
+          </div>
+          <div className="text-sm text-gray-600">Export transport drivers.</div>
+        </Card>
+
+        <Card className="p-4 shadow rounded-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold">Pending Requests</h3>
+            <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={downloadRequestsPdf}>Download PDF</Button>
+          </div>
+          <div className="text-sm text-gray-600">Export current pending collection requests.</div>
+        </Card>
+
+        <Card className="p-4 shadow rounded-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold">Assigned & Delivered</h3>
+            <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={downloadAssignedPdf}>Download PDF</Button>
+          </div>
+          <div className="text-sm text-gray-600">Export assigned and delivered transport records.</div>
+        </Card>
+      </div>
+    );
+  };
 
   const fetchRoutesList = async () => {
     try {
@@ -116,25 +276,17 @@ export default function TransportDashboard() {
     finally { setLoadingRoutesList(false); }
   };
 
-  const validateAddRouteForm = () => {
+  const validateAddBinRouteForm = () => {
     const errors = {};
-    const name = (addRouteForm.name || '').trim();
-    if (!name) errors.name = 'Route name is required';
-    else if (name.length < 3) errors.name = 'Route name must be at least 3 characters';
-    else if (name.length > 80) errors.name = 'Route name cannot exceed 80 characters';
-
-    const est = Number(addRouteForm.estimatedDuration);
-    if (!Number.isFinite(est) || est <= 0) errors.estimatedDuration = 'Estimated duration must be a positive number (mins)';
-
-    const dist = Number(addRouteForm.distanceTotal);
-    if (!Number.isFinite(dist) || dist <= 0) errors.distanceTotal = 'Distance must be a positive number';
-
-    if (!['km','miles'].includes(addRouteForm.distanceUnit)) errors.distanceUnit = 'Invalid distance unit';
-
-    const locs = (addRouteForm.locationsText || '').split(',').map(s=>s.trim()).filter(Boolean);
-    if (addRouteForm.locationsText && locs.length === 0) errors.locationsText = 'Please enter at least one location or leave blank';
-
-    setAddRouteErrors(errors);
+    const loc = (addBinRouteForm.location || '').trim();
+    const mgr = (addBinRouteForm.managerName || '').trim();
+    const dist = Number(addBinRouteForm.distanceKm);
+    const status = addBinRouteForm.status;
+    if (!loc) errors.location = 'Location is required';
+    if (!mgr) errors.managerName = 'Collection Manager is required';
+    if (!Number.isFinite(dist) || dist <= 0) errors.distanceKm = 'Distance must be a positive number';
+    if (!['Active','Inactive','Maintenance'].includes(status)) errors.status = 'Invalid status';
+    setAddBinRouteErrors(errors);
     return { valid: Object.keys(errors).length === 0, errors };
   };
 
@@ -177,8 +329,7 @@ export default function TransportDashboard() {
     { name: "Transport Overview", key: "overview", icon: <Truck size={20} /> },
     { name: "Requests", key: "requests", icon: <Package size={20} /> },
     { name: "Assigned", key: "assigned", icon: <Package size={20} /> },
-    { name: "Deliveries", key: "deliveries", icon: <Package size={20} /> },
-    { name: "Route Management", key: "routes", icon: <MapPin size={20} /> },
+    { name: "Bin Locations", key: "routes", icon: <MapPin size={20} /> },
     { name: "Vehicle Fleet", key: "vehicles", icon: <Truck size={20} /> },
     { name: "Drivers", key: "drivers", icon: <Users size={20} /> },
   ];
@@ -228,31 +379,13 @@ export default function TransportDashboard() {
     return () => clearInterval(t);
   }, [activeTab]);
 
-  // React to status updates from Collectors page (e.g., PickedUp)
-  useEffect(() => {
-    const onStatusUpdate = (e) => {
-      try {
-        const { id, status } = e?.detail || {};
-        if (!id || !status) return;
-        // Update locally for instant feedback
-        setAssigned(prev => prev.map(x => String(x._id) === String(id) ? { ...x, status } : x));
-        // Reconcile with backend
-        fetchAssigned();
-      } catch {}
-    };
-    window.addEventListener('transport:status-updated', onStatusUpdate);
-    return () => window.removeEventListener('transport:status-updated', onStatusUpdate);
-  }, []);
-
   const getDriverNameById = (id) => {
     if (!id) return '-';
     const d = driversList.find(x => (x._id === id) || (String(x._id) === String(id)));
-    if (!d) return id; // fallback to id when not found
-    const name = (
-      d.fullName ||
-      d.name ||
-      `${(d.personalInfo?.firstName || d.firstName || '').toString().trim()} ${(d.personalInfo?.lastName || d.lastName || '').toString().trim()}`.trim()
-    );
+    if (!d) return id; // fallback
+    const first = d.personalInfo?.firstName || '';
+    const last = d.personalInfo?.lastName || '';
+    const name = `${first} ${last}`.trim();
     return name || d.employeeId || id;
   };
 
@@ -272,17 +405,15 @@ export default function TransportDashboard() {
   const fetchAssigned = async () => {
     try {
       setLoadingAssigned(true);
-      const [aRes, pRes, dRes] = await Promise.all([
+      const [aRes, dRes] = await Promise.all([
         axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Assigned' } }),
-        axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'PickedUp' } }),
         axios.get('http://localhost:5000/api/transport-requests', { params: { status: 'Delivered' } }),
       ]);
       const a = aRes?.data?.requests || [];
-      const p = pRes?.data?.requests || [];
       const d = dRes?.data?.requests || [];
-      // Merge so that already picked up and delivered items still show with latest status
+      // Merge so that already delivered items still show with Delivered status
       // Sort by Stock ID (requestId) ascending
-      const merged = [...a, ...p, ...d].sort((x,y)=>{
+      const merged = [...a, ...d].sort((x,y)=>{
         const kx = (x.requestId || x._id || '').toString();
         const ky = (y.requestId || y._id || '').toString();
         if (kx < ky) return -1; if (kx > ky) return 1; return 0;
@@ -318,26 +449,20 @@ export default function TransportDashboard() {
               {assignNotice.text && (
                 <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${assignNotice.type==='error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>{assignNotice.text}</div>
               )}
-              <div className="mb-2 text-sm text-gray-700">
-                Selected Driver: <span className="font-semibold">{getDriverNameById(selectedDriverId) || '-'}</span>
-              </div>
-              {loadingDriversList ? (
+              {loadingDrivers ? (
                 <div className="text-gray-600">Loading drivers...</div>
               ) : (
                 <div className="max-h-72 overflow-auto border rounded-xl">
-                  {driversList.map((d)=>{
-                    const name = (
-                      d.fullName ||
-                      d.name ||
-                      `${(d.personalInfo?.firstName || d.firstName || '').toString().trim()} ${(d.personalInfo?.lastName || d.lastName || '').toString().trim()}`.trim()
-                    ) || d.employeeId;
+                  {drivers.map((d)=>{
+                    const nameFromPersonal = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim();
+                    const name = (d.fullName && String(d.fullName).trim()) || nameFromPersonal || d.employeeId;
                     const status = d.currentStatus;
                     const selected = selectedDriverId === d._id;
                     return (
                       <button key={d._id} onClick={()=>setSelectedDriverId(d._id)} className={`w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}>
                         <div className="flex items-center justify-between">
                           <div>
-                            <div className="text-base md:text-lg font-semibold">{name}</div>
+                            <div className="font-medium">{name}</div>
                             <div className="text-xs text-gray-500">Employee ID: {d.employeeId}</div>
                           </div>
                           <span className={`text-xs px-2 py-1 rounded-full ${status==='Available'?'bg-green-100 text-green-700': 'bg-gray-100 text-gray-700'}`}>{status}</span>
@@ -345,15 +470,55 @@ export default function TransportDashboard() {
                       </button>
                     );
                   })}
-                  {driversList.length === 0 && (
+                  {drivers.length === 0 && (
                     <div className="p-4 text-gray-600">No drivers found</div>
                   )}
                 </div>
               )}
+              <div className="mt-4">
+                <h4 className="font-medium mb-2">Active Vehicles</h4>
+                {loadingVehiclesAssign ? (
+                  <div className="text-gray-600">Loading vehicles...</div>
+                ) : (
+                  <div className="max-h-48 overflow-auto border rounded-xl">
+                    {vehiclesAssign.map((v)=>{
+                      const vid = v.vehicleId || v._id;
+                      const vtype = v.type || '-';
+                      return (
+                        <div key={v._id || vid} className="px-4 py-2 border-b last:border-b-0 flex items-center justify-between">
+                          <div>
+                            <div className="font-medium">{vtype}</div>
+                            <div className="text-xs text-gray-500">Vehicle ID: {vid}</div>
+                          </div>
+                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Active</span>
+                        </div>
+                      );
+                    })}
+                    {vehiclesAssign.length === 0 && (
+                      <div className="p-3 text-gray-600">No active vehicles found</div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium mb-1">Schedule a Pick Up Time</label>
-              <input type="datetime-local" className="border rounded-lg px-3 py-2 w-full" value={scheduledAt} onChange={(e)=>setScheduledAt(e.target.value)} />
+              <label className="block text-sm font-medium mb-1">Pickup Schedule</label>
+              <input
+                type="datetime-local"
+                className="border rounded-lg px-3 py-2 w-full"
+                min={scheduleMin || undefined}
+                value={scheduledAt}
+                onChange={(e)=>{
+                  const v = e.target.value;
+                  if (scheduleMin && v && new Date(v) < new Date(scheduleMin)) {
+                    setAssignNotice({ type:'error', text:'Pickup schedule must be in the future.' });
+                    setScheduledAt(scheduleMin);
+                  } else {
+                    setAssignNotice({ type:'', text:'' });
+                    setScheduledAt(v);
+                  }
+                }}
+              />
               <div className="text-xs text-gray-500 mt-1">Schedule when the driver should pick bottles at the collector location.</div>
             </div>
           </div>
@@ -364,28 +529,13 @@ export default function TransportDashboard() {
                 setAssignNotice({ type: '', text: '' });
                 if (!assignRequestId) { setAssignNotice({ type:'error', text:'Invalid request selected' }); return; }
                 if (!selectedDriverId) { setAssignNotice({ type:'error', text:'Please select a driver' }); return; }
-                if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup time' }); return; }
+                if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup schedule' }); return; }
+                if (scheduledAt && new Date(scheduledAt) < new Date()) { setAssignNotice({ type:'error', text:'Pickup schedule must be in the future.' }); return; }
                 setAssignSubmitting(true);
                 await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/assign-driver`, {
                   driverId: selectedDriverId,
                   scheduledAt,
                 });
-                // Ensure status is set to Assigned so Collectors page and Assigned tab reflect it
-                try {
-                  await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/status`, { status: 'Assigned' });
-                } catch (err) { console.error('Failed to update status to Assigned', err); }
-                // Optimistic UI: move from Requests -> Assigned immediately
-                try {
-                  const req = requests.find(x => x._id === assignRequestId);
-                  if (req) {
-                    const newItem = { ...req, assignedDriverId: selectedDriverId, scheduledAt, status: 'Assigned' };
-                    setAssigned(prev => {
-                      const exists = prev.some(x => x._id === newItem._id);
-                      return exists ? prev.map(x => x._id === newItem._id ? newItem : x) : [...prev, newItem];
-                    });
-                    setRequests(prev => prev.filter(x => x._id !== assignRequestId));
-                  }
-                } catch {}
                 setAssignNotice({ type:'success', text:'Assigned successfully' });
                 // brief delay to show success
                 setTimeout(()=>{
@@ -394,8 +544,6 @@ export default function TransportDashboard() {
                   setSelectedDriverId("");
                   setAssignSubmitting(false);
                   fetchRequests();
-                  fetchAssigned();
-                  try { window.dispatchEvent(new CustomEvent('transport:assigned-updated')); } catch {}
                 }, 600);
               } catch (err) {
                 console.error('Assign failed', err);
@@ -431,6 +579,77 @@ export default function TransportDashboard() {
   useEffect(() => {
     if (activeTab === 'vehicles') fetchVehiclesList();
   }, [vehicleSearch, vehicleTypeFilter, vehicleStatusFilter]);
+
+  // Fetch Bin Routes when Route tab active and when filters change
+  useEffect(() => {
+    if (activeTab === 'routes') fetchBinRoutes();
+  }, [activeTab]);
+  useEffect(() => {
+    if (activeTab === 'routes') fetchBinRoutes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [binFilters]);
+
+  // Reports tab: fetch latest data when entering
+  useEffect(() => {
+    if (activeTab !== 'reports') return;
+    fetchBinRoutes();
+    fetchVehiclesList();
+    fetchDriversList();
+    fetchRequests();
+    fetchAssigned();
+  }, [activeTab]);
+
+  // PDF helper via print window (user can Save as PDF)
+  const openPdfWindow = (title, columns, rows) => {
+    const date = new Date().toLocaleString();
+    const head = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
+        h1 { font-size: 20px; margin: 0 0 8px; }
+        .meta { font-size: 12px; color: #6b7280; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #e5e7eb; padding: 8px; font-size: 12px; }
+        th { background: #f3f4f6; text-align: left; }
+      </style></head><body>`;
+    const tableHead = `<tr>${columns.map(c=>`<th>${c}</th>`).join('')}</tr>`;
+    const tableRows = rows.map(r=>`<tr>${r.map(v=>`<td>${String(v ?? '')}</td>`).join('')}</tr>`).join('');
+    const body = `<h1>${title}</h1><div class="meta">Generated: ${date}</div><table>${tableHead}${tableRows}</table>`;
+    const html = `${head}${body}</body></html>`;
+
+    // Print via hidden iframe to avoid popup/new tab flicker
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const onLoad = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } finally {
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 1000);
+      }
+    };
+
+    if ('srcdoc' in iframe) {
+      iframe.onload = onLoad;
+      iframe.srcdoc = html;
+    } else {
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(html);
+        doc.close();
+        setTimeout(onLoad, 50);
+      }
+    }
+  };
 
   const renderOverview = () => (
     <>
@@ -539,12 +758,12 @@ export default function TransportDashboard() {
                 <th className="p-3">Scheduled Time</th>
                 <th className="p-3">Driver</th>
                 <th className="p-3">Collector</th>
-                <th className="p-3">Weight (kg)</th>
+                <th className="p-3">Bottle Type</th>
+                <th className="p-3">Quantity</th>
                 <th className="p-3">Location</th>
                 <th className="p-3">Status</th>
               </tr>
             </thead>
-
             <tbody>
               {assigned.map(r => (
                 <tr key={r._id} className="border-b hover:bg-gray-50">
@@ -552,15 +771,15 @@ export default function TransportDashboard() {
                   <td className="p-3">{r.scheduledAt ? new Date(r.scheduledAt).toLocaleString() : '-'}</td>
                   <td className="p-3">{getDriverNameById(r.assignedDriverId)}</td>
                   <td className="p-3">{r.collectorName}</td>
+                  <td className="p-3">{r.bottleType}</td>
                   <td className="p-3 font-semibold">{r.quantity}</td>
                   <td className="p-3">{r.location || '-'}</td>
                   <td className="p-3"><span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{r.status}</span></td>
                 </tr>
               ))}
               {assigned.length === 0 && (
-                <tr><td className="p-3 text-gray-500" colSpan={7}>No assigned requests</td></tr>
+                <tr><td className="p-3 text-gray-500" colSpan={8}>No assigned requests</td></tr>
               )}
-
             </tbody>
           </table>
         )}
@@ -586,7 +805,8 @@ export default function TransportDashboard() {
                 <th className="p-3">Request ID</th>
                 <th className="p-3">Requested At</th>
                 <th className="p-3">Collector</th>
-                <th className="p-3">Weight (kg)</th>
+                <th className="p-3">Bottle Type</th>
+                <th className="p-3">Quantity</th>
                 <th className="p-3">Location</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Actions</th>
@@ -598,6 +818,7 @@ export default function TransportDashboard() {
                   <td className="p-3 font-mono text-xs">{r.requestId || (r._id?.slice(-6) || '-')}</td>
                   <td className="p-3">{new Date(r.createdAt).toLocaleString()}</td>
                   <td className="p-3">{r.collectorName}</td>
+                  <td className="p-3">{r.bottleType}</td>
                   <td className="p-3 font-semibold">{r.quantity}</td>
                   <td className="p-3">{r.location || '-'}</td>
                   <td className="p-3"><span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">{r.status}</span></td>
@@ -615,14 +836,39 @@ export default function TransportDashboard() {
                           const pad = (n)=>String(n).padStart(2,'0');
                           const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
                           setScheduledAt(local);
+                          const nowMin = new Date();
+                          const minLocal = `${nowMin.getFullYear()}-${pad(nowMin.getMonth()+1)}-${pad(nowMin.getDate())}T${pad(nowMin.getHours())}:${pad(nowMin.getMinutes())}`;
+                          setScheduleMin(minLocal);
                         } catch {}
                         // Fetch drivers list
                         try {
                           setLoadingDrivers(true);
-                          const res = await axios.get('http://localhost:5000/api/transport/drivers');
-                          setDrivers(res?.data || []);
+                          const res = await axios.get('http://localhost:5000/api/employees', {
+                            params: { department: 'transport', position: 'Driver', status: 'active' }
+                          });
+                          const payload = res?.data;
+                          const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+                          const onlyActive = list.filter(d => {
+                            const cs = (d.currentStatus || '').toString().toLowerCase();
+                            const es = (d.employmentStatus || '').toString().toLowerCase();
+                            const s = (d.status || '').toString().toLowerCase();
+                            return cs === 'active' || es === 'active' || s === 'active';
+                          });
+                          setDrivers(onlyActive);
                         } catch (err) { console.error('Failed to load drivers', err); }
                         finally { setLoadingDrivers(false); }
+                        // Fetch active vehicles for display in Assign modal
+                        try {
+                          setLoadingVehiclesAssign(true);
+                          const vres = await axios.get('http://localhost:5000/api/transport/vehicles', {
+                            params: { status: 'Active' }
+                          });
+                          const vpayload = vres?.data;
+                          const vlist = Array.isArray(vpayload) ? vpayload : Array.isArray(vpayload?.data) ? vpayload.data : [];
+                          const activeVehicles = vlist.filter(v => (v.status || '').toString().toLowerCase() === 'active');
+                          setVehiclesAssign(activeVehicles);
+                        } catch (err) { console.error('Failed to load vehicles for assign', err); }
+                        finally { setLoadingVehiclesAssign(false); }
                       }}>Assign</Button>
                       <Button size="sm" variant="outline" onClick={async ()=>{
                         try {
@@ -644,275 +890,243 @@ export default function TransportDashboard() {
     </Card>
   );
 
-  const renderCollections = () => (
-    <Card className="p-4 shadow-lg rounded-2xl">
-      <div className="mb-4">
-        <h2 className="text-lg font-bold mb-2">Create Collection</h2>
-        {error && <div className="mb-2 text-red-600 text-sm">{error}</div>}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-          <input
-            className="border rounded-lg px-3 py-2"
-            placeholder="Collector ID"
-            value={createForm.collectorId}
-            onChange={(e) => setCreateForm({ ...createForm, collectorId: e.target.value })}
-          />
-          <select
-            className="border rounded-lg px-3 py-2"
-            value={createForm.bottleType}
-            onChange={(e) => setCreateForm({ ...createForm, bottleType: e.target.value })}
-          >
-            <option value="PET">PET</option>
-            <option value="HDPE">HDPE</option>
-            <option value="GlassGreen">GlassGreen</option>
-            <option value="GlassBrown">GlassBrown</option>
-            <option value="GlassClear">GlassClear</option>
-          </select>
-          <input
-            className="border rounded-lg px-3 py-2"
-            type="number"
-            placeholder="Quantity"
-            min="1"
-            value={createForm.quantity}
-            onChange={(e) => setCreateForm({ ...createForm, quantity: e.target.value })}
-          />
-          <Button className="bg-green-600 text-white" onClick={async () => {
-            try {
-              setError("");
-              if (!createForm.collectorId || !createForm.quantity) { setError('Collector ID and quantity required'); return; }
-              await axios.post('http://localhost:5000/api/collections', {
-                collectorId: createForm.collectorId,
-                bottleType: createForm.bottleType,
-                quantity: Number(createForm.quantity)
-              });
-              setCreateForm({ collectorId: "", bottleType: "PET", quantity: "" });
-              fetchDeliveries();
-            } catch (err) { setError('Failed to create collection'); console.error(err); }
-          }}>Add</Button>
-        </div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <h2 className="text-lg font-bold mb-2">Delivery Records</h2>
-        {loadingDeliveries ? (
-          <div className="text-gray-600 p-3">Loading deliveries...</div>
-        ) : (
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-200">
-                <th className="p-3">Collector</th>
-                <th className="p-3">Bottle Type</th>
-                <th className="p-3">Quantity</th>
-                <th className="p-3">Transport Staff ID</th>
-                <th className="p-3">Collected</th>
-                <th className="p-3">Assigned</th>
-                <th className="p-3">Delivered</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deliveries.map((d) => (
-                <tr key={d._id} className="border-b hover:bg-gray-50">
-                  <td className="p-3">{d.collectorId?.name || d.collectorId || '-'}</td>
-                  <td className="p-3">{d.bottleType}</td>
-                  <td className="p-3 font-bold">{d.quantity}</td>
-                  <td className="p-3">{d.transportStaffId || '-'}</td>
-                  <td className="p-3">{d.collectedAt ? new Date(d.collectedAt).toLocaleString() : '-'}</td>
-                  <td className="p-3">{d.assignedAt ? new Date(d.assignedAt).toLocaleString() : '-'}</td>
-                  <td className="p-3">{d.deliveredAt ? new Date(d.deliveredAt).toLocaleString() : '-'}</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(d.status)}`}>
-                      {d.status}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      {(d.status === 'Collected' || d.status === 'Assigned') && (
-                        <>
-                          <input
-                            className="border rounded-lg px-2 py-1 w-40"
-                            placeholder="Transport Staff ID"
-                            value={assignForm[d._id] || ''}
-                            onChange={(e) => setAssignForm({ ...assignForm, [d._id]: e.target.value })}
-                          />
-                          <Button variant="outline" size="sm" onClick={async () => {
-                            try {
-                              const id = assignForm[d._id];
-                              if (!id) return;
-                              await axios.post(`http://localhost:5000/api/deliveries/${d._id}/assign`, { transportStaffId: id });
-                              fetchDeliveries();
-                            } catch (err) { console.error(err); }
-                          }}>Assign</Button>
-                        </>
-                      )}
-                      {d.status !== 'Delivered' && d.transportStaffId && (
-                        <Button className="bg-blue-600 text-white" size="sm" onClick={async () => {
-                          try {
-                            await axios.post(`http://localhost:5000/api/deliveries/${d._id}/deliver`);
-                            fetchDeliveries();
-                          } catch (err) { console.error(err); }
-                        }}>Mark Delivered</Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {deliveries.length === 0 && (
-                <tr><td className="p-3 text-gray-500" colSpan={9}>No records</td></tr>
-              )}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </Card>
-  );
-
   const renderRoutes = () => (
     <Card className="p-4 shadow-lg rounded-2xl">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-bold">Transport Routes</h2>
-        <Button className="bg-purple-600 text-white" onClick={async ()=>{
-          try {
-            setShowAddRoute(true);
-            // fetch options for dropdowns
-            setLoadingDriversList(true);
-            const [drv, veh] = await Promise.all([
-              axios.get('http://localhost:5000/api/transport/drivers').catch(()=>({ data: [] })),
-              axios.get('http://localhost:5000/api/transport/vehicles').catch(()=>({ data: [] })),
-            ]);
-            setDriversList(Array.isArray(drv?.data?.data) ? drv.data.data : Array.isArray(drv?.data) ? drv.data : []);
-            setVehiclesList(Array.isArray(veh?.data?.data) ? veh.data.data : Array.isArray(veh?.data) ? veh.data : []);
-          } catch (e) { console.error(e); }
-          finally { setLoadingDriversList(false); }
-        }}><Plus size={16} className="mr-2" />Add Route</Button>
+        <h2 className="text-lg font-bold">Bin Locations</h2>
+        <Button className="bg-purple-600 text-white" onClick={()=>{
+          setAddBinRouteForm({ location: '', managerName: '', status: 'Active', distanceKm: '' });
+          setAddBinRouteErrors({});
+          setShowAddRoute(true);
+        }}><Plus size={16} className="mr-2" />Add Location</Button>
       </div>
-      <div className="overflow-x-auto">
-        {loadingRoutesList ? (
-          <div className="p-3 text-gray-600">Loading routes...</div>
-        ) : (
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-200">
-                <th className="p-3">Route ID</th>
-                <th className="p-3">Route Name</th>
-                <th className="p-3">Locations</th>
-                <th className="p-3">Distance</th>
-                <th className="p-3">Estimated Time</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {routesList.map(route => (
-                <tr key={route._id || route.routeId} className="border-b hover:bg-gray-50">
-                  <td className="p-3 font-medium">{route.routeId}</td>
-                  <td className="p-3">{route.name}</td>
-                  <td className="p-3">{Array.isArray(route.locations) ? route.locations.length : 0} stops</td>
-                  <td className="p-3">{route.distance?.total} {route.distance?.unit || 'km'}</td>
-                  <td className="p-3">{route.estimatedDuration} mins</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(route.status)}`}>
-                      {route.status}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    <div className="flex space-x-2">
-                      <Button variant="outline" size="sm">Edit</Button>
-                      <Button variant="outline" size="sm"><MapPin size={16} /></Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {routesList.length === 0 && (
-                <tr><td className="p-3 text-gray-500" colSpan={7}>No routes found</td></tr>
+      {/* Available Bin Routes (persisted) */}
+      <Card className="mb-6 p-4 shadow rounded-2xl">
+        {/* Filters */}
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-5 gap-3">
+          <input className="border rounded-lg px-3 py-2 w-full" placeholder="Search (location, manager, route)" value={binFilters.search} onChange={(e)=>setBinFilters({...binFilters, search: e.target.value})} />
+          <input className="border rounded-lg px-3 py-2 w-full" placeholder="City" value={binFilters.city} onChange={(e)=>setBinFilters({...binFilters, city: e.target.value})} />
+          <input className="border rounded-lg px-3 py-2 w-full" placeholder="Manager" value={binFilters.manager} onChange={(e)=>setBinFilters({...binFilters, manager: e.target.value})} />
+          <select className="border rounded-lg px-3 py-2 w-full" value={binFilters.status} onChange={(e)=>setBinFilters({...binFilters, status: e.target.value})}>
+            <option value="">All Status</option>
+            <option>Active</option>
+            <option>Inactive</option>
+            <option>Maintenance</option>
+          </select>
+          <div className="flex items-center justify-end">
+            <Button variant="outline" onClick={fetchBinRoutes}>Refresh</Button>
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {loadingBinRoutes && <div className="text-gray-600">Loading bin routes...</div>}
+          {!loadingBinRoutes && binRoutes.map((r)=> (
+            <div key={r._id || r.id} className="border rounded-2xl p-4 hover:shadow transition bg-white">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-sm text-gray-500">Location ID</div>
+                  <div className="font-semibold">{r.routeId || r.id}</div>
+                </div>
+                <span className={`px-2 py-1 text-xs rounded-full ${r.status==='Active' ? 'bg-green-100 text-green-700' : r.status==='Maintenance' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700'}`}>{r.status}</span>
+              </div>
+              {editingBinId === (r._id || r.id) ? (
+                <div className="mt-3 space-y-2">
+                  <div>
+                    <div className="text-sm text-gray-500">Location</div>
+                    <input
+                      className="border rounded-lg px-2 py-1 w-full"
+                      value={editingBinData.location}
+                      onChange={(e)=>{
+                        const cleaned = e.target.value.replace(/[^A-Za-z0-9 ,\-]/g, '');
+                        const collapsed = cleaned.replace(/\s+/g, ' ').trim();
+                        setEditingBinData({...editingBinData, location: collapsed});
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">City</div>
+                    <input className="border rounded-lg px-2 py-1 w-full" value={editingBinData.city} onChange={(e)=>setEditingBinData({...editingBinData, city: e.target.value})} />
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Collection Manager</div>
+                    <input
+                      className="border rounded-lg px-2 py-1 w-full"
+                      value={editingBinData.managerName}
+                      onChange={(e)=>{
+                        const onlyLettersSpaces = e.target.value.replace(/[^A-Za-z\s]/g, '');
+                        const collapsed = onlyLettersSpaces.replace(/\s+/g, ' ').trim();
+                        const titleCased = collapsed.split(' ').map(w => w ? (w[0].toUpperCase() + w.slice(1).toLowerCase()) : '').join(' ');
+                        setEditingBinData({...editingBinData, managerName: titleCased});
+                      }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select className="border rounded-lg px-2 py-1" value={editingBinData.status} onChange={(e)=>setEditingBinData({...editingBinData, status: e.target.value})}>
+                      <option>Active</option>
+                      <option>Inactive</option>
+                      <option>Maintenance</option>
+                    </select>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      className="border rounded-lg px-2 py-1"
+                      value={editingBinData.distanceKm}
+                      onKeyDown={(e)=>{
+                        if (["e","E","+","-"].includes(e.key)) {
+                          e.preventDefault();
+                        }
+                      }}
+                      onChange={(e)=>{
+                        const raw = e.target.value;
+                        let cleaned = raw.replace(/[^0-9.]/g, "");
+                        cleaned = cleaned.replace(/(\..*)\./g, "$1");
+                        const parts = cleaned.split('.')
+                        let intPart = parts[0].replace(/^(0+)(\d)/, '$2');
+                        if (intPart === '') intPart = '0';
+                        let result = intPart;
+                        if (parts.length > 1) {
+                          const decPart = parts[1].slice(0, 2);
+                          result = decPart.length > 0 ? `${intPart}.${decPart}` : `${intPart}.`;
+                        }
+                        setEditingBinData({...editingBinData, distanceKm: result});
+                      }}
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="outline" onClick={()=>{ setEditingBinId(null); }}>Cancel</Button>
+                    <Button className="bg-blue-600 text-white" onClick={async ()=>{
+                      try {
+                        await axios.put(`http://localhost:5000/api/transport/bin-routes/${r._id || r.id}` , {
+                          location: editingBinData.location,
+                          city: editingBinData.city,
+                          managerName: editingBinData.managerName,
+                          status: editingBinData.status,
+                          distanceKm: Number(editingBinData.distanceKm)
+                        });
+                        setEditingBinId(null);
+                        fetchBinRoutes();
+                      } catch (err) { console.error('Update bin route failed', err); }
+                    }}>Save</Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-3">
+                    <div className="text-sm text-gray-500">Location</div>
+                    <div className="font-medium">{r.location}</div>
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-sm text-gray-500">City</div>
+                    <div>{r.city}</div>
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-sm text-gray-500">Collection Manager</div>
+                    <div>{r.managerName}</div>
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-sm text-gray-500">Distance</div>
+                    <div>{r.distanceKm} km</div>
+                  </div>
+                  <div className="mt-3 flex gap-2 justify-end">
+                    <Button variant="outline" onClick={()=>{
+                      setEditingBinId(r._id || r.id);
+                      setEditingBinData({ location: r.location || '', city: r.city || '', managerName: r.managerName || '', status: r.status || 'Active', distanceKm: r.distanceKm ?? '' });
+                    }}>Edit</Button>
+                    <Button variant="outline" className="text-red-600" onClick={async ()=>{
+                      try {
+                        if (!window.confirm('Remove this bin route?')) return;
+                        await axios.delete(`http://localhost:5000/api/transport/bin-routes/${r._id || r.id}`);
+                        fetchBinRoutes();
+                      } catch (err) { console.error('Remove bin route failed', err); }
+                    }}>Remove</Button>
+                  </div>
+                </>
               )}
-            </tbody>
-          </table>
-        )}
-      </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      {/* Removed routes summary table */}
       {showAddRoute && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          <div className="bg-white w-[920px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
+          <div className="bg-white w-[720px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden">
             <div className="px-5 py-3 border-b flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Add Route</h3>
+              <h3 className="text-lg font-semibold">Add Bin Location</h3>
               <button className="text-gray-500 hover:text-gray-700" onClick={()=>setShowAddRoute(false)}>✕</button>
             </div>
-            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
+            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[70vh] overflow-auto">
               <div>
-                <label className="block text-sm font-medium mb-1">Route Name</label>
-                <input className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.name ? 'border-red-500' : ''}`} value={addRouteForm.name} onChange={(e)=>{ setAddRouteForm({...addRouteForm, name: e.target.value}); if (addRouteErrors.name) setAddRouteErrors({...addRouteErrors, name: ''}); }} />
-                {addRouteErrors.name && <p className="mt-1 text-sm text-red-600">{addRouteErrors.name}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Estimated Duration (mins)</label>
-                <input type="number" className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.estimatedDuration ? 'border-red-500' : ''}`} value={addRouteForm.estimatedDuration} onChange={(e)=>{ setAddRouteForm({...addRouteForm, estimatedDuration: e.target.value}); if (addRouteErrors.estimatedDuration) setAddRouteErrors({...addRouteErrors, estimatedDuration: ''}); }} />
-                {addRouteErrors.estimatedDuration && <p className="mt-1 text-sm text-red-600">{addRouteErrors.estimatedDuration}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Distance Total</label>
-                <input type="number" className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.distanceTotal ? 'border-red-500' : ''}`} value={addRouteForm.distanceTotal} onChange={(e)=>{ setAddRouteForm({...addRouteForm, distanceTotal: e.target.value}); if (addRouteErrors.distanceTotal) setAddRouteErrors({...addRouteErrors, distanceTotal: ''}); }} />
-                {addRouteErrors.distanceTotal && <p className="mt-1 text-sm text-red-600">{addRouteErrors.distanceTotal}</p>}
+                <label className="block text-sm font-medium mb-1">Location</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addBinRouteForm.location} onChange={(e)=>setAddBinRouteForm({...addBinRouteForm, location: e.target.value})} placeholder="e.g., Keells Nugegoda" />
+                {addBinRouteErrors.location && <div className="text-xs text-red-600 mt-1">{addBinRouteErrors.location}</div>}
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Distance Unit</label>
-                <select className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.distanceUnit ? 'border-red-500' : ''}`} value={addRouteForm.distanceUnit} onChange={(e)=>{ setAddRouteForm({...addRouteForm, distanceUnit: e.target.value}); if (addRouteErrors.distanceUnit) setAddRouteErrors({...addRouteErrors, distanceUnit: ''}); }}>
-                  <option>km</option>
-                  <option>miles</option>
+                <label className="block text-sm font-medium mb-1">Collection Manager</label>
+                <input className="border rounded-lg px-3 py-2 w-full" value={addBinRouteForm.managerName} onChange={(e)=>setAddBinRouteForm({...addBinRouteForm, managerName: e.target.value})} placeholder="Manager name" />
+                {addBinRouteErrors.managerName && <div className="text-xs text-red-600 mt-1">{addBinRouteErrors.managerName}</div>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Status</label>
+                <select className="border rounded-lg px-3 py-2 w-full" value={addBinRouteForm.status} onChange={(e)=>setAddBinRouteForm({...addBinRouteForm, status: e.target.value})}>
+                  <option>Active</option>
+                  <option>Inactive</option>
+                  <option>Maintenance</option>
                 </select>
-                {addRouteErrors.distanceUnit && <p className="mt-1 text-sm text-red-600">{addRouteErrors.distanceUnit}</p>}
+                {addBinRouteErrors.status && <div className="text-xs text-red-600 mt-1">{addBinRouteErrors.status}</div>}
               </div>
-              <div className="md:col-span-1">
-                <label className="block text-sm font-medium mb-1">Assign Vehicle</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addRouteForm.assignedVehicleId} onChange={(e)=>setAddRouteForm({...addRouteForm, assignedVehicleId: e.target.value})}>
-                  <option value="">Select vehicle</option>
-                  {vehiclesList.map(v=> (
-                    <option key={v._id} value={v._id}>{v.vehicleId} · {v.type}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="md:col-span-1">
-                <label className="block text-sm font-medium mb-1">Assign Driver</label>
-                <select className="border rounded-lg px-3 py-2 w-full" value={addRouteForm.assignedDriverId} onChange={(e)=>setAddRouteForm({...addRouteForm, assignedDriverId: e.target.value})}>
-                  <option value="">Select driver</option>
-                  {driversList.map(d=>{
-                    const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
-                    return <option key={d._id} value={d._id}>{name} · {d.employeeId}</option>
-                  })}
-                </select>
-              </div>
-              <div className="md:col-span-3">
-                <label className="block text-sm font-medium mb-1">Locations (comma separated)</label>
-                <textarea className={`border rounded-lg px-3 py-2 w-full ${addRouteErrors.locationsText ? 'border-red-500' : ''}`} rows={3} placeholder="Location A, Location B, ..." value={addRouteForm.locationsText} onChange={(e)=>{ setAddRouteForm({...addRouteForm, locationsText: e.target.value}); if (addRouteErrors.locationsText) setAddRouteErrors({...addRouteErrors, locationsText: ''}); }} />
-                {addRouteErrors.locationsText && <p className="mt-1 text-sm text-red-600">{addRouteErrors.locationsText}</p>}
+              <div>
+                <label className="block text-sm font-medium mb-1">Distance (km)</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addBinRouteForm.distanceKm}
+                  onKeyDown={(e)=>{
+                    // Block scientific notation and signs; allow one dot handled in onChange
+                    if (["e","E","+","-"].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e)=>{
+                    const raw = e.target.value;
+                    let cleaned = raw.replace(/[^0-9.]/g, "");
+                    cleaned = cleaned.replace(/(\..*)\./g, "$1");
+                    const parts = cleaned.split('.')
+                    let intPart = parts[0].replace(/^(0+)(\d)/, '$2');
+                    if (intPart === '') intPart = '0';
+                    let result = intPart;
+                    if (parts.length > 1) {
+                      const decPart = parts[1].slice(0, 2); // limit to 2 decimal places
+                      result = decPart.length > 0 ? `${intPart}.${decPart}` : `${intPart}.`;
+                    }
+                    setAddBinRouteForm({...addBinRouteForm, distanceKm: result});
+                  }}
+                  placeholder="e.g., 12.50"
+                />
+                {addBinRouteErrors.distanceKm && <div className="text-xs text-red-600 mt-1">{addBinRouteErrors.distanceKm}</div>}
               </div>
             </div>
             <div className="px-5 pb-5 flex justify-end gap-2">
               <button className="border px-4 py-2 rounded-lg" onClick={()=>setShowAddRoute(false)}>Cancel</button>
               <button className="bg-purple-600 text-white px-4 py-2 rounded-lg" onClick={async ()=>{
                 try {
-                  const { valid } = validateAddRouteForm();
+                  const { valid } = validateAddBinRouteForm();
                   if (!valid) return;
-                  const locations = (addRouteForm.locationsText || '')
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean)
-                    .map((n, idx)=>({ name: n, order: idx+1 }));
-                  const payload = {
-                    name: addRouteForm.name,
-                    description: '',
-                    locations,
-                    distance: { total: Number(addRouteForm.distanceTotal) || 0, unit: addRouteForm.distanceUnit },
-                    estimatedDuration: Number(addRouteForm.estimatedDuration) || 0,
-                    assignedVehicles: addRouteForm.assignedVehicleId ? [addRouteForm.assignedVehicleId] : [],
-                  };
-                  await axios.post('http://localhost:5000/api/transport/routes', payload);
+                  await axios.post('http://localhost:5000/api/transport/bin-routes', {
+                    location: addBinRouteForm.location.trim(),
+                    managerName: addBinRouteForm.managerName.trim(),
+                    status: addBinRouteForm.status,
+                    distanceKm: Number(addBinRouteForm.distanceKm)
+                  });
                   setShowAddRoute(false);
-                  setAddRouteForm({ name: "", estimatedDuration: "", distanceTotal: "", distanceUnit: "km", locationsText: "", assignedVehicleId: "", assignedDriverId: "" });
-                  setAddRouteErrors({});
-                } catch (err) { console.error('Create route failed', err); }
-              }}>Save Route</button>
+                  setAddBinRouteForm({ location: '', managerName: '', status: 'Active', distanceKm: '' });
+                  setAddBinRouteErrors({});
+                  fetchBinRoutes();
+                } catch (err) { console.error('Create bin route failed', err); }
+              }}>Save</button>
             </div>
           </div>
         </div>
@@ -1043,15 +1257,15 @@ export default function TransportDashboard() {
                   spellCheck={false}
                   className="border rounded-lg px-3 py-2 w-full"
                   value={addVehicleForm.vehicleId}
-                  maxLength={10}
-                  placeholder="Max 10 letters/numbers"
-                  title="Only letters and numbers. Max 10 characters."
+                  maxLength={20}
+                  placeholder="2–20 characters: letters, numbers, - or _"
+                  title="Letters (A–Z), numbers (0–9), hyphen (-) and underscore (_). 2–20 characters."
                   onChange={(e) => {
-                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase();
+                    const sanitized = e.target.value.replace(/[^A-Za-z0-9-_]/g, '').slice(0, 20);
                     setAddVehicleForm({ ...addVehicleForm, vehicleId: sanitized });
                   }}
                 />
-                <p className="mt-1 text-xs text-gray-500">Allowed: A–Z, 0–9. Max length 10.</p>
+                <p className="mt-1 text-xs text-gray-500">Allowed: letters, numbers, hyphen (-), underscore (_). Length 2–20.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Type</label>
@@ -1075,31 +1289,55 @@ export default function TransportDashboard() {
               <div>
                 <label className="block text-sm font-medium mb-1">Capacity (Bottles)</label>
                 <input
-                  type="text"
+                  type="number"
                   inputMode="numeric"
-                  pattern="[0-9]*"
+                  min="0"
+                  step="1"
                   className="border rounded-lg px-3 py-2 w-full"
-                  placeholder="1 – 10,000"
-                  title="Enter whole number of bottles between 1 and 10,000"
                   value={addVehicleForm.capacityBottles}
-                  onChange={(e) => {
-                    const digits = (e.target.value || '').replace(/[^0-9]/g, '').slice(0, 5);
-                    if (digits === '') { setAddVehicleForm({ ...addVehicleForm, capacityBottles: '' }); return; }
-                    let n = parseInt(digits, 10);
-                    if (Number.isNaN(n)) { n = ''; }
-                    // clamp to 1..10000
-                    if (n !== '') {
-                      if (n < 1) n = 1;
-                      if (n > 10000) n = 10000;
+                  onKeyDown={(e)=>{
+                    // Block non-integer characters like '.', 'e', '+', '-'
+                    if (["e","E","+","-","."].includes(e.key)) {
+                      e.preventDefault();
                     }
-                    setAddVehicleForm({ ...addVehicleForm, capacityBottles: n === '' ? '' : String(n) });
+                  }}
+                  onChange={(e) => {
+                    const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                    setAddVehicleForm({ ...addVehicleForm, capacityBottles: digitsOnly });
                   }}
                 />
-                <p className="mt-1 text-xs text-gray-500">Whole number between 1 and 10,000.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Capacity (Weight kg)</label>
-                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.capacityWeight} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, capacityWeight: e.target.value })} />
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.capacityWeight}
+                  onKeyDown={(e)=>{
+                    // Block scientific notation and signs; allow one dot handled in onChange
+                    if (["e","E","+","-"].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    // Keep digits and at most one dot
+                    let cleaned = raw.replace(/[^0-9.]/g, "");
+                    cleaned = cleaned.replace(/(\..*)\./g, "$1");
+                    const parts = cleaned.split('.');
+                    let intPart = parts[0].replace(/^(0+)(\d)/, '$2'); // trim leading zeros but keep single 0
+                    if (intPart === '') intPart = '0';
+                    let result = intPart;
+                    if (parts.length > 1) {
+                      const decPart = parts[1].slice(0, 2); // limit to 2 decimals
+                      result = decPart.length > 0 ? `${intPart}.${decPart}` : `${intPart}.`;
+                    }
+                    setAddVehicleForm({ ...addVehicleForm, capacityWeight: result });
+                  }}
+                />
               </div>
               
               <div>
@@ -1131,15 +1369,20 @@ export default function TransportDashboard() {
                   spellCheck={false}
                   className="border rounded-lg px-3 py-2 w-full"
                   value={addVehicleForm.licensePlate}
-                  maxLength={12}
+                  maxLength={8}
                   placeholder="e.g., ABC-1234"
-                  title="Letters, numbers, hyphen and spaces only. Max 12 characters."
+                  title="Format: up to 3 letters followed by up to 4 digits (e.g., ABC-1234)."
                   onChange={(e) => {
+                    // Enforce up to 3 letters then up to 4 digits. Auto-insert hyphen when digits present.
                     const upper = e.target.value.toUpperCase();
-                    const allowed = upper.replace(/[^A-Z0-9\-\s]/g, '');
-                    const collapsed = allowed.replace(/\s+/g, ' ').trim();
-                    const limited = collapsed.slice(0, 12);
-                    setAddVehicleForm({ ...addVehicleForm, licensePlate: limited });
+                    // Remove all non alphanumeric
+                    const alnum = upper.replace(/[^A-Z0-9]/g, '');
+                    // Extract leading letters (max 3)
+                    const letters = (alnum.match(/^[A-Z]{0,3}/)?.[0] || '');
+                    // Remaining digits after letters (max 4)
+                    const digits = (alnum.slice(letters.length).match(/^\d{0,4}/)?.[0] || '');
+                    const formatted = digits.length > 0 ? `${letters}${letters ? '-' : ''}${digits}` : letters;
+                    setAddVehicleForm({ ...addVehicleForm, licensePlate: formatted });
                   }}
                 />
               </div>
@@ -1167,7 +1410,30 @@ export default function TransportDashboard() {
 
               <div>
                 <label className="block text-sm font-medium mb-1">Fuel Level (%)</label>
-                <input type="number" min="0" max="100" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.fuelLevel} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, fuelLevel: Number(e.target.value) })} />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  max="100"
+                  step="1"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.fuelLevel}
+                  onKeyDown={(e)=>{
+                    // Block non-integer characters like '.', 'e', '+', '-'
+                    if (["e","E","+","-","."].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e) => {
+                    const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                    let val = digitsOnly === '' ? '' : Number(digitsOnly);
+                    if (val !== '' && !Number.isNaN(val)) {
+                      if (val < 0) val = 0;
+                      if (val > 100) val = 100;
+                    }
+                    setAddVehicleForm({ ...addVehicleForm, fuelLevel: val });
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Fuel Type</label>
@@ -1192,59 +1458,28 @@ export default function TransportDashboard() {
               <button className="border px-4 py-2 rounded-lg" onClick={() => setShowAddVehicle(false)}>Cancel</button>
               <button className="bg-blue-600 text-white px-4 py-2 rounded-lg" onClick={async () => {
                 try {
-                  // Basic validation
-                  if (!addVehicleForm.vehicleId || !addVehicleForm.type) return;
-                  // Enforce Vehicle ID format: alphanumeric only up to 10 chars
-                  if (!/^[A-Za-z0-9]{1,10}$/.test(addVehicleForm.vehicleId)) {
-                    window.alert('Vehicle ID must contain only letters and numbers, maximum 10 characters.');
+                  const form = { ...addVehicleForm };
+                  const { valid, errors } = validateVehicleForm({
+                    vehicleId: form.vehicleId,
+                    type: form.type,
+                    capacityBottles: form.capacityBottles,
+                    capacityWeight: form.capacityWeight,
+                    model: form.model,
+                    licensePlate: form.licensePlate,
+                    color: form.color,
+                    status: form.status,
+                    fuelLevel: form.fuelLevel,
+                    fuelType: form.fuelType,
+                    maintenanceStatus: form.maintenanceStatus,
+                  });
+                  if (!valid) {
+                    const firstError = Object.values(errors)[0] || 'Please fix form errors.';
+                    window.alert(firstError);
                     return;
                   }
-                  // Color validation: optional, but if present must be letters and spaces, max 20
-                  const colorVal = (addVehicleForm.color || '').trim();
-                  if (colorVal && !/^[A-Za-z ]{1,20}$/.test(colorVal)) {
-                    window.alert('Color can only contain letters and spaces (max 20 characters).');
-                    return;
-                  }
-                  // License Plate validation: optional, but if present must be A–Z, 0–9, hyphen and spaces, max 12
-                  const plateVal = (addVehicleForm.licensePlate || '').trim();
-                  if (plateVal && !/^[A-Z0-9\- ]{1,12}$/.test(plateVal)) {
-                    window.alert('License Plate can only contain letters (A–Z), numbers, hyphen and spaces (max 12 characters).');
-                    return;
-                  }
-                  // Model validation: optional, but if present must be letters only, max 20
-                  const modelVal = (addVehicleForm.model || '').trim();
-                  if (modelVal && !/^[A-Za-z]{1,20}$/.test(modelVal)) {
-                    window.alert('Model can only contain letters (A–Z) with no spaces (max 20 characters).');
-                    return;
-                  }
-                  // Capacity (Bottles) validation: required integer 1..10000
-                  const bottlesVal = parseInt(addVehicleForm.capacityBottles, 10);
-                  if (!Number.isInteger(bottlesVal) || bottlesVal < 1 || bottlesVal > 10000) {
-                    window.alert('Capacity (Bottles) must be a whole number between 1 and 10,000.');
-                    return;
-                  }
-                  const payload = {
-                    vehicleId: addVehicleForm.vehicleId,
-                    type: addVehicleForm.type,
-                    capacity: {
-                      bottles: bottlesVal,
-                      weight: Number(addVehicleForm.capacityWeight) || 0,
-                    },
-                    specifications: {
-                      model: addVehicleForm.model,
-                      licensePlate: addVehicleForm.licensePlate,
-                      color: addVehicleForm.color,
-                    },
-                    status: addVehicleForm.status,
-                    fuel: {
-                      level: Number(addVehicleForm.fuelLevel) || 0,
-                      fuelType: addVehicleForm.fuelType,
-                    },
-                    maintenance: {
-                      status: addVehicleForm.maintenanceStatus,
-                    },
-                  };
+                  const payload = mapFormToVehiclePayload(form);
                   await axios.post('http://localhost:5000/api/transport/vehicles', payload);
+                  window.alert('Vehicle created successfully');
                   setShowAddVehicle(false);
                   setAddVehicleForm({
                     vehicleId: "", type: "Medium Truck", capacityBottles: "", capacityWeight: "",
@@ -1252,7 +1487,11 @@ export default function TransportDashboard() {
                     fuelLevel: 100, fuelType: "Diesel", maintenanceStatus: "Good",
                   });
                   fetchVehiclesList();
-                } catch (err) { console.error('Create vehicle failed', err); }
+                } catch (err) {
+                  console.error('Create vehicle failed', err);
+                  const msg = err?.response?.data?.message || 'Failed to create vehicle. Please try again.';
+                  window.alert(msg);
+                }
               }}>Save Vehicle</button>
             </div>
           </div>
@@ -1277,11 +1516,11 @@ export default function TransportDashboard() {
                   spellCheck={false}
                   className="border rounded-lg px-3 py-2 w-full"
                   value={editVehicleForm.vehicleId}
-                  maxLength={10}
-                  placeholder="Max 10 letters/numbers"
-                  title="Only letters and numbers. Max 10 characters."
+                  maxLength={20}
+                  placeholder="2–20 characters: letters, numbers, - or _"
+                  title="Letters (A–Z), numbers (0–9), hyphen (-) and underscore (_). 2–20 characters."
                   onChange={(e)=>{
-                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0,10).toUpperCase();
+                    const sanitized = e.target.value.replace(/[^A-Za-z0-9-_]/g, '').slice(0,20);
                     setEditVehicleForm({...editVehicleForm, vehicleId: sanitized});
                   }}
                 />
@@ -1440,26 +1679,15 @@ export default function TransportDashboard() {
       case "overview": return renderOverview();
       case "requests": return renderRequests();
       case "assigned": return renderAssigned();
-      case "deliveries": return renderCollections();
       case "routes": return renderRoutes();
       case "vehicles": return renderVehicles();
       case "drivers": return renderDrivers();
+      case "reports": return renderReports();
       default: return renderOverview();
     }
   };
 
-  // Fetch deliveries when entering the tab
-  const fetchDeliveries = async () => {
-    try {
-      setLoadingDeliveries(true);
-      const res = await axios.get('http://localhost:5000/api/deliveries');
-      setDeliveries(Array.isArray(res.data) ? res.data : []);
-    } catch (err) { console.error('Failed to fetch deliveries', err); }
-    finally { setLoadingDeliveries(false); }
-  };
-
   useEffect(() => {
-    if (activeTab === 'deliveries') fetchDeliveries();
     if (activeTab === 'requests') fetchRequests();
     if (activeTab === 'assigned') fetchAssigned();
     if (activeTab === 'drivers') fetchDriversList();
@@ -1512,7 +1740,10 @@ export default function TransportDashboard() {
               <p className="text-gray-600 mt-1">Fleet operations and logistics management</p>
             </div>
             <div className="flex space-x-3">
-              <Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50">Export Report</Button>
+              <Button className="bg-blue-600 text-white hover:bg-blue-700" onClick={()=>setActiveTab('reports')}>
+                <FileText className="mr-2 h-5 w-5" />
+                Report
+              </Button>
             </div>
           </div>
         </header>

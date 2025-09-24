@@ -15,13 +15,16 @@ import InventoryDashboard from "./components/Inventory/InventoryDashboard";
 import InventoryProfile from "./components/Inventory/InventoryProfile";
 import InventoryForms from "./components/Inventory/InventoryForms";
 import InventorySorting from "./components/Inventory/InventorySorting";
-import ReportPage from "./components/Inventory/ReportPage";
+import InventoryReports from "./components/Inventory/InventoryReports";
+import InventoryAnalytics from "./components/Inventory/InventoryAnalytics";
 import InventoryRequests from "./components/Inventory/InventoryRequests";
 import InventoryDeliveryRecords from "./components/Inventory/InventoryDeliveryRecords";
 import ProductionDashboard from "./components/Production/ProductionDashboard";
+import ProductionReportPage from "./components/Production/ProductionReportPage";
 import UnifiedFinanceDashboard from "./components/finance/UnifiedFinanceDashboard";
 import AdminDashboard from "./components/admin/AdminDashboard";
 import TransportDashboard from "./components/transport/TransportDashboard";
+import TransportReports from "./components/transport/TransportReports";
 import CollectorsDashboard from "./components/collectors/CollectorsDashboard";
 import InventoryMaterials from "./components/Inventory/InventoryMaterials";
 import InventoryStockManagement from "./components/Inventory/InventoryStockManagement";
@@ -132,6 +135,14 @@ function App() {
             }
           />
           <Route
+            path="/inventory/analytics"
+            element={
+              <ProtectedRoute>
+                <InventoryAnalytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/inventory/sorting"
             element={
               <ProtectedRoute>
@@ -143,7 +154,7 @@ function App() {
             path="/inventory/reports"
             element={
               <ProtectedRoute>
-                <ReportPage />
+                <InventoryReports />
               </ProtectedRoute>
             }
           />
@@ -165,6 +176,14 @@ function App() {
             }
           />
           <Route
+            path="/production/reports"
+            element={
+              <ProtectedRoute requiredRole="production">
+                <ProductionReportPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/finance"
             element={
               <ProtectedRoute requiredRole="finance">
@@ -177,6 +196,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole="transport">
                 <TransportDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/transport/reports"
+            element={
+              <ProtectedRoute requiredRole="transport">
+                <TransportReports />
               </ProtectedRoute>
             }
           />
