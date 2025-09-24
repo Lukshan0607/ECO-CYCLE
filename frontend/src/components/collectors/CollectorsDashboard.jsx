@@ -62,12 +62,52 @@ export default function CollectorsDashboard() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
 
+  // Shared Active Bin Locations (from Transport -> Bin Locations)
+  const [binLocations, setBinLocations] = useState([]);
+  const [binsLoading, setBinsLoading] = useState(false);
+  const [binsError, setBinsError] = useState("");
+  const [selectedLocManager, setSelectedLocManager] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState("");
+
+  const loadActiveBins = async () => {
+    try {
+      setBinsLoading(true);
+      setBinsError("");
+      const res = await axios.get("http://localhost:5000/api/transport/bin-routes", { params: { status: "Active" } });
+      const payload = res?.data;
+      const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+      setBinLocations(list);
+    } catch (e) {
+      setBinsError("Failed to load locations");
+    } finally {
+      setBinsLoading(false);
+    }
+  };
+
+  useEffect(() => { loadActiveBins(); }, []);
+
+  // Keep manager name in sync if locations refresh while one is selected
+  useEffect(() => {
+    try {
+      const val = selectedLocation || "";
+      if (!val) { setSelectedLocManager(""); return; }
+      const found = binLocations.find(l => (l.location || l.name || "") === val);
+      setSelectedLocManager(found ? (found.managerName || found.manager || "") : "");
+    } catch {}
+  }, [binLocations, selectedLocation]);
+
+  // Keep the select's ref value in sync with selectedLocation
+  useEffect(() => {
+    try {
+      if (locationRef.current) locationRef.current.value = selectedLocation || "";
+    } catch {}
+  }, [selectedLocation]);
+
   const fetchCollections = async () => {
     try {
       setLoadingCollections(true);
       const res = await axios.get("http://localhost:5000/api/collections", {
         params: {
-          collectorName: "Demo Collector",
           limit: 100,
           dateFrom: filterFrom || undefined,
           dateTo: filterTo || undefined,
@@ -169,9 +209,7 @@ export default function CollectorsDashboard() {
 
   const fetchTransportRequests = async () => {
     try {
-      const res = await axios.get("http://localhost:5000/api/transport-requests", {
-        params: { collectorName: "Demo Collector" }
-      });
+      const res = await axios.get("http://localhost:5000/api/transport-requests");
       const arr = res?.data?.requests || [];
       setTransportReqs(arr);
     } catch (e) {
@@ -293,110 +331,82 @@ export default function CollectorsDashboard() {
     try {
       setSubmitting(true);
       setToast("");
-      // Interpret input as grams and convert to kilograms for storage/points
       const qtyG = Number(form.quantity || 0);
-      const qty = qtyG / 1000;
-      // If editing, skip phone requirement
+      const qty = qtyG / 1000; // store kg
       if (!editingId && (!form.phone || !qty)) {
         setToast("Phone number and quantity are required");
         return;
       }
 
-      // If editing, update the existing collection and recalc points + refresh timestamp
+      // EDIT: update existing collection
       if (editingId) {
         const pointsToAward = calcPoints('MIXED', qty);
         await axios.put(`http://localhost:5000/api/collections/${editingId}`, {
-          quantity: qty, // stored in kg
-          location: form.location || "",
+          quantity: qty,
+          location: form.location || selectedLocation || "",
+          collectorName: selectedLocManager || "",
           awardedPoints: pointsToAward,
           refreshTimestamp: true,
         });
+        setToast('Collection updated');
         await fetchCollections();
-        setToast("Collection updated: points recalculated and time refreshed.");
-        // reset
+        // reset edit state and inputs
         setEditingId(null);
-        if (phoneRef.current) phoneRef.current.value = "";
         if (qtyRef.current) qtyRef.current.value = "";
         if (locationRef.current) locationRef.current.value = "";
         return;
       }
 
-      // New collection: verify user exists first; if not, do NOT save
+      // CREATE: verify user exists
       try {
-        const existsRes = await axios.get(
-          "http://localhost:5000/api/users/exists",
-          { params: { phone: form.phone } }
-        );
+        const existsRes = await axios.get("http://localhost:5000/api/users/exists", { params: { phone: form.phone } });
         if (!existsRes?.data?.exists) {
           setToast("User not found for this phone. Please create an account first.");
-          return; // stop here; do not create collection
+          return;
         }
-      } catch (_) {
+      } catch (e) {
         setToast("Could not verify user. Please try again.");
         return;
       }
 
-      // 1) Create delivery collection record (backend route exists) — always save collection
       const pointsToAward = calcPoints('MIXED', qty);
-      const createRes = await axios
-        .post("http://localhost:5000/api/collections", {
-          collectorName: "Demo Collector",
-          // Backend requires bottleType; use default since form removed type
-          bottleType: 'MIXED',
-          quantity: qty, // stored in kg
-          location: form.location || "",
-          awardedPoints: pointsToAward, // persist awarded points on create
-        })
-        .catch(() => {});
+      // Create collection with manager name as collectorName
+      const createRes = await axios.post("http://localhost:5000/api/collections", {
+        collectorName: selectedLocManager || "",
+        bottleType: 'MIXED',
+        quantity: qty,
+        location: form.location || selectedLocation || "",
+        awardedPoints: pointsToAward,
+      });
 
-      const created = createRes?.data?.collection || null;
-      const createdCollectionId = created?.collectionId;
-      const createdMongoId = created?._id;
-      const createdStatus = created?.status || "Pending Transport";
-      const createdAt = created?.createdAt || new Date().toISOString();
+      const created = createRes?.data?.collection || createRes?.data || null;
+      const createdId = created?.collectionId || created?._id;
+      const createdAt = created?.createdAt || nowIso();
 
-      // We'll refresh from DB after finishing
-
-      // 3) Award points (we already verified user exists)
+      // Award points
       try {
         await axios.post("http://localhost:5000/api/points/award", {
           phone: form.phone,
           points: pointsToAward,
-          reason: `Bottle collection (Mixed)` ,
-          collectionId: createdCollectionId,
-          collectionMongoId: createdMongoId,
+          reason: 'Bottle collection (Mixed)',
+          collectionId: created?.collectionId,
+          collectionMongoId: created?._id,
         });
-        setToast(`Collection saved and ${pointsToAward} points awarded!`);
-        // Set receipt data (award succeeded)
-        setLastReceipt({
-          id: createdCollectionId || createdMongoId,
-          createdAt,
-          collectorName: "Demo Collector",
-          bottleType: 'MIXED',
-          quantity: qtyG, // show grams on receipt
-          location: form.location || "",
-          awardedPoints: pointsToAward,
-          userPhone: form.phone,
-        });
-      } catch (_) {
-        setToast("Collection saved. Could not award points at this time.");
-        // Set receipt data (without points)
-        setLastReceipt({
-          id: createdCollectionId || createdMongoId,
-          createdAt,
-          collectorName: "Demo Collector",
-          bottleType: 'MIXED',
-          quantity: qtyG, // show grams on receipt
-          location: form.location || "",
-          awardedPoints: 0,
-          userPhone: form.phone,
-        });
-      }
+      } catch {}
 
-      // Refresh the DB-backed table
+      setLastReceipt({
+        id: createdId,
+        createdAt,
+        collectorName: selectedLocManager || "",
+        bottleType: 'MIXED',
+        quantity: qtyG,
+        location: form.location || selectedLocation || "",
+        awardedPoints: pointsToAward,
+        userPhone: form.phone,
+      });
+      setToast('Collection saved and points awarded');
       await fetchCollections();
-
-      // Reset uncontrolled inputs
+      // Reset inputs (keep selected location if you prefer, but we clear here)
       if (phoneRef.current) phoneRef.current.value = "";
       if (qtyRef.current) qtyRef.current.value = "";
       if (locationRef.current) locationRef.current.value = "";
@@ -404,7 +414,7 @@ export default function CollectorsDashboard() {
       setToast("Failed to save collection. Please try again.");
     } finally {
       setSubmitting(false);
-      setTimeout(() => setToast(""), 3000);
+      setTimeout(()=>setToast(""), 3000);
     }
   };
 
@@ -415,7 +425,10 @@ export default function CollectorsDashboard() {
       // stored in kg; show grams with 1 decimal in the input
       const grams = ((Number(c.quantity) || 0) * 1000).toFixed(1);
       if (qtyRef.current) qtyRef.current.value = grams;
-      if (locationRef.current) locationRef.current.value = c.location || "";
+      const loc = c.location || "";
+      if (locationRef.current) locationRef.current.value = loc;
+      setSelectedLocation(loc);
+      setSelectedLocManager(c.collectorName || "");
       // focus qty field for quick edit
       if (qtyRef.current) qtyRef.current.focus();
     } catch {}
@@ -446,10 +459,10 @@ export default function CollectorsDashboard() {
     try {
       await axios.post("http://localhost:5000/api/transport-requests", {
         collectionId: null,
-        collectorName: "Demo Collector",
+        collectorName: selectedLocManager || "",
         bottleType: stock.bottleType,
         quantity: stock.quantity,
-        location: stock.location || "",
+        location: selectedLocation || stock.location || "",
         notes: `Requested via dashboard for ${stock.bottleType}`,
       });
       // Optionally push a lightweight local notification entry
@@ -601,55 +614,49 @@ export default function CollectorsDashboard() {
   );
 
   const CollectorLocationsTab = () => {
-    // Build unique locations with counts and totals from collections
-    const rows = useMemo(() => {
-      const map = new Map();
-      for (const c of collections) {
-        const key = (c.location || '-').trim() || '-';
-        const prev = map.get(key) || { location: key, count: 0, totalKg: 0, lastAt: null };
-        prev.count += 1;
-        prev.totalKg += Number(c.quantity) || 0;
-        const dt = c.createdAt ? new Date(c.createdAt) : null;
-        if (dt && (!prev.lastAt || dt > prev.lastAt)) prev.lastAt = dt;
-        map.set(key, prev);
-      }
-      return Array.from(map.values()).sort((a,b)=>{
-        // Sort by totalKg desc, then location asc
-        if (b.totalKg !== a.totalKg) return b.totalKg - a.totalKg;
-        return a.location.localeCompare(b.location);
-      });
-    }, [collections]);
-
     return (
       <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Collector Locations</h2>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="bg-gray-50 text-left text-sm text-gray-700">
-                <th className="py-3 px-4 font-semibold">Location</th>
-                <th className="py-3 px-4 font-semibold">Collections</th>
-                <th className="py-3 px-4 font-semibold">Total Weight (kg)</th>
-                <th className="py-3 px-4 font-semibold">Last Collected</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, idx)=> (
-                <tr key={r.location+idx} className="border-t text-sm">
-                  <td className="py-3 px-4">{r.location}</td>
-                  <td className="py-3 px-4 font-medium">{r.count}</td>
-                  <td className="py-3 px-4 font-semibold">{r.totalKg.toFixed(2)}</td>
-                  <td className="py-3 px-4">{r.lastAt ? new Date(r.lastAt).toLocaleString() : '-'}</td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td className="py-6 px-4 text-gray-500" colSpan={4}>No location data</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900">Collector Locations</h2>
+          <button onClick={loadActiveBins} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-gray-50">Refresh</button>
         </div>
+        {binsError && <div className="mb-3 text-sm text-red-600">{binsError}</div>}
+        {binsLoading ? (
+          <div className="text-gray-600">Loading active locations...</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {binLocations.map((loc, idx) => {
+              const id = loc.routeId || loc.id || `LOC-${idx+1}`;
+              const name = loc.location || loc.name || "-";
+              const city = loc.city || "";
+              const manager = loc.managerName || loc.manager || "";
+              const distance = typeof loc.distanceKm === 'number' ? `${loc.distanceKm} km` : (loc.distance?.total ? `${loc.distance.total} ${loc.distance.unit||'km'}` : "");
+
+              return (
+                <div key={id} className="border border-gray-200 rounded-2xl p-4 hover:shadow-md transition">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                      <MapPinIcon className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-semibold text-gray-900 truncate">{name}</h3>
+                        <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Active</span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">ID: <span className="font-mono">{id}</span></div>
+                      {city && <div className="mt-1 text-sm text-gray-700">City: {city}</div>}
+                      {manager && <div className="mt-1 text-sm text-gray-700">Manager: {manager}</div>}
+                      {distance && <div className="mt-1 text-sm text-gray-700">Distance: {distance}</div>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {binLocations.length === 0 && (
+              <div className="col-span-full text-gray-500">No active locations</div>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -867,14 +874,48 @@ export default function CollectorsDashboard() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium">Location (Optional)</label>
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium">Location</label>
+            <button type="button" onClick={loadActiveBins} className="text-xs text-blue-600 hover:underline disabled:text-gray-400" disabled={binsLoading}>{binsLoading ? 'Refreshing...' : 'Refresh locations'}</button>
+          </div>
           <div className="flex items-center border rounded-lg px-3 py-2 mt-1">
             <MapPinIcon className="w-5 h-5 text-gray-400 mr-2" />
-            <input
+            <select
               ref={locationRef}
-              className="w-full outline-none"
-              placeholder="e.g., Gampaha"
-              defaultValue=""
+              className="w-full outline-none bg-transparent"
+              value={selectedLocation}
+              onChange={(e)=>{
+                const val = e.target.value || "";
+                setSelectedLocation(val);
+                const found = val ? binLocations.find(l => (l.location || l.name || "") === val) : null;
+                setSelectedLocManager(found ? (found.managerName || found.manager || "") : "");
+              }}
+            >
+              <option value="">Select a location</option>
+              {binLocations.map((loc, idx) => {
+                const name = loc.location || loc.name || '';
+                const city = loc.city || '';
+                const label = city ? `${name} · ${city}` : name;
+                return (
+                  <option key={(loc.routeId||loc.id||idx)+name} value={name}>{label}</option>
+                );
+              })}
+            </select>
+          </div>
+          {selectedLocManager && (
+            <div className="text-xs text-gray-700 mt-1">Collector Manager: <span className="font-medium">{selectedLocManager}</span></div>
+          )}
+          {binsError && <div className="text-xs text-red-600 mt-1">{binsError}</div>}
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Collector Manager</label>
+          <div className="flex items-center border rounded-lg px-3 py-2 mt-1 bg-gray-50">
+            <UserCircleIcon className="w-5 h-5 text-gray-400 mr-2" />
+            <input
+              className="w-full outline-none bg-transparent"
+              value={selectedLocManager}
+              readOnly
+              placeholder="Auto-filled based on location"
             />
           </div>
         </div>
@@ -885,7 +926,7 @@ export default function CollectorsDashboard() {
           onClick={()=>handleSubmitCollection({
             phone: phoneRef.current?.value?.trim() || "",
             quantity: qtyRef.current?.value || "",
-            location: locationRef.current?.value || "",
+            location: selectedLocation || "",
           })}
           className="bg-green-600 text-white px-6 py-2 rounded-lg shadow hover:bg-green-700 disabled:opacity-60"
         >
@@ -1076,10 +1117,10 @@ export default function CollectorsDashboard() {
                   try {
                     await axios.post('http://localhost:5000/api/transport-requests', {
                       collectionId: null,
-                      collectorName: 'Demo Collector',
+                      collectorName: selectedLocManager || '',
                       bottleType: 'Mixed',
                       quantity: qtySinceLastRequest,
-                      location: '',
+                      location: selectedLocation || '',
                       notes: 'Threshold reached (>=20 kg) since last request. Please collect.',
                       requestId: batchId,
                     });
