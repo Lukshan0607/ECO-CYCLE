@@ -15,7 +15,8 @@ import InventoryDashboard from "./components/Inventory/InventoryDashboard";
 import InventoryProfile from "./components/Inventory/InventoryProfile";
 import InventoryForms from "./components/Inventory/InventoryForms";
 import InventorySorting from "./components/Inventory/InventorySorting";
-import ReportPage from "./components/Inventory/ReportPage";
+import InventoryReports from "./components/Inventory/InventoryReports";
+import InventoryAnalytics from "./components/Inventory/InventoryAnalytics";
 import InventoryRequests from "./components/Inventory/InventoryRequests";
 import InventoryDeliveryRecords from "./components/Inventory/InventoryDeliveryRecords";
 import ProductionDashboard from "./components/Production/ProductionDashboard";
@@ -26,6 +27,7 @@ import SalesDashboard from "./components/sales/SalesDashboard";
 import TransportDashboard from "./components/transport/TransportDashboard";
 import CollectorsDashboard from "./components/collectors/CollectorsDashboard";
 import InventoryMaterials from "./components/Inventory/InventoryMaterials";
+import InventoryStockManagement from "./components/Inventory/InventoryStockManagement";
 import FAQ from "./components/business/FAQ";
 import Contact from "./components/business/Contact";
 import HelpCenter from "./components/business/HelpCenter";
@@ -125,6 +127,22 @@ function App() {
             }
           />
           <Route
+            path="/inventory/stock"
+            element={
+              <ProtectedRoute>
+                <InventoryStockManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/analytics"
+            element={
+              <ProtectedRoute>
+                <InventoryAnalytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/inventory/sorting"
             element={
               <ProtectedRoute>
@@ -136,7 +154,7 @@ function App() {
             path="/inventory/reports"
             element={
               <ProtectedRoute>
-                <ReportPage />
+                <InventoryReports />
               </ProtectedRoute>
             }
           />

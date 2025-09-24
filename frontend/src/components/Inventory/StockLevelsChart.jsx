@@ -11,6 +11,9 @@ import {
 } from "recharts";
 
 const StockLevelsChart = ({ inventory, height = 320 }) => {
+  const formatKg = (v) => `${Number(v || 0).toFixed(3)} Kg`;
+  const formatKgTick = (v) => Number(v || 0).toFixed(3);
+
   const barData = useMemo(() => {
     return (inventory || [])
       .map((item) => ({ name: item.name, stock: Number(item.stock) || 0 }))
@@ -57,6 +60,7 @@ const StockLevelsChart = ({ inventory, height = 320 }) => {
           tick={{ fontSize: 12, fill: '#64748b' }}
           axisLine={{ stroke: '#e2e8f0' }}
           label={{ value: 'Kg', angle: -90, position: 'insideLeft', offset: 8, style: { fill: '#64748b', fontSize: 12 } }}
+          tickFormatter={formatKgTick}
         />
         <Tooltip
           contentStyle={{
@@ -65,7 +69,7 @@ const StockLevelsChart = ({ inventory, height = 320 }) => {
             borderRadius: '12px',
             boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
           }}
-          formatter={(value, name) => name === 'stock' ? [`${value} Kg`, 'Stock'] : [value, name]}
+          formatter={(value, name) => name === 'stock' ? [formatKg(value), 'Stock'] : [value, name]}
         />
         <Bar dataKey="stock" fill="url(#stockGradient)" radius={[4, 4, 0, 0]} />
         <defs>

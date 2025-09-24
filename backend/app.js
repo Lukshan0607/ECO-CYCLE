@@ -23,6 +23,7 @@ const salesRoutes = require("./Routes/SalesRoutes");
 const productionPlanRoutes = require("./Routes/ProductionPlanRoutes");
 const machineRoutes = require("./Routes/MachineRoutes");
 const qualityRoutes = require("./Routes/QualityRoutes");
+const stockProductionRequestRoutes = require("./Routes/StockProductionRequestRoutes");
 
 // CORS Configuration
 const corsOptions = {
@@ -60,6 +61,7 @@ app.use("/api/sales", salesRoutes);
 app.use("/api/production-plans", productionPlanRoutes);
 app.use("/api/machines", machineRoutes);
 app.use("/api/quality", qualityRoutes);
+app.use("/api/stock-requests", stockProductionRequestRoutes);
 
 
 // Health check endpoint
