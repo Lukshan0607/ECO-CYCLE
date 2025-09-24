@@ -457,12 +457,14 @@ export default function CollectorsDashboard() {
   // Create transport request from selected stock row
   const requestTransport = async (stock) => {
     try {
+      const safeCollector = (selectedLocManager && selectedLocManager.trim()) || 'Collector Hub';
+      const safeLocation = (selectedLocation && selectedLocation.trim()) || (stock.location || '');
       await axios.post("http://localhost:5000/api/transport-requests", {
         collectionId: null,
-        collectorName: selectedLocManager || "",
+        collectorName: safeCollector,
         bottleType: stock.bottleType,
         quantity: stock.quantity,
-        location: selectedLocation || stock.location || "",
+        location: safeLocation,
         notes: `Requested via dashboard for ${stock.bottleType}`,
       });
       // Optionally push a lightweight local notification entry
@@ -475,7 +477,8 @@ export default function CollectorsDashboard() {
       // refresh requests list
       fetchTransportRequests();
     } catch (e) {
-      setToast("Failed to send transport request. Ensure backend is running.");
+      const msg = e?.response?.data?.message || e?.message || 'Failed to send transport request. Ensure backend is running.';
+      setToast(msg);
       setTimeout(() => setToast(""), 2500);
     }
   };
@@ -1115,12 +1118,14 @@ export default function CollectorsDashboard() {
                 title="Enabled when total since last request reaches 20 kg"
                 onClick={async ()=>{
                   try {
+                    const safeCollector = (selectedLocManager && selectedLocManager.trim()) || 'Collector Hub';
+                    const safeLocation = (selectedLocation && selectedLocation.trim()) || '';
                     await axios.post('http://localhost:5000/api/transport-requests', {
                       collectionId: null,
-                      collectorName: selectedLocManager || '',
+                      collectorName: safeCollector,
                       bottleType: 'Mixed',
                       quantity: qtySinceLastRequest,
-                      location: selectedLocation || '',
+                      location: safeLocation,
                       notes: 'Threshold reached (>=20 kg) since last request. Please collect.',
                       requestId: batchId,
                     });
@@ -1129,7 +1134,8 @@ export default function CollectorsDashboard() {
                     await fetchTransportRequests();
                     await fetchCollections();
                   } catch (e) {
-                    setToast('Failed to create transport request.');
+                    const msg = e?.response?.data?.message || e?.message || 'Failed to create transport request.';
+                    setToast(msg);
                     setTimeout(()=>setToast(''), 2500);
                   }
                 }}
