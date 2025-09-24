@@ -450,7 +450,8 @@ export default function TransportDashboard() {
               ) : (
                 <div className="max-h-72 overflow-auto border rounded-xl">
                   {drivers.map((d)=>{
-                    const name = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim() || d.employeeId;
+                    const nameFromPersonal = `${d.personalInfo?.firstName || ''} ${d.personalInfo?.lastName || ''}`.trim();
+                    const name = (d.fullName && String(d.fullName).trim()) || nameFromPersonal || d.employeeId;
                     const status = d.currentStatus;
                     const selected = selectedDriverId === d._id;
                     return (
@@ -794,8 +795,18 @@ export default function TransportDashboard() {
                         // Fetch drivers list
                         try {
                           setLoadingDrivers(true);
-                          const res = await axios.get('http://localhost:5000/api/transport/drivers');
-                          setDrivers(res?.data || []);
+                          const res = await axios.get('http://localhost:5000/api/employees', {
+                            params: { department: 'transport', position: 'Driver', status: 'active' }
+                          });
+                          const payload = res?.data;
+                          const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+                          const onlyActive = list.filter(d => {
+                            const cs = (d.currentStatus || '').toString().toLowerCase();
+                            const es = (d.employmentStatus || '').toString().toLowerCase();
+                            const s = (d.status || '').toString().toLowerCase();
+                            return cs === 'active' || es === 'active' || s === 'active';
+                          });
+                          setDrivers(onlyActive);
                         } catch (err) { console.error('Failed to load drivers', err); }
                         finally { setLoadingDrivers(false); }
                       }}>Assign</Button>
