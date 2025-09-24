@@ -58,6 +58,9 @@ export default function TransportDashboard() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [assignNotice, setAssignNotice] = useState({ type: "", text: "" }); // {type: 'success'|'error'|'', text}
   const [assignSubmitting, setAssignSubmitting] = useState(false);
+  // Vehicles for Assign modal (active only)
+  const [vehiclesAssign, setVehiclesAssign] = useState([]);
+  const [loadingVehiclesAssign, setLoadingVehiclesAssign] = useState(false);
   // Driver management state
   const [driversList, setDriversList] = useState([]);
   const [loadingDriversList, setLoadingDriversList] = useState(false);
@@ -471,6 +474,31 @@ export default function TransportDashboard() {
                   )}
                 </div>
               )}
+              <div className="mt-4">
+                <h4 className="font-medium mb-2">Active Vehicles</h4>
+                {loadingVehiclesAssign ? (
+                  <div className="text-gray-600">Loading vehicles...</div>
+                ) : (
+                  <div className="max-h-48 overflow-auto border rounded-xl">
+                    {vehiclesAssign.map((v)=>{
+                      const vid = v.vehicleId || v._id;
+                      const vtype = v.type || '-';
+                      return (
+                        <div key={v._id || vid} className="px-4 py-2 border-b last:border-b-0 flex items-center justify-between">
+                          <div>
+                            <div className="font-medium">{vtype}</div>
+                            <div className="text-xs text-gray-500">Vehicle ID: {vid}</div>
+                          </div>
+                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Active</span>
+                        </div>
+                      );
+                    })}
+                    {vehiclesAssign.length === 0 && (
+                      <div className="p-3 text-gray-600">No active vehicles found</div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="md:col-span-1">
               <label className="block text-sm font-medium mb-1">Pickup Time</label>
@@ -809,6 +837,18 @@ export default function TransportDashboard() {
                           setDrivers(onlyActive);
                         } catch (err) { console.error('Failed to load drivers', err); }
                         finally { setLoadingDrivers(false); }
+                        // Fetch active vehicles for display in Assign modal
+                        try {
+                          setLoadingVehiclesAssign(true);
+                          const vres = await axios.get('http://localhost:5000/api/transport/vehicles', {
+                            params: { status: 'Active' }
+                          });
+                          const vpayload = vres?.data;
+                          const vlist = Array.isArray(vpayload) ? vpayload : Array.isArray(vpayload?.data) ? vpayload.data : [];
+                          const activeVehicles = vlist.filter(v => (v.status || '').toString().toLowerCase() === 'active');
+                          setVehiclesAssign(activeVehicles);
+                        } catch (err) { console.error('Failed to load vehicles for assign', err); }
+                        finally { setLoadingVehiclesAssign(false); }
                       }}>Assign</Button>
                       <Button size="sm" variant="outline" onClick={async ()=>{
                         try {
