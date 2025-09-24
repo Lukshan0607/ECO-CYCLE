@@ -23,6 +23,7 @@ import UnifiedFinanceDashboard from "./components/finance/UnifiedFinanceDashboar
 import AdminDashboard from "./components/admin/AdminDashboard";
 import SalesDashboard from "./components/sales/SalesDashboard";
 import TransportDashboard from "./components/transport/TransportDashboard";
+import TransportReports from "./components/transport/TransportReports";
 import CollectorsDashboard from "./components/collectors/CollectorsDashboard";
 import InventoryMaterials from "./components/Inventory/InventoryMaterials";
 import FAQ from "./components/business/FAQ";
@@ -177,6 +178,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole="transport">
                 <TransportDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/transport/reports"
+            element={
+              <ProtectedRoute requiredRole="transport">
+                <TransportReports />
               </ProtectedRoute>
             }
           />
