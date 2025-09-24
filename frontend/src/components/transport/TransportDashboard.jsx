@@ -62,6 +62,7 @@ export default function TransportDashboard() {
   // Vehicles for Assign modal (active only)
   const [vehiclesAssign, setVehiclesAssign] = useState([]);
   const [loadingVehiclesAssign, setLoadingVehiclesAssign] = useState(false);
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
   // Driver management state
   const [driversList, setDriversList] = useState([]);
   const [loadingDriversList, setLoadingDriversList] = useState(false);
@@ -506,14 +507,23 @@ export default function TransportDashboard() {
                     {vehiclesAssign.map((v)=>{
                       const vid = v.vehicleId || v._id;
                       const vtype = v.type || '-';
+                      const selected = selectedVehicleId === vid;
                       return (
-                        <div key={v._id || vid} className="px-4 py-2 border-b last:border-b-0 flex items-center justify-between">
+                        <button
+                          key={v._id || vid}
+                          type="button"
+                          onClick={()=>setSelectedVehicleId(vid)}
+                          className={`w-full text-left px-4 py-2 border-b last:border-b-0 flex items-center justify-between hover:bg-gray-50 ${selected ? 'bg-blue-50' : ''}`}
+                        >
                           <div>
                             <div className="font-medium">{vtype}</div>
                             <div className="text-xs text-gray-500">Vehicle ID: {vid}</div>
                           </div>
-                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Active</span>
-                        </div>
+                          <div className="flex items-center gap-2">
+                            {selected && <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Selected</span>}
+                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Active</span>
+                          </div>
+                        </button>
                       );
                     })}
                     {vehiclesAssign.length === 0 && (
@@ -545,7 +555,7 @@ export default function TransportDashboard() {
             </div>
           </div>
           <div className="px-5 pb-5 flex justify-end gap-2">
-            <button className="border px-4 py-2 rounded-lg" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setAssignNotice({type:'', text:''}); }}>Cancel</button>
+            <button className="border px-4 py-2 rounded-lg" onClick={()=>{ setShowAssignModal(false); setAssignRequestId(null); setSelectedDriverId(""); setSelectedVehicleId(""); setAssignNotice({type:'', text:''}); }}>Cancel</button>
             <button disabled={assignSubmitting} className={`px-4 py-2 rounded-lg ${assignSubmitting ? 'bg-blue-300 text-white' : 'bg-blue-600 text-white'}`} onClick={async ()=>{
               try {
                 setAssignNotice({ type: '', text: '' });
@@ -553,10 +563,12 @@ export default function TransportDashboard() {
                 if (!selectedDriverId) { setAssignNotice({ type:'error', text:'Please select a driver' }); return; }
                 if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup schedule' }); return; }
                 if (scheduledAt && new Date(scheduledAt) < new Date()) { setAssignNotice({ type:'error', text:'Pickup schedule must be in the future.' }); return; }
+                if (!selectedVehicleId) { setAssignNotice({ type:'error', text:'Please select an active vehicle' }); return; }
                 setAssignSubmitting(true);
                 await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/assign-driver`, {
                   driverId: selectedDriverId,
                   scheduledAt,
+                  vehicleId: selectedVehicleId,
                 });
                 setAssignNotice({ type:'success', text:'Assigned successfully' });
                 // brief delay to show success
@@ -564,6 +576,7 @@ export default function TransportDashboard() {
                   setShowAssignModal(false);
                   setAssignRequestId(null);
                   setSelectedDriverId("");
+                  setSelectedVehicleId("");
                   setAssignSubmitting(false);
                   fetchRequests();
                 }, 600);
@@ -923,6 +936,7 @@ export default function TransportDashboard() {
                           const nowMin = new Date();
                           const minLocal = `${nowMin.getFullYear()}-${pad(nowMin.getMonth()+1)}-${pad(nowMin.getDate())}T${pad(nowMin.getHours())}:${pad(nowMin.getMinutes())}`;
                           setScheduleMin(minLocal);
+                          setSelectedVehicleId("");
                         } catch {}
                         // Fetch drivers list
                         try {
