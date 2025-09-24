@@ -101,6 +101,16 @@ export const paymentMethodsApi = {
 
 // Payment Processing API
 export const paymentProcessingApi = {
+  // Get payment summary (total, success, pending, failed)
+  getSummary: async () => {
+    try {
+      const response = await api.get('/payments/summary');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching payment summary:', error);
+      throw error;
+    }
+  },
   // Get all payments
   getAll: async (filters = {}) => {
     try {
