@@ -10,17 +10,43 @@ export default function InventoryDeliveryRecords() {
   const [error, setError] = useState("");
   const [drivers, setDrivers] = useState([]);
   const [loadingDrivers, setLoadingDrivers] = useState(false);
+  const [employees, setEmployees] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
 
   const fetchDrivers = async () => {
     try {
       setLoadingDrivers(true);
       const res = await axios.get("http://localhost:5000/api/transport/drivers");
-      setDrivers(Array.isArray(res.data) ? res.data : []);
+      const payload = res?.data;
+      const list = Array.isArray(payload)
+        ? payload
+        : (Array.isArray(payload?.drivers)
+            ? payload.drivers
+            : (Array.isArray(payload?.data)
+                ? payload.data
+                : []));
+      setDrivers(list);
     } catch (err) {
       console.error("Failed to fetch drivers", err);
     } finally {
       setLoadingDrivers(false);
+    }
+  };
+
+  const fetchEmployees = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/employees");
+      const payload = res?.data;
+      const list = Array.isArray(payload)
+        ? payload
+        : (Array.isArray(payload?.employees)
+            ? payload.employees
+            : (Array.isArray(payload?.data)
+                ? payload.data
+                : []));
+      setEmployees(list);
+    } catch (err) {
+      console.error("Failed to fetch employees", err);
     }
   };
 
@@ -45,8 +71,12 @@ export default function InventoryDeliveryRecords() {
   };
 
   useEffect(() => {
-    fetchDrivers();
-    fetchRequests();
+    (async () => {
+      // Load employees and drivers first so we can map IDs to names on initial render
+      await fetchEmployees();
+      await fetchDrivers();
+      await fetchRequests();
+    })();
     // Listen for events from Transport page to refresh
     const handler = () => { fetchRequests(); };
     window.addEventListener('transport:assigned-updated', handler);
@@ -62,12 +92,28 @@ export default function InventoryDeliveryRecords() {
 
   const driverName = (id) => {
     if (!id) return "-";
-    const d = drivers.find(x => (x._id === id) || (String(x._id) === String(id)));
-    if (!d) return id;
-    const first = d.personalInfo?.firstName || "";
-    const last = d.personalInfo?.lastName || "";
-    const name = `${first} ${last}`.trim();
-    return name || d.employeeId || id;
+    // 1) Try Employees table: match by Mongo _id or employeeId and use fullName
+    const emp = employees.find(e =>
+      (e?._id && (e._id === id || String(e._id) === String(id))) ||
+      (e?.employeeId && (e.employeeId === id || String(e.employeeId) === String(id)))
+    );
+    if (emp) {
+      const full = emp.fullName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+      return full || emp.employeeId || id;
+    }
+    // 2) Fallback to Drivers table: match by _id or employeeId and compose name
+    const d = drivers.find(x =>
+      (x?._id && (x._id === id || String(x._id) === String(id))) ||
+      (x?.employeeId && (x.employeeId === id || String(x.employeeId) === String(id)))
+    );
+    if (d) {
+      const first = d.personalInfo?.firstName || "";
+      const last = d.personalInfo?.lastName || "";
+      const name = `${first} ${last}`.trim();
+      return name || d.employeeId || id;
+    }
+    // 3) Last resort: show the raw id
+    return id;
   };
 
   const markDelivered = async (row) => {
