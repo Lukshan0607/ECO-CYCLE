@@ -56,8 +56,9 @@ export default function CollectorsDashboard() {
   // Receipt modal state (for last created collection)
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastReceipt, setLastReceipt] = useState(null);
-  // Filters
-  const [filterType, setFilterType] = useState("");
+  // Filters: weight range (grams) and date
+  const [filterMinG, setFilterMinG] = useState("");
+  const [filterMaxG, setFilterMaxG] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
 
@@ -68,7 +69,6 @@ export default function CollectorsDashboard() {
         params: {
           collectorName: "Demo Collector",
           limit: 100,
-          bottleType: filterType || undefined,
           dateFrom: filterFrom || undefined,
           dateTo: filterTo || undefined,
         },
@@ -95,7 +95,7 @@ export default function CollectorsDashboard() {
 
   useEffect(() => {
     fetchCollections();
-  }, [filterType, filterFrom, filterTo]);
+  }, [filterFrom, filterTo]);
 
   useEffect(() => {
     fetchTransportRequests();
@@ -168,8 +168,9 @@ export default function CollectorsDashboard() {
 
   // Points calculation based on bottle type
   const calcPoints = (_type, qty) => {
-    // Points simplified when using weight: 1 point per kg
-    return Number(qty) || 0;
+    // qty is in kilograms; rule: 1 point per 100 grams (rounded to nearest 100g)
+    const grams = (Number(qty) || 0) * 1000;
+    return Math.round(grams / 100);
   };
 
   const chartByType = useMemo(() => {
@@ -206,7 +207,9 @@ export default function CollectorsDashboard() {
     try {
       setSubmitting(true);
       setToast("");
-      const qty = Number(form.quantity || 0);
+      // Interpret input as grams and convert to kilograms for storage/points
+      const qtyG = Number(form.quantity || 0);
+      const qty = qtyG / 1000;
       // If editing, skip phone requirement
       if (!editingId && (!form.phone || !qty)) {
         setToast("Phone number and quantity are required");
@@ -217,7 +220,7 @@ export default function CollectorsDashboard() {
       if (editingId) {
         const pointsToAward = calcPoints('MIXED', qty);
         await axios.put(`http://localhost:5000/api/collections/${editingId}`, {
-          quantity: qty,
+          quantity: qty, // stored in kg
           location: form.location || "",
           awardedPoints: pointsToAward,
           refreshTimestamp: true,
@@ -248,13 +251,15 @@ export default function CollectorsDashboard() {
       }
 
       // 1) Create delivery collection record (backend route exists) — always save collection
+      const pointsToAward = calcPoints('MIXED', qty);
       const createRes = await axios
         .post("http://localhost:5000/api/collections", {
           collectorName: "Demo Collector",
           // Backend requires bottleType; use default since form removed type
           bottleType: 'MIXED',
-          quantity: qty,
+          quantity: qty, // stored in kg
           location: form.location || "",
+          awardedPoints: pointsToAward, // persist awarded points on create
         })
         .catch(() => {});
 
@@ -267,7 +272,6 @@ export default function CollectorsDashboard() {
       // We'll refresh from DB after finishing
 
       // 3) Award points (we already verified user exists)
-      const pointsToAward = calcPoints('MIXED', qty);
       try {
         await axios.post("http://localhost:5000/api/points/award", {
           phone: form.phone,
@@ -283,7 +287,7 @@ export default function CollectorsDashboard() {
           createdAt,
           collectorName: "Demo Collector",
           bottleType: 'MIXED',
-          quantity: qty,
+          quantity: qtyG, // show grams on receipt
           location: form.location || "",
           awardedPoints: pointsToAward,
           userPhone: form.phone,
@@ -296,7 +300,7 @@ export default function CollectorsDashboard() {
           createdAt,
           collectorName: "Demo Collector",
           bottleType: 'MIXED',
-          quantity: qty,
+          quantity: qtyG, // show grams on receipt
           location: form.location || "",
           awardedPoints: 0,
           userPhone: form.phone,
@@ -322,7 +326,9 @@ export default function CollectorsDashboard() {
   const startEdit = (c) => {
     setEditingId(c._id);
     try {
-      if (qtyRef.current) qtyRef.current.value = String(c.quantity || "");
+      // stored in kg; show grams with 1 decimal in the input
+      const grams = ((Number(c.quantity) || 0) * 1000).toFixed(1);
+      if (qtyRef.current) qtyRef.current.value = grams;
       if (locationRef.current) locationRef.current.value = c.location || "";
       // focus qty field for quick edit
       if (qtyRef.current) qtyRef.current.focus();
@@ -620,15 +626,38 @@ export default function CollectorsDashboard() {
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium">Weight (kg)</label>
+          <label className="block text-sm font-medium">Weight (g)</label>
           <input
             ref={qtyRef}
-            type="number"
-            step="0.1"
-            min="0"
+            type="text"
+            inputMode="decimal"
             className="w-full border rounded-lg px-3 py-2 mt-1"
             defaultValue=""
-            placeholder="e.g., 12.5"
+            placeholder="e.g., 350.5"
+            onInput={(e)=>{
+              try {
+                let v = e.target.value;
+                // remove everything except digits and dots
+                v = v.replace(/[^0-9.]/g, '');
+                // keep only the first dot
+                const i = v.indexOf('.');
+                if (i !== -1) {
+                  v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '');
+                }
+                // limit to 1 decimal place
+                const parts = v.split('.');
+                if (parts.length > 1) {
+                  v = parts[0] + '.' + parts[1].slice(0, 1);
+                }
+                e.target.value = v;
+              } catch {}
+            }}
+            onPaste={(e)=>{
+              try {
+                const text = (e.clipboardData || window.clipboardData).getData('text');
+                if (/[^0-9.]/.test(text)) e.preventDefault();
+              } catch {}
+            }}
           />
         </div>
         <div>
@@ -676,7 +705,7 @@ export default function CollectorsDashboard() {
       <div className="bg-white border border-gray-200 rounded-2xl p-5 h-max">
         <h3 className="text-lg font-semibold text-gray-900 mb-2">Points Rules</h3>
         <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-          <li><span className="font-medium">Mixed:</span> 1 point per kg</li>
+          <li><span className="font-medium">Mixed:</span> 1 point per 100g</li>
         </ul>
         <p className="text-xs text-gray-500 mt-3">Points are awarded to the user who brings bottles based on the rules above.</p>
       </div>
@@ -688,19 +717,28 @@ export default function CollectorsDashboard() {
         {/* Filters */}
         <div className="flex flex-col md:flex-row md:items-end gap-3 mb-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Bottle Type</label>
-            <select
-              value={filterType}
-              onChange={(e)=>setFilterType(e.target.value)}
-              className="border rounded-lg px-3 py-2"
-            >
-              <option value="">All</option>
-              <option value="PET">PET</option>
-              <option value="HDPE">HDPE</option>
-              <option value="GlassGreen">GlassGreen</option>
-              <option value="GlassBrown">GlassBrown</option>
-              <option value="GlassClear">GlassClear</option>
-            </select>
+            <label className="block text-sm font-medium text-gray-700">Min Weight (g)</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              value={filterMinG}
+              onChange={(e)=>setFilterMinG(e.target.value)}
+              className="border rounded-lg px-3 py-2 w-40"
+              placeholder="e.g., 100"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Max Weight (g)</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              value={filterMaxG}
+              onChange={(e)=>setFilterMaxG(e.target.value)}
+              className="border rounded-lg px-3 py-2 w-40"
+              placeholder="e.g., 1000"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">From</label>
@@ -722,7 +760,7 @@ export default function CollectorsDashboard() {
           </div>
           <div className="flex gap-2">
             <button onClick={fetchCollections} className="mt-6 md:mt-0 bg-gray-800 text-white px-4 py-2 rounded-lg">Apply</button>
-            <button onClick={()=>{setFilterType(""); setFilterFrom(""); setFilterTo("");}} className="mt-6 md:mt-0 border px-4 py-2 rounded-lg">Reset</button>
+            <button onClick={()=>{ setFilterMinG(""); setFilterMaxG(""); setFilterFrom(""); setFilterTo(""); }} className="mt-6 md:mt-0 border px-4 py-2 rounded-lg">Reset</button>
           </div>
         </div>
         <div className="overflow-x-auto border rounded-xl">
@@ -732,7 +770,7 @@ export default function CollectorsDashboard() {
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">ID</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">User Name</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Collector Name</th>
-                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Weight (kg)</th>
+                <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Weight (g)</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Location</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Awarded Points</th>
                 <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Collected Stamp (Time & Date)</th>
@@ -752,13 +790,19 @@ export default function CollectorsDashboard() {
               )}
               {!loadingCollections && collections
                 .slice()
-                .sort((a,b)=> new Date(a.createdAt) - new Date(b.createdAt))
+                .filter(c => {
+                  const g = (Number(c.quantity)||0) * 1000;
+                  const minOk = filterMinG === "" ? true : g >= Number(filterMinG);
+                  const maxOk = filterMaxG === "" ? true : g <= Number(filterMaxG);
+                  return minOk && maxOk;
+                })
+                .sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt))
                 .map((c, idx) => (
                 <tr key={c._id}>
                   <td className="px-4 py-2 text-sm text-gray-900">{c.collectionId || (c._id?.slice(-6) || idx + 1)}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.awardedToUserId?.name || '-'}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.collectorName || '-'}</td>
-                  <td className="px-4 py-2 text-sm text-gray-700">{c.quantity}</td>
+                  <td className="px-4 py-2 text-sm text-gray-700">{((Number(c.quantity)||0) * 1000).toFixed(1)}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.location || '-'}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.awardedPoints || 0}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{new Date(c.createdAt).toLocaleString()}</td>

@@ -24,6 +24,7 @@ import ProductionReportPage from "./components/Production/ProductionReportPage";
 import UnifiedFinanceDashboard from "./components/finance/UnifiedFinanceDashboard";
 import AdminDashboard from "./components/admin/AdminDashboard";
 import TransportDashboard from "./components/transport/TransportDashboard";
+import TransportReports from "./components/transport/TransportReports";
 import CollectorsDashboard from "./components/collectors/CollectorsDashboard";
 import InventoryMaterials from "./components/Inventory/InventoryMaterials";
 import InventoryStockManagement from "./components/Inventory/InventoryStockManagement";
@@ -195,6 +196,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole="transport">
                 <TransportDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/transport/reports"
+            element={
+              <ProtectedRoute requiredRole="transport">
+                <TransportReports />
               </ProtectedRoute>
             }
           />

@@ -16,6 +16,7 @@ const employeeRoutes = require("./Routes/EmployeeRoutes");
 const payrollRoutes = require("./Routes/PayrollRoutes");
 const transportRoutes = require("./Routes/TransportRoutes");
 const vehicleRoutes = require("./Routes/VehicleRoutes");
+const binRouteRoutes = require("./Routes/BinRouteRoutes");
 const collectionRoutes = require("./Routes/CollectionRoutes");
 const pointsRoutes = require("./Routes/PointsRoutes");
 const transportRequestRoutes = require("./Routes/TransportRequestRoutes");
@@ -56,6 +57,8 @@ app.use("/api/expenses", expenseRoutes);
 app.use("/api/transport", transportRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 
+app.use("/api/transport", vehicleRoutes);
+app.use("/api/transport", binRouteRoutes);
 // Collectors pages required endpoints
 app.use("/api/collections", collectionRoutes);
 app.use("/api/points", pointsRoutes);
