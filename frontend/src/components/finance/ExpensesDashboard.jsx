@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit, Trash2, Filter, Download, Search, 
-  CheckCircle, Clock, XCircle, DollarSign 
+  CheckCircle, Clock, XCircle, DollarSign, X 
 } from 'lucide-react';
 import ExpenseForm from './ExpenseForm';
 import ExpenseSummary from './ExpenseSummary';
@@ -12,6 +12,7 @@ const ExpensesDashboard = () => {
   const [expenses, setExpenses] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [notification, setNotification] = useState({ show: false, message: '', type: '' });
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [currentExpense, setCurrentExpense] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,6 +22,12 @@ const ExpensesDashboard = () => {
     startDate: '',
     endDate: ''
   });
+
+  // Show notification and auto-hide after 3 seconds
+  const showNotification = (message, type = 'success') => {
+    setNotification({ show: true, message, type });
+    setTimeout(() => setNotification({ show: false, message: '', type: '' }), 3000);
+  };
   
   // Fetch expenses from API
   const fetchExpenses = async () => {
@@ -67,7 +74,6 @@ const ExpensesDashboard = () => {
   // Handle CRUD operations
   const handleAddExpense = async (expense) => {
     try {
-      console.log('Sending expense data:', expense); // Debug log
       const response = await fetch(`${API_BASE_URL}/expenses`, {
         method: 'POST',
         headers: { 
@@ -78,10 +84,8 @@ const ExpensesDashboard = () => {
       });
       
       const responseData = await response.json();
-      console.log('Server response:', responseData); // Debug log
       
       if (!response.ok) {
-        // Handle validation errors from the server
         const errorMessage = responseData.errors 
           ? Array.isArray(responseData.errors) 
             ? responseData.errors.join('; ')
@@ -90,22 +94,20 @@ const ExpensesDashboard = () => {
         throw new Error(errorMessage);
       }
       
-      // Clear any previous errors
       setError(null);
-      
-      // Refresh the expenses list and close the form
       await fetchExpenses();
       setIsFormOpen(false);
+      showNotification('Expense added successfully!', 'success');
     } catch (err) {
       console.error('Error adding expense:', err);
-      setError(err.message || 'Failed to add expense. Please check the form and try again.');
+      const errorMessage = err.message || 'Failed to add expense. Please check the form and try again.';
+      setError(errorMessage);
+      showNotification(errorMessage, 'error');
     }
   };
 
   const handleUpdateExpense = async (updatedExpense) => {
     try {
-      console.log('Updating expense with data:', updatedExpense);
-      
       // Validate expense data and ID
       if (!updatedExpense) {
         throw new Error('No expense data provided');
@@ -128,28 +130,24 @@ const ExpensesDashboard = () => {
         notes: expenseData.notes ? String(expenseData.notes).trim() : '',
       };
       
-      console.log('Sending update request to:', `${API_BASE_URL}/expenses/${expenseId}`, updatePayload);
-      
       const response = await fetch(`${API_BASE_URL}/expenses/${expenseId}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}` // Add auth token if needed
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify(updatePayload)
       });
       
       const responseData = await response.json();
-      console.log('Update response:', responseData);
       
       if (!response.ok) {
-        // Handle validation errors from the backend
         let errorMessage = 'Failed to update expense';
         
         if (responseData.errors) {
           errorMessage = Array.isArray(responseData.errors) 
-            ? responseData.errors.join('\n')
+            ? responseData.join('\n')
             : JSON.stringify(responseData.errors);
         } else if (responseData.message) {
           errorMessage = responseData.message;
@@ -164,22 +162,26 @@ const ExpensesDashboard = () => {
         throw new Error(responseData.message || 'Failed to update expense');
       }
       
-      // Update UI
       setError(null);
       setCurrentExpense(null);
       setIsFormOpen(false);
-      await fetchExpenses(); // Refresh the expenses list
+      await fetchExpenses();
+      showNotification('Expense updated successfully!', 'success');
       
     } catch (err) {
       console.error('Error updating expense:', err);
-      setError(`Update failed: ${err.message}`);
-      throw err; // Re-throw to allow the form to handle the error state
+      const errorMessage = `Update failed: ${err.message}`;
+      setError(errorMessage);
+      showNotification(errorMessage, 'error');
+      throw err;
     }
   };
 
   const handleDeleteExpense = async (id) => {
     if (!id) {
-      setError('Cannot delete: No expense ID provided');
+      const errorMessage = 'Cannot delete: No expense ID provided';
+      setError(errorMessage);
+      showNotification(errorMessage, 'error');
       return;
     }
     
@@ -188,11 +190,11 @@ const ExpensesDashboard = () => {
     }
     
     try {
-      console.log('Deleting expense with ID:', id);
       const response = await fetch(`${API_BASE_URL}/expenses/${id}`, {
         method: 'DELETE',
         headers: {
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       
@@ -205,13 +207,15 @@ const ExpensesDashboard = () => {
         );
       }
       
-      // Update UI
       setError(null);
       await fetchExpenses();
+      showNotification('Expense deleted successfully!', 'success');
       
     } catch (err) {
       console.error('Error deleting expense:', err);
-      setError(`Delete failed: ${err.message}`);
+      const errorMessage = `Delete failed: ${err.message}`;
+      setError(errorMessage);
+      showNotification(errorMessage, 'error');
     }
   };
 
@@ -267,6 +271,39 @@ const ExpensesDashboard = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* Notification */}
+      {notification.show && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg ${
+          notification.type === 'error' ? 'bg-red-100 border-l-4 border-red-500' : 'bg-green-100 border-l-4 border-green-500'
+        }`}>
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              {notification.type === 'error' ? (
+                <XCircle className="h-5 w-5 text-red-500" />
+              ) : (
+                <CheckCircle className="h-5 w-5 text-green-500" />
+              )}
+            </div>
+            <div className="ml-3">
+              <p className={`text-sm font-medium ${
+                notification.type === 'error' ? 'text-red-800' : 'text-green-800'
+              }`}>
+                {notification.message}
+              </p>
+            </div>
+            <div className="ml-4">
+              <button
+                type="button"
+                className="inline-flex text-gray-500 hover:text-gray-700 focus:outline-none"
+                onClick={() => setNotification({ show: false, message: '', type: '' })}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Expenses Dashboard</h1>

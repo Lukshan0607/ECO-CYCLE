@@ -70,8 +70,6 @@ exports.getExpenseById = async (req, res) => {
 // Create a new expense
 exports.createExpense = async (req, res) => {
   try {
-    console.log('Received request body:', req.body); // Debug log
-    
     const requiredFields = ['description', 'amount', 'category', 'date', 'paymentMethod'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
 
@@ -116,7 +114,6 @@ exports.createExpense = async (req, res) => {
       }
     });
 
-    console.log('Creating expense with data:', newExpense); // Debug log
     const expense = await Expense.create(newExpense);
 
     res.status(201).json({
@@ -291,7 +288,6 @@ exports.updateExpense = async (req, res) => {
 exports.deleteExpense = async (req, res) => {
   try {
     const expenseId = req.params.id;
-    console.log('Deleting expense with ID:', expenseId);
     
     // Validate expense ID
     if (!expenseId) {
@@ -317,29 +313,23 @@ exports.deleteExpense = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Expense not found',
-        errors: [`No expense found with ID: ${expenseId}`]
+        errors: ['The specified expense could not be found']
       });
     }
     
-    console.log('Successfully deleted expense with ID:', expenseId);
     return res.status(200).json({
       success: true,
-      message: 'Expense deleted successfully',
-      data: { id: expenseId }
+      message: 'Expense deleted successfully'
     });
-    
   } catch (error) {
-    console.error('Error deleting expense:', error);
-    
     if (error.name === 'CastError') {
       return res.status(400).json({
         success: false,
-        message: 'Invalid expense ID format',
-        errors: ['The provided ID is not valid']
+        message: 'Invalid expense ID format'
       });
     }
     
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
