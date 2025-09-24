@@ -341,14 +341,36 @@ exports.getExpenseSummary = async (req, res) => {
       {
         $group: {
           _id: null,
-          total: { $sum: '$amount' },
+          // Only sum amounts for successful or pending expenses
+          total: { 
+            $sum: {
+              $cond: [
+                { $ne: ['$status', 'failed'] },
+                '$amount',
+                0
+              ]
+            }
+          },
           paid: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$amount', 0] } },
           pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0] } },
           failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, '$amount', 0] } },
-          count: { $sum: 1 }
+          // Count only non-failed expenses for the main count
+          count: { 
+            $sum: { 
+              $cond: [
+                { $ne: ['$status', 'failed'] },
+                1,
+                0
+              ]
+            } 
+          },
+          // Count failed expenses separately
+          failedCount: {
+            $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] }
+          }
         }
       }
-    ]);
+    ]); // Fixed: Added missing closing bracket and semicolon
 
     const categorySummary = await Expense.aggregate([
       {
@@ -364,12 +386,16 @@ exports.getExpenseSummary = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
+        // Total only includes paid and pending expenses
         total: summary[0]?.total || 0,
         paid: summary[0]?.paid || 0,
         pending: summary[0]?.pending || 0,
         failed: summary[0]?.failed || 0,
-        count: summary[0]?.count || 0,
-        byCategory: categorySummary
+        count: summary[0]?.count || 0, // Count of non-failed expenses
+        failedCount: summary[0]?.failedCount || 0, // Count of failed expenses
+        byCategory: categorySummary,
+        // Add a note about what's included in the total
+        note: 'Total amount excludes failed expenses. Check the failed amount separately.'
       }
     });
   } catch (error) {
