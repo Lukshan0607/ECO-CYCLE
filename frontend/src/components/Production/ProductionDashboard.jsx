@@ -518,6 +518,12 @@ const ProductionDashboard = () => {
     ).toFixed(2),
   };
 
+  // Approved materials metrics
+  const approvedRequestsCount = Array.isArray(acceptedMaterials) ? acceptedMaterials.length : 0;
+  const approvedTotalQty = Array.isArray(acceptedMaterials)
+    ? acceptedMaterials.reduce((sum, r) => sum + (parseFloat(r?.requestedQty) || 0), 0)
+    : 0;
+
   const rawMaterials = [
     { name: "Rice (Mixed)", qty: 50, weight: "5kg" },
     { name: "Bottle (Mixed)", qty: 200, weight: "50kg" },
@@ -713,6 +719,10 @@ const ProductionDashboard = () => {
       fetchInventoryData();
       fetchAcceptedMaterials();
       fetchProductionRequests();
+    } else if (activeTab === 'overview') {
+      // Keep key metrics fresh on the dashboard
+      fetchProducts();
+      fetchAcceptedMaterials();
     } else if (activeTab === 'planning') {
       // Ensure we have latest products for the dropdown
       fetchProducts();
@@ -915,18 +925,29 @@ const ProductionDashboard = () => {
         
         <nav className="p-4 space-y-2">
           {menuItems.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setActiveTab(item.key)}
-              className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${
-                activeTab === item.key
-                  ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
-                  : "text-gray-700 hover:bg-gray-100"
-              }`}
-            >
-              {item.icon}
-              <span className="font-medium">{item.name}</span>
-            </button>
+            item.key === 'reports' ? (
+              <Link
+                key={item.key}
+                to="/production/reports"
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </Link>
+            ) : (
+              <button
+                key={item.key}
+                onClick={() => setActiveTab(item.key)}
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${
+                  activeTab === item.key
+                    ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
+                    : "text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </button>
+            )
           ))}
           <LogoutButton />
         </nav>
@@ -953,7 +974,7 @@ const ProductionDashboard = () => {
           {activeTab === "overview" && (
             <>
               {/* Enhanced Overview Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
             <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-0 shadow-lg rounded-2xl p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -995,6 +1016,16 @@ const ProductionDashboard = () => {
                   <p className="text-orange-100 text-sm mt-1">Need attention</p>
                 </div>
                 <AlertTriangle size={40} className="text-orange-200" />
+              </div>
+            </div>
+            <div className="bg-gradient-to-br from-green-500 to-teal-600 text-white border-0 shadow-lg rounded-2xl p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-green-100 text-sm font-medium">Approved Raw Materials</p>
+                  <h2 className="text-3xl font-bold">{approvedRequestsCount}</h2>
+                  <p className="text-green-100 text-sm mt-1">Stock(Kg): {approvedTotalQty}</p>
+                </div>
+                <CheckCircle size={40} className="text-green-200" />
               </div>
             </div>
           </div>
@@ -1566,11 +1597,11 @@ const ProductionDashboard = () => {
                             <p className="text-sm text-gray-500">Code: {item.itemCode}</p>
                           </div>
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            item.stock < 100 ? 'bg-red-100 text-red-800' :
+                            item.stock < 10 ? 'bg-red-100 text-red-800' :
                             item.stock < 500 ? 'bg-yellow-100 text-yellow-800' :
                             'bg-green-100 text-green-800'
                           }`}>
-                            {item.stock < 100 ? 'Low Stock' :
+                            {item.stock < 10 ? 'Low Stock' :
                              item.stock < 500 ? 'Medium Stock' : 'High Stock'}
                           </span>
                         </div>
@@ -1585,12 +1616,8 @@ const ProductionDashboard = () => {
                             <span className="font-medium">{item.color}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Weight:</span>
-                            <span className="font-medium">{item.weight} kg</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Stock:</span>
-                            <span className="font-bold text-lg">{item.stock} units</span>
+                            <span className="text-gray-600">Stock (kg):</span>
+                            <span className="font-bold text-lg">{item.stock} kg</span>
                           </div>
                         </div>
 
