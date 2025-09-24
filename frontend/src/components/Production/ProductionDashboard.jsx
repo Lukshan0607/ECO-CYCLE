@@ -52,6 +52,49 @@ const ProductionDashboard = () => {
     notes: '',
     priority: 'Medium'
   });
+  const [plans, setPlans] = useState([]);
+  const [machines, setMachines] = useState([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [showPlanForm, setShowPlanForm] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [planForm, setPlanForm] = useState({
+    productName: '',
+    productId: '',
+    quantity: '',
+    startDate: '',
+    endDate: '',
+    priority: 'Medium',
+    status: 'Scheduled',
+    notes: ''
+  });
+  const [showMachineForm, setShowMachineForm] = useState(false);
+  const [editingMachine, setEditingMachine] = useState(null);
+  const [machineForm, setMachineForm] = useState({
+    name: '',
+    code: '',
+    status: 'Idle',
+    efficiency: '',
+    lastMaintenance: '',
+    notes: ''
+  });
+  const [qualityRecords, setQualityRecords] = useState([]);
+  const [loadingQuality, setLoadingQuality] = useState(false);
+  const [showQualityForm, setShowQualityForm] = useState(false);
+  const [editingQuality, setEditingQuality] = useState(null);
+  const [qualityForm, setQualityForm] = useState({
+    batchNo: '',
+    productId: '',
+    productName: '',
+    status: 'Passed',
+    defects: '',
+    defectCount: '',
+    inspectionDate: '',
+    inspector: '',
+    notes: '',
+    checks: { visual: true, dimensions: true, functional: true, packaging: true, safety: true },
+    inspectedQuantity: '',
+    planId: ''
+  });
 
   // Production vs Sales data for analytics
   const productionData = [
@@ -91,6 +134,343 @@ const ProductionDashboard = () => {
     localStorage.setItem('pointsPerRupeeSavedAt', ts);
     setPointsSavedAt(ts);
     alert('Saved: points per 1 rupee updated.');
+  };
+
+  // Fetch quality records
+  const fetchQualityRecords = async () => {
+    try {
+      setLoadingQuality(true);
+      const res = await axios.get('http://localhost:5000/api/quality');
+      const list = res.data?.records || [];
+      setQualityRecords(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.error('Error fetching quality records:', err);
+    } finally {
+      setLoadingQuality(false);
+    }
+  };
+
+  // Quality form handlers
+  const handleQualityChange = (e) => {
+    const { name, value } = e.target;
+    setQualityForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleQualityCheckToggle = (e) => {
+    const { name, checked } = e.target;
+    setQualityForm((prev) => ({
+      ...prev,
+      checks: { ...prev.checks, [name]: checked },
+    }));
+  };
+
+  const handleQualityProductSelect = (e) => {
+    const id = e.target.value;
+    const prod = (products || []).find((p) => p._id === id);
+    setQualityForm((prev) => ({
+      ...prev,
+      productId: id,
+      productName: prod ? prod.name : prev.productName,
+    }));
+  };
+
+  const submitQuality = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        batchNo: qualityForm.batchNo.trim(),
+        productId: qualityForm.productId || undefined,
+        productName: qualityForm.productName?.trim() || undefined,
+        status: qualityForm.status,
+        defects: qualityForm.defects,
+        defectCount: qualityForm.defectCount ? parseInt(qualityForm.defectCount) : 0,
+        inspectionDate: qualityForm.inspectionDate || undefined,
+        inspector: qualityForm.inspector.trim(),
+        notes: qualityForm.notes?.trim() || '',
+        inspectedQuantity: qualityForm.inspectedQuantity ? parseInt(qualityForm.inspectedQuantity) : 0,
+        planId: qualityForm.planId || undefined,
+        checks: {
+          visual: !!qualityForm.checks?.visual,
+          dimensions: !!qualityForm.checks?.dimensions,
+          functional: !!qualityForm.checks?.functional,
+          packaging: !!qualityForm.checks?.packaging,
+          safety: !!qualityForm.checks?.safety,
+        }
+      };
+      let res;
+      if (editingQuality) {
+        res = await axios.put(`http://localhost:5000/api/quality/${editingQuality._id}`, payload);
+      } else {
+        res = await axios.post('http://localhost:5000/api/quality', payload);
+      }
+      const saved = res.data?.record;
+      if (saved) {
+        setQualityRecords((prev) => editingQuality ? prev.map(r => r._id === saved._id ? saved : r) : [saved, ...prev]);
+      } else {
+        await fetchQualityRecords();
+      }
+      setEditingQuality(null);
+      setShowQualityForm(false);
+      setQualityForm({ batchNo: '', productId: '', productName: '', status: 'Passed', defects: '', defectCount: '', inspectionDate: '', inspector: '', notes: '', checks: { visual: true, dimensions: true, functional: true, packaging: true, safety: true }, inspectedQuantity: '', planId: '' });
+      alert(`Quality record ${editingQuality ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+      console.error('submitQuality error', err);
+      alert('Failed to save quality record');
+    }
+  };
+
+  const editQuality = (rec) => {
+    setEditingQuality(rec);
+    setQualityForm({
+      batchNo: rec.batchNo || '',
+      productId: rec.productId?._id || '',
+      productName: rec.productName || '',
+      status: rec.status || 'Passed',
+      defects: (rec.defects || []).join(', '),
+      defectCount: (rec.defectCount ?? '').toString(),
+      inspectionDate: rec.inspectionDate ? new Date(rec.inspectionDate).toISOString().slice(0,10) : '',
+      inspector: rec.inspector || '',
+      notes: rec.notes || '',
+      inspectedQuantity: (rec.inspectedQuantity ?? '').toString(),
+      planId: rec.planId || '',
+      checks: {
+        visual: rec.checks?.visual ?? true,
+        dimensions: rec.checks?.dimensions ?? true,
+        functional: rec.checks?.functional ?? true,
+        packaging: rec.checks?.packaging ?? true,
+        safety: rec.checks?.safety ?? true,
+      }
+    });
+    setShowQualityForm(true);
+  };
+
+  const deleteQuality = async (id) => {
+    if (!window.confirm('Delete this quality record?')) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/quality/${id}`);
+      setQualityRecords((prev) => prev.filter((r) => r._id !== id));
+      alert('Quality record deleted');
+    } catch (err) {
+      console.error('deleteQuality error', err);
+      alert('Failed to delete quality record');
+    }
+  };
+
+  // Fetch production plans
+  const fetchProductionPlans = async () => {
+    try {
+      setLoadingPlans(true);
+      const response = await axios.get('http://localhost:5000/api/production-plans');
+      const list = response.data?.plans || [];
+      setPlans(Array.isArray(list) ? list : []);
+    } catch (error) {
+      console.error('Error fetching production plans:', error);
+    } finally {
+      setLoadingPlans(false);
+    }
+  };
+
+  // Fetch machines
+  const fetchMachines = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/machines');
+      const list = response.data?.machines || [];
+      setMachines(Array.isArray(list) ? list : []);
+    } catch (error) {
+      console.error('Error fetching machines:', error);
+    }
+  };
+
+  // CRUD: Production Plans
+  const handlePlanFormChange = (e) => {
+    const { name, value } = e.target;
+    setPlanForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handlePlanProductSelect = (e) => {
+    const id = e.target.value;
+    const prod = (products || []).find((p) => p._id === id);
+    setPlanForm((prev) => ({
+      ...prev,
+      productId: id,
+      productName: prod ? prod.name : prev.productName,
+    }));
+  };
+
+  const submitPlan = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        productName: planForm.productName?.trim() || undefined,
+        productId: planForm.productId || undefined,
+        quantity: planForm.quantity ? parseInt(planForm.quantity) : undefined,
+        startDate: planForm.startDate || undefined,
+        endDate: planForm.endDate || undefined,
+        priority: planForm.priority,
+        status: planForm.status,
+        notes: planForm.notes?.trim() || ''
+      };
+      let res;
+      if (editingPlan) {
+        res = await axios.put(`http://localhost:5000/api/production-plans/${editingPlan._id}`, payload);
+      } else {
+        res = await axios.post('http://localhost:5000/api/production-plans', payload);
+      }
+      const saved = res.data?.plan;
+      if (saved) {
+        if (editingPlan) {
+          setPlans((prev) => prev.map((p) => (p._id === editingPlan._id ? saved : p)));
+        } else {
+          setPlans((prev) => [saved, ...prev]);
+        }
+      } else {
+        await fetchProductionPlans();
+      }
+      setEditingPlan(null);
+      setPlanForm({ productName: '', productId: '', quantity: '', startDate: '', endDate: '', priority: 'Medium', status: 'Scheduled', notes: '' });
+      setShowPlanForm(false);
+      alert(`Plan ${editingPlan ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+      console.error('submitPlan error', err);
+      alert('Failed to save plan');
+    }
+  };
+
+  const editPlan = (plan) => {
+    setEditingPlan(plan);
+    setPlanForm({
+      productName: plan.productName || '',
+      productId: plan.productId?._id || '',
+      quantity: plan.quantity?.toString() || '',
+      startDate: plan.startDate ? new Date(plan.startDate).toISOString().slice(0,10) : '',
+      endDate: plan.endDate ? new Date(plan.endDate).toISOString().slice(0,10) : '',
+      priority: plan.priority || 'Medium',
+      status: plan.status || 'Scheduled',
+      notes: plan.notes || ''
+    });
+    setShowPlanForm(true);
+  };
+
+  const deletePlan = async (id) => {
+    if (!window.confirm('Delete this plan?')) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/production-plans/${id}`);
+      setPlans((prev) => prev.filter((p) => p._id !== id));
+      alert('Plan deleted');
+    } catch (err) {
+      console.error('deletePlan error', err);
+      alert('Failed to delete plan');
+    }
+  };
+
+  const goToQuality = (plan) => {
+    const prodId = plan.productId?._id || '';
+    const prodName = plan.productName || '';
+    const batchNo = plan._id ? `PLAN-${String(plan._id).slice(-6).toUpperCase()}` : new Date().toISOString().slice(0,10);
+    setActiveTab('quality');
+    setShowQualityForm(true);
+    setEditingQuality(null);
+    setQualityForm({
+      batchNo,
+      productId: prodId,
+      productName: prodName,
+      status: 'Passed',
+      defects: '',
+      defectCount: '',
+      inspectionDate: new Date().toISOString().slice(0,10),
+      inspector: '',
+      notes: `QC for plan ${batchNo}`,
+      checks: { visual: true, dimensions: true, functional: true, packaging: true, safety: true },
+      inspectedQuantity: plan.quantity ? String(plan.quantity) : '',
+      planId: plan._id || ''
+    });
+  };
+
+  const completePlan = async (plan) => {
+    try {
+      const res = await axios.put(`http://localhost:5000/api/production-plans/${plan._id}`, { status: 'Completed' });
+      const updated = res.data?.plan || null;
+      if (updated) {
+        setPlans((prev) => prev.map((p) => (p._id === plan._id ? updated : p)));
+      } else {
+        await fetchProductionPlans();
+      }
+      alert('Plan marked as Completed.');
+
+      // Jump to Quality form prefilled for this plan
+      goToQuality(updated || plan);
+    } catch (err) {
+      console.error('completePlan error', err);
+      alert('Failed to complete plan');
+    }
+  };
+
+  // CRUD: Machines
+  const handleMachineFormChange = (e) => {
+    const { name, value } = e.target;
+    setMachineForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const submitMachine = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        name: machineForm.name.trim(),
+        code: machineForm.code.trim(),
+        status: machineForm.status,
+        efficiency: machineForm.efficiency ? parseInt(machineForm.efficiency) : 0,
+        lastMaintenance: machineForm.lastMaintenance || undefined,
+        notes: machineForm.notes?.trim() || ''
+      };
+      let res;
+      if (editingMachine) {
+        res = await axios.put(`http://localhost:5000/api/machines/${editingMachine._id}`, payload);
+      } else {
+        res = await axios.post('http://localhost:5000/api/machines', payload);
+      }
+      const saved = res.data?.machine;
+      if (saved) {
+        if (editingMachine) {
+          setMachines((prev) => prev.map((m) => (m._id === editingMachine._id ? saved : m)));
+        } else {
+          setMachines((prev) => [saved, ...prev]);
+        }
+      } else {
+        await fetchMachines();
+      }
+      setEditingMachine(null);
+      setMachineForm({ name: '', code: '', status: 'Idle', efficiency: '', lastMaintenance: '', notes: '' });
+      setShowMachineForm(false);
+      alert(`Machine ${editingMachine ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+      console.error('submitMachine error', err);
+      alert(err?.response?.data?.message || 'Failed to save machine');
+    }
+  };
+
+  const editMachine = (machine) => {
+    setEditingMachine(machine);
+    setMachineForm({
+      name: machine.name || '',
+      code: machine.code || '',
+      status: machine.status || 'Idle',
+      efficiency: (machine.efficiency ?? '').toString(),
+      lastMaintenance: machine.lastMaintenance ? new Date(machine.lastMaintenance).toISOString().slice(0,10) : '',
+      notes: machine.notes || ''
+    });
+    setShowMachineForm(true);
+  };
+
+  const deleteMachine = async (id) => {
+    if (!window.confirm('Delete this machine?')) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/machines/${id}`);
+      setMachines((prev) => prev.filter((m) => m._id !== id));
+      alert('Machine deleted');
+    } catch (err) {
+      console.error('deleteMachine error', err);
+      alert('Failed to delete machine');
+    }
   };
 
   // Generate unique Product ID starting from RIP-0001 and incrementing
@@ -186,11 +566,7 @@ const ProductionDashboard = () => {
   ];
   
 
-  const productionSchedule = [
-    { id: 1, product: "Recycled PET Bottles", quantity: 500, startDate: "2025-09-02", endDate: "2025-09-05", status: "In Progress", priority: "High" },
-    { id: 2, product: "Eco-friendly Bags", quantity: 200, startDate: "2025-09-03", endDate: "2025-09-06", status: "Scheduled", priority: "Medium" },
-    { id: 3, product: "Recycled Paper", quantity: 1000, startDate: "2025-09-04", endDate: "2025-09-08", status: "Scheduled", priority: "Low" },
-  ];
+  // Planning and machines are fetched from backend now
 
   const qualityMetrics = [
     { metric: "Defect Rate", value: "2.1%", target: "< 3%", status: "Good" },
@@ -199,12 +575,7 @@ const ProductionDashboard = () => {
     { metric: "On-time Delivery", value: "96.2%", target: "> 95%", status: "Good" },
   ];
 
-  const machineStatus = [
-    { id: 1, name: "Extruder #1", status: "Running", efficiency: 95, lastMaintenance: "2025-08-15" },
-    { id: 2, name: "Molding Machine #2", status: "Maintenance", efficiency: 0, lastMaintenance: "2025-09-01" },
-    { id: 3, name: "Shredder #1", status: "Running", efficiency: 88, lastMaintenance: "2025-08-20" },
-    { id: 4, name: "Washing Unit #1", status: "Running", efficiency: 92, lastMaintenance: "2025-08-25" },
-  ];
+  // Machine status loaded from backend
 
   // Fetch inventory data
   const fetchInventoryData = async () => {
@@ -342,6 +713,14 @@ const ProductionDashboard = () => {
       fetchInventoryData();
       fetchAcceptedMaterials();
       fetchProductionRequests();
+    } else if (activeTab === 'planning') {
+      // Ensure we have latest products for the dropdown
+      fetchProducts();
+      fetchProductionPlans();
+      fetchMachines();
+    } else if (activeTab === 'quality') {
+      fetchProducts();
+      fetchQualityRecords();
     }
   }, [activeTab]);
 
@@ -931,74 +1310,220 @@ const ProductionDashboard = () => {
           {activeTab === "planning" && (
             <div className="space-y-6">
               <div className="bg-white shadow-lg rounded-2xl p-6">
-                <h3 className="text-xl font-bold mb-6">Production Schedule</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-3 px-2 font-semibold text-gray-700">Product</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">Quantity</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">Start Date</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">End Date</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">Priority</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {productionSchedule.map((item) => (
-                        <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="py-3 px-2 font-medium">{item.product}</td>
-                          <td className="py-3 px-2 text-center">{item.quantity}</td>
-                          <td className="py-3 px-2 text-center">{item.startDate}</td>
-                          <td className="py-3 px-2 text-center">{item.endDate}</td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              item.priority === "High" ? "bg-red-100 text-red-800" :
-                              item.priority === "Medium" ? "bg-yellow-100 text-yellow-800" :
-                              "bg-green-100 text-green-800"
-                            }`}>
-                              {item.priority}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              item.status === "In Progress" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
-                            }`}>
-                              {item.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">Production Schedule</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingPlan(null); setShowPlanForm((v) => !v); }} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-md">{showPlanForm ? 'Close Form' : 'Add Plan'}</button>
+                    <button onClick={() => { fetchProductionPlans(); fetchMachines(); }} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-md">Refresh</button>
+                  </div>
                 </div>
+                {showPlanForm && (
+                  <form onSubmit={submitPlan} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium">Product (optional)</label>
+                      <select value={planForm.productId} onChange={handlePlanProductSelect} className="w-full border rounded-lg p-2">
+                        <option value="">-- Select product --</option>
+                        {products.map((p) => (
+                          <option key={p._id} value={p._id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Product Name</label>
+                      <input name="productName" value={planForm.productName} onChange={handlePlanFormChange} className="w-full border rounded-lg p-2" placeholder="e.g., Recycled PET Bottles" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Quantity</label>
+                      <input name="quantity" value={planForm.quantity} onChange={handlePlanFormChange} type="number" min="1" className="w-full border rounded-lg p-2" placeholder="e.g., 500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Priority</label>
+                      <select name="priority" value={planForm.priority} onChange={handlePlanFormChange} className="w-full border rounded-lg p-2">
+                        <option>Low</option>
+                        <option>Medium</option>
+                        <option>High</option>
+                        <option>Urgent</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Start Date</label>
+                      <input name="startDate" value={planForm.startDate} onChange={handlePlanFormChange} type="date" className="w-full border rounded-lg p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">End Date</label>
+                      <input name="endDate" value={planForm.endDate} onChange={handlePlanFormChange} type="date" className="w-full border rounded-lg p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Status</label>
+                      <select name="status" value={planForm.status} onChange={handlePlanFormChange} className="w-full border rounded-lg p-2">
+                        <option>Scheduled</option>
+                        <option>In Progress</option>
+                        <option>Completed</option>
+                        <option>Paused</option>
+                        <option>Cancelled</option>
+                      </select>
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium">Notes</label>
+                      <textarea name="notes" value={planForm.notes} onChange={handlePlanFormChange} className="w-full border rounded-lg p-2" rows="2" />
+                    </div>
+                    <div className="md:col-span-3 flex gap-3">
+                      <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingPlan ? 'Update Plan' : 'Create Plan'}</button>
+                      {editingPlan && (
+                        <button type="button" onClick={() => { setEditingPlan(null); setPlanForm({ productName: '', productId: '', quantity: '', startDate: '', endDate: '', priority: 'Medium', status: 'Scheduled', notes: '' }); setShowPlanForm(false); }} className="border px-4 py-2 rounded-lg">Cancel</button>
+                      )}
+                    </div>
+                  </form>
+                )}
+                {loadingPlans ? (
+                  <div className="py-8 text-center text-gray-500">Loading plans...</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left py-3 px-2 font-semibold text-gray-700">Product</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Quantity</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Start Date</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">End Date</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Priority</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Status</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {plans.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-6 text-center text-gray-500">No plans found.</td>
+                          </tr>
+                        ) : (
+                          plans.map((item) => (
+                            <tr key={item._id} className="border-b border-gray-100 hover:bg-gray-50">
+                              <td className="py-3 px-2 font-medium">{item.productName}</td>
+                              <td className="py-3 px-2 text-center">{item.quantity}</td>
+                              <td className="py-3 px-2 text-center">{item.startDate ? new Date(item.startDate).toLocaleDateString() : '-'}</td>
+                              <td className="py-3 px-2 text-center">{item.endDate ? new Date(item.endDate).toLocaleDateString() : '-'}</td>
+                              <td className="py-3 px-2 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  item.priority === "High" || item.priority === 'Urgent' ? "bg-red-100 text-red-800" :
+                                  item.priority === "Medium" ? "bg-yellow-100 text-yellow-800" :
+                                  "bg-green-100 text-green-800"
+                                }`}>
+                                  {item.priority}
+                                </span>
+                              </td>
+                              <td className="py-3 px-2 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  item.status === "In Progress" ? "bg-blue-100 text-blue-800" :
+                                  item.status === "Completed" ? "bg-green-100 text-green-800" :
+                                  item.status === "Cancelled" ? "bg-red-100 text-red-800" :
+                                  "bg-gray-100 text-gray-800"
+                                }`}>
+                                  {item.status}
+                                </span>
+                              </td>
+                              <td className="py-3 px-2 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  {item.status === 'In Progress' && (
+                                    <button onClick={() => completePlan(item)} className="px-3 py-1 rounded-md text-sm bg-emerald-600 text-white hover:bg-emerald-700">Complete</button>
+                                  )}
+                                  {item.status === 'Completed' && (
+                                    <button onClick={() => goToQuality(item)} className="px-3 py-1 rounded-md text-sm bg-purple-600 text-white hover:bg-purple-700">Quality Check</button>
+                                  )}
+                                  <button onClick={() => editPlan(item)} className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700">Edit</button>
+                                  <button onClick={() => deletePlan(item._id)} className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700">Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               <div className="bg-white shadow-lg rounded-2xl p-6">
-                <h3 className="text-xl font-bold mb-6">Machine Status</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {machineStatus.map((machine) => (
-                    <div key={machine.id} className="border rounded-lg p-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <h4 className="font-semibold">{machine.name}</h4>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          machine.status === "Running" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                        }`}>
-                          {machine.status}
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-sm text-gray-600">Efficiency:</span>
-                          <span className="text-sm font-medium">{machine.efficiency}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-gray-600">Last Maintenance:</span>
-                          <span className="text-sm">{machine.lastMaintenance}</span>
-                        </div>
-                      </div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">Machine Status</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingMachine(null); setShowMachineForm((v) => !v); }} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-md">{showMachineForm ? 'Close Form' : 'Add Machine'}</button>
+                    <button onClick={() => { fetchMachines(); }} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-md">Refresh</button>
+                  </div>
+                </div>
+                {showMachineForm && (
+                  <form onSubmit={submitMachine} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium">Name</label>
+                      <input name="name" value={machineForm.name} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" placeholder="e.g., Extruder #1" />
                     </div>
-                  ))}
+                    <div>
+                      <label className="block text-sm font-medium">Code</label>
+                      <input name="code" value={machineForm.code} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" placeholder="e.g., EX-001" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Status</label>
+                      <select name="status" value={machineForm.status} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2">
+                        <option>Idle</option>
+                        <option>Running</option>
+                        <option>Maintenance</option>
+                        <option>Offline</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Efficiency (%)</label>
+                      <input name="efficiency" value={machineForm.efficiency} onChange={handleMachineFormChange} type="number" min="0" max="100" className="w-full border rounded-lg p-2" placeholder="e.g., 95" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Last Maintenance</label>
+                      <input name="lastMaintenance" value={machineForm.lastMaintenance} onChange={handleMachineFormChange} type="date" className="w-full border rounded-lg p-2" />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium">Notes</label>
+                      <textarea name="notes" value={machineForm.notes} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" rows="2" />
+                    </div>
+                    <div className="md:col-span-3 flex gap-3">
+                      <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingMachine ? 'Update Machine' : 'Create Machine'}</button>
+                      {editingMachine && (
+                        <button type="button" onClick={() => { setEditingMachine(null); setMachineForm({ name: '', code: '', status: 'Idle', efficiency: '', lastMaintenance: '', notes: '' }); setShowMachineForm(false); }} className="border px-4 py-2 rounded-lg">Cancel</button>
+                      )}
+                    </div>
+                  </form>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {machines.length === 0 ? (
+                    <div className="col-span-full text-center text-gray-500">No machines found.</div>
+                  ) : (
+                    machines.map((machine) => (
+                      <div key={machine._id} className="border rounded-lg p-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="font-semibold">{machine.name}</h4>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            machine.status === "Running" ? "bg-green-100 text-green-800" :
+                            machine.status === "Maintenance" ? "bg-yellow-100 text-yellow-800" :
+                            machine.status === "Offline" ? "bg-red-100 text-red-800" :
+                            "bg-gray-100 text-gray-800"
+                          }`}>
+                            {machine.status}
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Efficiency:</span>
+                            <span className="text-sm font-medium">{machine.efficiency}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Last Maintenance:</span>
+                            <span className="text-sm">{machine.lastMaintenance ? new Date(machine.lastMaintenance).toLocaleDateString() : '-'}</span>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-end gap-2">
+                          <button onClick={() => editMachine(machine)} className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700">Edit</button>
+                          <button onClick={() => deleteMachine(machine._id)} className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700">Delete</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -1237,48 +1762,140 @@ const ProductionDashboard = () => {
           {/* Quality Control Tab */}
           {activeTab === "quality" && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-xl font-bold mb-6">Quality Metrics</h3>
-                  <div className="space-y-4">
-                    {qualityMetrics.map((metric, index) => (
-                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                        <div>
-                          <p className="font-medium">{metric.metric}</p>
-                          <p className="text-sm text-gray-600">Target: {metric.target}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold">{metric.value}</p>
-                          <span className={`text-xs px-2 py-1 rounded-full ${
-                            metric.status === "Excellent" ? "bg-green-100 text-green-800" : "bg-blue-100 text-blue-800"
-                          }`}>
-                            {metric.status}
-                          </span>
-                        </div>
+              <div className="bg-white shadow-lg rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">Quality Records</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingQuality(null); setShowQualityForm((v) => !v); }} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-md">{showQualityForm ? 'Close Form' : 'Add Record'}</button>
+                    <button onClick={() => { fetchQualityRecords(); }} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-md">Refresh</button>
+                  </div>
+                </div>
+                {showQualityForm && (
+                  <form onSubmit={submitQuality} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium">Batch No</label>
+                      <input name="batchNo" value={qualityForm.batchNo} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., 2025-001" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Product (optional)</label>
+                      <select value={qualityForm.productId} onChange={handleQualityProductSelect} className="w-full border rounded-lg p-2">
+                        <option value="">-- Select product --</option>
+                        {products.map((p) => (
+                          <option key={p._id} value={p._id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Product Name</label>
+                      <input name="productName" value={qualityForm.productName} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., Recycled PET Bottles" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Status</label>
+                      <select name="status" value={qualityForm.status} onChange={handleQualityChange} className="w-full border rounded-lg p-2">
+                        <option>Passed</option>
+                        <option>Failed</option>
+                        <option>Rework</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Inspected Quantity</label>
+                      <input name="inspectedQuantity" value={qualityForm.inspectedQuantity} onChange={handleQualityChange} type="number" min="0" className="w-full border rounded-lg p-2" placeholder="e.g., 500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Defects (comma separated)</label>
+                      <input name="defects" value={qualityForm.defects} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., scratch, color mismatch" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Defect Count</label>
+                      <input name="defectCount" value={qualityForm.defectCount} onChange={handleQualityChange} type="number" min="0" className="w-full border rounded-lg p-2" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Inspection Date</label>
+                      <input name="inspectionDate" value={qualityForm.inspectionDate} onChange={handleQualityChange} type="date" className="w-full border rounded-lg p-2" />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium mb-1">Checks</label>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="visual" checked={!!qualityForm.checks?.visual} onChange={handleQualityCheckToggle} /> Visual</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="dimensions" checked={!!qualityForm.checks?.dimensions} onChange={handleQualityCheckToggle} /> Dimensions</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="functional" checked={!!qualityForm.checks?.functional} onChange={handleQualityCheckToggle} /> Functional</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="packaging" checked={!!qualityForm.checks?.packaging} onChange={handleQualityCheckToggle} /> Packaging</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="safety" checked={!!qualityForm.checks?.safety} onChange={handleQualityCheckToggle} /> Safety</label>
                       </div>
-                    ))}
+                      <div className="mt-2 text-sm">
+                        <span className="mr-2 text-gray-600">Suggested:</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${((qualityForm.checks && (qualityForm.checks.visual===false || qualityForm.checks.dimensions===false || qualityForm.checks.functional===false || qualityForm.checks.packaging===false || qualityForm.checks.safety===false)) || (parseInt(qualityForm.defectCount||'0')>0)) ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                          {((qualityForm.checks && (qualityForm.checks.visual===false || qualityForm.checks.dimensions===false || qualityForm.checks.functional===false || qualityForm.checks.packaging===false || qualityForm.checks.safety===false)) || (parseInt(qualityForm.defectCount||'0')>0)) ? 'Rework' : 'Passed'}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Inspector</label>
+                      <input name="inspector" value={qualityForm.inspector} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., John Doe" />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium">Notes</label>
+                      <textarea name="notes" value={qualityForm.notes} onChange={handleQualityChange} className="w-full border rounded-lg p-2" rows="2" />
+                    </div>
+                    <div className="md:col-span-3 flex gap-3">
+                      <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingQuality ? 'Update Record' : 'Create Record'}</button>
+                      {editingQuality && (
+                        <button type="button" onClick={() => { setEditingQuality(null); setShowQualityForm(false); setQualityForm({ batchNo: '', productId: '', productName: '', status: 'Passed', defects: '', defectCount: '', inspectionDate: '', inspector: '', notes: '' }); }} className="border px-4 py-2 rounded-lg">Cancel</button>
+                      )}
+                    </div>
+                  </form>
+                )}
+                {loadingQuality ? (
+                  <div className="py-8 text-center text-gray-500">Loading quality records...</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left py-3 px-2 font-semibold text-gray-700">Batch No</th>
+                          <th className="text-left py-3 px-2 font-semibold text-gray-700">Product</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Status</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Defects</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Inspected On</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Inspector</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {qualityRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-6 text-center text-gray-500">No records found.</td>
+                          </tr>
+                        ) : (
+                          qualityRecords.map((r) => (
+                            <tr key={r._id} className="border-b border-gray-100 hover:bg-gray-50">
+                              <td className="py-3 px-2 font-medium">{r.batchNo}</td>
+                              <td className="py-3 px-2">{r.productName}</td>
+                              <td className="py-3 px-2 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  r.status === 'Passed' ? 'bg-green-100 text-green-800' :
+                                  r.status === 'Failed' ? 'bg-red-100 text-red-800' :
+                                  'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {r.status}
+                                </span>
+                              </td>
+                              <td className="py-3 px-2 text-center">{Array.isArray(r.defects) ? r.defects.join(', ') : r.defects}</td>
+                              <td className="py-3 px-2 text-center">{r.inspectionDate ? new Date(r.inspectionDate).toLocaleDateString() : '-'}</td>
+                              <td className="py-3 px-2 text-center">{r.inspector}</td>
+                              <td className="py-3 px-2 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button onClick={() => editQuality(r)} className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700">Edit</button>
+                                  <button onClick={() => deleteQuality(r._id)} className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700">Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-xl font-bold mb-6">Recent Quality Checks</h3>
-                  <div className="space-y-3">
-                    <div className="border-l-4 border-green-500 pl-4">
-                      <p className="font-medium">Batch #2024-045</p>
-                      <p className="text-sm text-gray-600">Passed all quality tests</p>
-                      <p className="text-xs text-gray-500">2 hours ago</p>
-                    </div>
-                    <div className="border-l-4 border-yellow-500 pl-4">
-                      <p className="font-medium">Batch #2024-044</p>
-                      <p className="text-sm text-gray-600">Minor defects detected</p>
-                      <p className="text-xs text-gray-500">4 hours ago</p>
-                    </div>
-                    <div className="border-l-4 border-green-500 pl-4">
-                      <p className="font-medium">Batch #2024-043</p>
-                      <p className="text-sm text-gray-600">Excellent quality rating</p>
-                      <p className="text-xs text-gray-500">6 hours ago</p>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           )}

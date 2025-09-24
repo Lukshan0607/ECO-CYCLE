@@ -63,9 +63,10 @@ const createOrder = async (req, res) => {
       };
     });
 
-    // Generate order ID
-    const orderCount = await SalesOrder.countDocuments();
-    const orderId = `ORD${String(orderCount + 1).padStart(6, '0')}`;
+    // Generate order ID in a collision-resistant way (no counter needed)
+    const orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, '0')}`;
 
     const newOrder = new SalesOrder({
       orderId,
