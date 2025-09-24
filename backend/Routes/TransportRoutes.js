@@ -5,10 +5,6 @@ const {
   getCollectionById,
   createCollection,
   updateCollectionStatus,
-  getAllVehicles,
-  createVehicle,
-  updateVehicle,
-  updateVehicleLocation,
   getAllDrivers,
   createDriver,
   updateDriver,
@@ -27,12 +23,6 @@ router.get('/collections/:id', getCollectionById);
 router.post('/collections', createCollection);
 router.put('/collections/:id/status', updateCollectionStatus);
 router.delete('/collections/:id', deleteCollection);
-
-// Vehicle Routes
-router.get('/vehicles', getAllVehicles);
-router.post('/vehicles', createVehicle);
-router.put('/vehicles/:id', updateVehicle);
-router.put('/vehicles/:id/location', updateVehicleLocation);
 
 // Driver Routes
 router.get('/drivers', getAllDrivers);
