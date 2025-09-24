@@ -450,7 +450,7 @@ function Register() {
                 <div className="text-xs text-blue-100">Bottles Recycled</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-yellow-300">₹10L+</div>
+                <div className="text-2xl font-bold text-yellow-300">LKR 10L+</div>
                 <div className="text-xs text-blue-100">Rewards Paid</div>
               </div>
             </div>
