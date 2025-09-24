@@ -58,6 +58,7 @@ export default function TransportDashboard() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [assignNotice, setAssignNotice] = useState({ type: "", text: "" }); // {type: 'success'|'error'|'', text}
   const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [scheduleMin, setScheduleMin] = useState("");
   // Vehicles for Assign modal (active only)
   const [vehiclesAssign, setVehiclesAssign] = useState([]);
   const [loadingVehiclesAssign, setLoadingVehiclesAssign] = useState(false);
@@ -501,8 +502,23 @@ export default function TransportDashboard() {
               </div>
             </div>
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium mb-1">Pickup Time</label>
-              <input type="datetime-local" className="border rounded-lg px-3 py-2 w-full" value={scheduledAt} onChange={(e)=>setScheduledAt(e.target.value)} />
+              <label className="block text-sm font-medium mb-1">Pickup Schedule</label>
+              <input
+                type="datetime-local"
+                className="border rounded-lg px-3 py-2 w-full"
+                min={scheduleMin || undefined}
+                value={scheduledAt}
+                onChange={(e)=>{
+                  const v = e.target.value;
+                  if (scheduleMin && v && new Date(v) < new Date(scheduleMin)) {
+                    setAssignNotice({ type:'error', text:'Pickup schedule must be in the future.' });
+                    setScheduledAt(scheduleMin);
+                  } else {
+                    setAssignNotice({ type:'', text:'' });
+                    setScheduledAt(v);
+                  }
+                }}
+              />
               <div className="text-xs text-gray-500 mt-1">Schedule when the driver should pick bottles at the collector location.</div>
             </div>
           </div>
@@ -513,7 +529,8 @@ export default function TransportDashboard() {
                 setAssignNotice({ type: '', text: '' });
                 if (!assignRequestId) { setAssignNotice({ type:'error', text:'Invalid request selected' }); return; }
                 if (!selectedDriverId) { setAssignNotice({ type:'error', text:'Please select a driver' }); return; }
-                if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup time' }); return; }
+                if (!scheduledAt) { setAssignNotice({ type:'error', text:'Please choose a pickup schedule' }); return; }
+                if (scheduledAt && new Date(scheduledAt) < new Date()) { setAssignNotice({ type:'error', text:'Pickup schedule must be in the future.' }); return; }
                 setAssignSubmitting(true);
                 await axios.post(`http://localhost:5000/api/transport-requests/${assignRequestId}/assign-driver`, {
                   driverId: selectedDriverId,
@@ -819,6 +836,9 @@ export default function TransportDashboard() {
                           const pad = (n)=>String(n).padStart(2,'0');
                           const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
                           setScheduledAt(local);
+                          const nowMin = new Date();
+                          const minLocal = `${nowMin.getFullYear()}-${pad(nowMin.getMonth()+1)}-${pad(nowMin.getDate())}T${pad(nowMin.getHours())}:${pad(nowMin.getMinutes())}`;
+                          setScheduleMin(minLocal);
                         } catch {}
                         // Fetch drivers list
                         try {
@@ -912,7 +932,15 @@ export default function TransportDashboard() {
                 <div className="mt-3 space-y-2">
                   <div>
                     <div className="text-sm text-gray-500">Location</div>
-                    <input className="border rounded-lg px-2 py-1 w-full" value={editingBinData.location} onChange={(e)=>setEditingBinData({...editingBinData, location: e.target.value})} />
+                    <input
+                      className="border rounded-lg px-2 py-1 w-full"
+                      value={editingBinData.location}
+                      onChange={(e)=>{
+                        const cleaned = e.target.value.replace(/[^A-Za-z0-9 ,\-]/g, '');
+                        const collapsed = cleaned.replace(/\s+/g, ' ').trim();
+                        setEditingBinData({...editingBinData, location: collapsed});
+                      }}
+                    />
                   </div>
                   <div>
                     <div className="text-sm text-gray-500">City</div>
@@ -920,7 +948,16 @@ export default function TransportDashboard() {
                   </div>
                   <div>
                     <div className="text-sm text-gray-500">Collection Manager</div>
-                    <input className="border rounded-lg px-2 py-1 w-full" value={editingBinData.managerName} onChange={(e)=>setEditingBinData({...editingBinData, managerName: e.target.value})} />
+                    <input
+                      className="border rounded-lg px-2 py-1 w-full"
+                      value={editingBinData.managerName}
+                      onChange={(e)=>{
+                        const onlyLettersSpaces = e.target.value.replace(/[^A-Za-z\s]/g, '');
+                        const collapsed = onlyLettersSpaces.replace(/\s+/g, ' ').trim();
+                        const titleCased = collapsed.split(' ').map(w => w ? (w[0].toUpperCase() + w.slice(1).toLowerCase()) : '').join(' ');
+                        setEditingBinData({...editingBinData, managerName: titleCased});
+                      }}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <select className="border rounded-lg px-2 py-1" value={editingBinData.status} onChange={(e)=>setEditingBinData({...editingBinData, status: e.target.value})}>
@@ -928,7 +965,33 @@ export default function TransportDashboard() {
                       <option>Inactive</option>
                       <option>Maintenance</option>
                     </select>
-                    <input type="number" step="0.1" className="border rounded-lg px-2 py-1" value={editingBinData.distanceKm} onChange={(e)=>setEditingBinData({...editingBinData, distanceKm: e.target.value})} />
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      className="border rounded-lg px-2 py-1"
+                      value={editingBinData.distanceKm}
+                      onKeyDown={(e)=>{
+                        if (["e","E","+","-"].includes(e.key)) {
+                          e.preventDefault();
+                        }
+                      }}
+                      onChange={(e)=>{
+                        const raw = e.target.value;
+                        let cleaned = raw.replace(/[^0-9.]/g, "");
+                        cleaned = cleaned.replace(/(\..*)\./g, "$1");
+                        const parts = cleaned.split('.')
+                        let intPart = parts[0].replace(/^(0+)(\d)/, '$2');
+                        if (intPart === '') intPart = '0';
+                        let result = intPart;
+                        if (parts.length > 1) {
+                          const decPart = parts[1].slice(0, 2);
+                          result = decPart.length > 0 ? `${intPart}.${decPart}` : `${intPart}.`;
+                        }
+                        setEditingBinData({...editingBinData, distanceKm: result});
+                      }}
+                    />
                   </div>
                   <div className="flex gap-2 justify-end">
                     <Button variant="outline" onClick={()=>{ setEditingBinId(null); }}>Cancel</Button>
@@ -1014,7 +1077,35 @@ export default function TransportDashboard() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Distance (km)</label>
-                <input type="number" step="0.1" className="border rounded-lg px-3 py-2 w-full" value={addBinRouteForm.distanceKm} onChange={(e)=>setAddBinRouteForm({...addBinRouteForm, distanceKm: e.target.value})} placeholder="e.g., 12.5" />
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addBinRouteForm.distanceKm}
+                  onKeyDown={(e)=>{
+                    // Block scientific notation and signs; allow one dot handled in onChange
+                    if (["e","E","+","-"].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e)=>{
+                    const raw = e.target.value;
+                    let cleaned = raw.replace(/[^0-9.]/g, "");
+                    cleaned = cleaned.replace(/(\..*)\./g, "$1");
+                    const parts = cleaned.split('.')
+                    let intPart = parts[0].replace(/^(0+)(\d)/, '$2');
+                    if (intPart === '') intPart = '0';
+                    let result = intPart;
+                    if (parts.length > 1) {
+                      const decPart = parts[1].slice(0, 2); // limit to 2 decimal places
+                      result = decPart.length > 0 ? `${intPart}.${decPart}` : `${intPart}.`;
+                    }
+                    setAddBinRouteForm({...addBinRouteForm, distanceKm: result});
+                  }}
+                  placeholder="e.g., 12.50"
+                />
                 {addBinRouteErrors.distanceKm && <div className="text-xs text-red-600 mt-1">{addBinRouteErrors.distanceKm}</div>}
               </div>
             </div>
@@ -1197,11 +1288,56 @@ export default function TransportDashboard() {
 
               <div>
                 <label className="block text-sm font-medium mb-1">Capacity (Bottles)</label>
-                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.capacityBottles} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, capacityBottles: e.target.value })} />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  step="1"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.capacityBottles}
+                  onKeyDown={(e)=>{
+                    // Block non-integer characters like '.', 'e', '+', '-'
+                    if (["e","E","+","-","."].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e) => {
+                    const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                    setAddVehicleForm({ ...addVehicleForm, capacityBottles: digitsOnly });
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Capacity (Weight kg)</label>
-                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.capacityWeight} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, capacityWeight: e.target.value })} />
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.capacityWeight}
+                  onKeyDown={(e)=>{
+                    // Block scientific notation and signs; allow one dot handled in onChange
+                    if (["e","E","+","-"].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    // Keep digits and at most one dot
+                    let cleaned = raw.replace(/[^0-9.]/g, "");
+                    cleaned = cleaned.replace(/(\..*)\./g, "$1");
+                    const parts = cleaned.split('.');
+                    let intPart = parts[0].replace(/^(0+)(\d)/, '$2'); // trim leading zeros but keep single 0
+                    if (intPart === '') intPart = '0';
+                    let result = intPart;
+                    if (parts.length > 1) {
+                      const decPart = parts[1].slice(0, 2); // limit to 2 decimals
+                      result = decPart.length > 0 ? `${intPart}.${decPart}` : `${intPart}.`;
+                    }
+                    setAddVehicleForm({ ...addVehicleForm, capacityWeight: result });
+                  }}
+                />
               </div>
               
               <div>
@@ -1233,15 +1369,20 @@ export default function TransportDashboard() {
                   spellCheck={false}
                   className="border rounded-lg px-3 py-2 w-full"
                   value={addVehicleForm.licensePlate}
-                  maxLength={12}
+                  maxLength={8}
                   placeholder="e.g., ABC-1234"
-                  title="Letters, numbers, hyphen and spaces only. Max 12 characters."
+                  title="Format: up to 3 letters followed by up to 4 digits (e.g., ABC-1234)."
                   onChange={(e) => {
+                    // Enforce up to 3 letters then up to 4 digits. Auto-insert hyphen when digits present.
                     const upper = e.target.value.toUpperCase();
-                    const allowed = upper.replace(/[^A-Z0-9\-\s]/g, '');
-                    const collapsed = allowed.replace(/\s+/g, ' ').trim();
-                    const limited = collapsed.slice(0, 12);
-                    setAddVehicleForm({ ...addVehicleForm, licensePlate: limited });
+                    // Remove all non alphanumeric
+                    const alnum = upper.replace(/[^A-Z0-9]/g, '');
+                    // Extract leading letters (max 3)
+                    const letters = (alnum.match(/^[A-Z]{0,3}/)?.[0] || '');
+                    // Remaining digits after letters (max 4)
+                    const digits = (alnum.slice(letters.length).match(/^\d{0,4}/)?.[0] || '');
+                    const formatted = digits.length > 0 ? `${letters}${letters ? '-' : ''}${digits}` : letters;
+                    setAddVehicleForm({ ...addVehicleForm, licensePlate: formatted });
                   }}
                 />
               </div>
@@ -1269,7 +1410,30 @@ export default function TransportDashboard() {
 
               <div>
                 <label className="block text-sm font-medium mb-1">Fuel Level (%)</label>
-                <input type="number" min="0" max="100" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.fuelLevel} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, fuelLevel: Number(e.target.value) })} />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  max="100"
+                  step="1"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.fuelLevel}
+                  onKeyDown={(e)=>{
+                    // Block non-integer characters like '.', 'e', '+', '-'
+                    if (["e","E","+","-","."].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e) => {
+                    const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                    let val = digitsOnly === '' ? '' : Number(digitsOnly);
+                    if (val !== '' && !Number.isNaN(val)) {
+                      if (val < 0) val = 0;
+                      if (val > 100) val = 100;
+                    }
+                    setAddVehicleForm({ ...addVehicleForm, fuelLevel: val });
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Fuel Type</label>
