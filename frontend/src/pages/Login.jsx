@@ -394,7 +394,7 @@ function Login() {
                   <div className="text-xs text-blue-100">Bottles Today</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-yellow-300">₹12.5L</div>
+                  <div className="text-2xl font-bold text-yellow-300">LKR 12.5L</div>
                   <div className="text-xs text-blue-100">Rewards Paid</div>
                 </div>
               </div>
