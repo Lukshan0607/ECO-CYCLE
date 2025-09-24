@@ -81,6 +81,92 @@ export default function CollectorsDashboard() {
     }
   };
 
+  // Build the currently displayed rows according to filters used in the table
+  const getFilteredRows = () => {
+    try {
+      return collections
+        .slice()
+        .filter(c => {
+          const g = (Number(c.quantity)||0) * 1000;
+          const minOk = filterMinG === "" ? true : g >= Number(filterMinG);
+          const maxOk = filterMaxG === "" ? true : g <= Number(filterMaxG);
+          return minOk && maxOk;
+        })
+        .sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt));
+    } catch {
+      return [];
+    }
+  };
+
+  // Export the filtered table to a printable page (user can Save as PDF)
+  const exportFilteredToPdf = () => {
+    const rows = getFilteredRows();
+    const title = 'Recent Collections Report';
+    const summary = `Filters: MinG=${filterMinG||'-'} | MaxG=${filterMaxG||'-'} | From=${filterFrom||'-'} | To=${filterTo||'-'}`;
+    const htmlRows = rows.map((c, idx)=>{
+      const id = c.collectionId || (c._id?.slice(-6) || String(idx+1));
+      const userName = c.awardedToUserId?.name || '-';
+      const collectorName = c.collectorName || '-';
+      const grams = ((Number(c.quantity)||0) * 1000).toFixed(1);
+      const location = c.location || '-';
+      const points = c.awardedPoints || 0;
+      const dateStr = c.createdAt ? new Date(c.createdAt).toLocaleString() : '';
+      return `<tr>
+        <td style="padding:8px;border:1px solid #e5e7eb;">${id}</td>
+        <td style="padding:8px;border:1px solid #e5e7eb;">${userName}</td>
+        <td style="padding:8px;border:1px solid #e5e7eb;">${collectorName}</td>
+        <td style="padding:8px;border:1px solid #e5e7eb;">${grams}</td>
+        <td style="padding:8px;border:1px solid #e5e7eb;">${location}</td>
+        <td style="padding:8px;border:1px solid #e5e7eb;">${points}</td>
+        <td style="padding:8px;border:1px solid #e5e7eb;">${dateStr}</td>
+      </tr>`;
+    }).join('');
+
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(`<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${title}</title>
+        <style>
+          body { font-family: Arial, Helvetica, sans-serif; color: #111827; }
+          h1 { font-size: 20px; margin: 0 0 4px 0; }
+          .muted { color: #6b7280; font-size: 12px; margin-bottom: 12px; }
+          table { border-collapse: collapse; width: 100%; font-size: 12px; }
+          thead th { background: #f9fafb; border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+          @media print {
+            @page { size: A4; margin: 12mm; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${title}</h1>
+        <div class="muted">${summary}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>User Name</th>
+              <th>Collector Name</th>
+              <th>Weight (g)</th>
+              <th>Location</th>
+              <th>Awarded Points</th>
+              <th>Collected Stamp (Time & Date)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${htmlRows || '<tr><td colspan="7" style="padding:12px;text-align:center;color:#6b7280;">No data</td></tr>'}
+          </tbody>
+        </table>
+        <script>
+          window.onload = function(){ try { window.print(); } catch(e){} };
+        </script>
+      </body>
+    </html>`);
+    try { w.document.close(); } catch {}
+  };
+
   const fetchTransportRequests = async () => {
     try {
       const res = await axios.get("http://localhost:5000/api/transport-requests", {
@@ -412,23 +498,15 @@ export default function CollectorsDashboard() {
           <TruckIcon className="w-5 h-5" />
           <span className="font-medium">Transport Requests</span>
         </button>
-        <button onClick={() => setActiveTab("notifications")} className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${activeTab==='notifications' ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg' : 'text-gray-700 hover:bg-gray-100'}`}>
-          <BellAlertIcon className="w-5 h-5" />
-          <span className="font-medium">Notifications</span>
+        <button onClick={() => setActiveTab("locations")} className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${activeTab==='locations' ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg' : 'text-gray-700 hover:bg-gray-100'}`}>
+          <MapPinIcon className="w-5 h-5" />
+          <span className="font-medium">Collector Locations</span>
         </button>
         <button onClick={() => setActiveTab("reports")} className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${activeTab==='reports' ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg' : 'text-gray-700 hover:bg-gray-100'}`}>
           <DocumentChartBarIcon className="w-5 h-5" />
           <span className="font-medium">Reports</span>
         </button>
-        <button onClick={() => setActiveTab("profile")} className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${activeTab==='profile' ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg' : 'text-gray-700 hover:bg-gray-100'}`}>
-          <UserCircleIcon className="w-5 h-5" />
-          <span className="font-medium">Profile</span>
-        </button>
-
-        <Link to="/inventory/deliveries" className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100">
-          <ClipboardDocumentListIcon className="w-5 h-5" />
-          <span className="font-medium">Delivery Records</span>
-        </Link>
+        {/* Profile tab removed */}
         <LogoutButton />
       </nav>
     </aside>
@@ -521,6 +599,134 @@ export default function CollectorsDashboard() {
       </div>
     </div>
   );
+
+  const CollectorLocationsTab = () => {
+    // Build unique locations with counts and totals from collections
+    const rows = useMemo(() => {
+      const map = new Map();
+      for (const c of collections) {
+        const key = (c.location || '-').trim() || '-';
+        const prev = map.get(key) || { location: key, count: 0, totalKg: 0, lastAt: null };
+        prev.count += 1;
+        prev.totalKg += Number(c.quantity) || 0;
+        const dt = c.createdAt ? new Date(c.createdAt) : null;
+        if (dt && (!prev.lastAt || dt > prev.lastAt)) prev.lastAt = dt;
+        map.set(key, prev);
+      }
+      return Array.from(map.values()).sort((a,b)=>{
+        // Sort by totalKg desc, then location asc
+        if (b.totalKg !== a.totalKg) return b.totalKg - a.totalKg;
+        return a.location.localeCompare(b.location);
+      });
+    }, [collections]);
+
+    return (
+      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
+        <h2 className="text-xl font-bold text-gray-900 mb-4">Collector Locations</h2>
+        <div className="overflow-x-auto">
+          <table className="min-w-full">
+            <thead>
+              <tr className="bg-gray-50 text-left text-sm text-gray-700">
+                <th className="py-3 px-4 font-semibold">Location</th>
+                <th className="py-3 px-4 font-semibold">Collections</th>
+                <th className="py-3 px-4 font-semibold">Total Weight (kg)</th>
+                <th className="py-3 px-4 font-semibold">Last Collected</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, idx)=> (
+                <tr key={r.location+idx} className="border-t text-sm">
+                  <td className="py-3 px-4">{r.location}</td>
+                  <td className="py-3 px-4 font-medium">{r.count}</td>
+                  <td className="py-3 px-4 font-semibold">{r.totalKg.toFixed(2)}</td>
+                  <td className="py-3 px-4">{r.lastAt ? new Date(r.lastAt).toLocaleString() : '-'}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td className="py-6 px-4 text-gray-500" colSpan={4}>No location data</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // Export current Transport Requests table to printable page (Save as PDF)
+  const exportTransportRequestsToPdf = () => {
+    try {
+      const rowsHtml = (transportReqs || []).slice().map((r, idx) => {
+        const id = r.requestId || (r._id?.slice(-6) || String(idx+1));
+        const createdAt = r.createdAt ? new Date(r.createdAt).toLocaleString() : '-';
+        const collector = r.collectorName || '-';
+        const qty = r.quantity ?? '-';
+        const location = r.location || '-';
+        const status = r.status || '-';
+        return `<tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${id}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${collector}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${qty}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${location}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${status}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${createdAt}</td>
+        </tr>`;
+      }).join('');
+
+      const title = 'Collector - Transport Requests';
+      const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            body { font-family: Arial, Helvetica, sans-serif; color: #111827; }
+            h1 { font-size: 20px; margin: 0 0 8px 0; }
+            table { border-collapse: collapse; width: 100%; font-size: 12px; }
+            thead th { background: #f9fafb; border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+            @media print { @page { size: A4; margin: 12mm; } }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <table>
+            <thead>
+              <tr>
+                <th>Request ID</th>
+                <th>Collector</th>
+                <th>Weight (kg)</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="6" style="padding:12px;text-align:center;color:#6b7280;">No requests</td></tr>'}
+            </tbody>
+          </table>
+          <script>window.onload = function(){ try { setTimeout(function(){ window.print(); }, 100); } catch(e){} };</script>
+        </body>
+      </html>`;
+
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
+      const win = iframe.contentWindow;
+      const doc = win.document;
+      doc.open();
+      doc.write(html);
+      doc.close();
+      win.onafterprint = () => { try { document.body.removeChild(iframe); } catch {} };
+    } catch (e) {
+      console.error('Export PDF failed', e);
+    }
+  };
 
   // Helpers to build QR code image URLs without extra dependencies
   const buildQrUrl = (payload) => {
@@ -763,6 +969,10 @@ export default function CollectorsDashboard() {
             <button onClick={()=>{ setFilterMinG(""); setFilterMaxG(""); setFilterFrom(""); setFilterTo(""); }} className="mt-6 md:mt-0 border px-4 py-2 rounded-lg">Reset</button>
           </div>
         </div>
+        {/* Export PDF button below input fields */}
+        <div className="mb-4 flex justify-center">
+          <button onClick={exportFilteredToPdf} className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 text-white shadow-sm">Export PDF</button>
+        </div>
         <div className="overflow-x-auto border rounded-xl">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -893,6 +1103,13 @@ export default function CollectorsDashboard() {
   const TransportRequestsTab = () => (
     <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
       <h2 className="text-xl font-bold text-gray-900 mb-4">Transport Requests</h2>
+      {/* Export PDF button centered */}
+      <div className="mb-4 flex justify-center">
+        <button
+          onClick={exportTransportRequestsToPdf}
+          className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 text-white shadow-sm"
+        >Export PDF</button>
+      </div>
       <div className="overflow-x-auto">
         <table className="min-w-full">
           <thead>
@@ -998,40 +1215,14 @@ export default function CollectorsDashboard() {
     );
   };
 
-  const ProfileTab = () => (
-    <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 max-w-3xl">
-      <h2 className="text-xl font-bold text-gray-900 mb-4">My Profile</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium">Name</label>
-          <input className="w-full border rounded-lg px-3 py-2 mt-1" defaultValue="Demo Collector" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Phone</label>
-          <input className="w-full border rounded-lg px-3 py-2 mt-1" defaultValue="+94 71 111 1111" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Location</label>
-          <input className="w-full border rounded-lg px-3 py-2 mt-1" defaultValue="Colombo" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Email</label>
-          <input className="w-full border rounded-lg px-3 py-2 mt-1" defaultValue="collector@example.com" />
-        </div>
-      </div>
-      <button className="mt-6 bg-green-600 text-white px-6 py-2 rounded-lg shadow hover:bg-green-700">Save</button>
-    </div>
-  );
-
   const Content = () => {
     switch (activeTab) {
       case "dashboard": return <DashboardTab/>;
       case "add": return <AddCollectionTab/>;
       case "stock": return <MyStockTab/>;
       case "requests": return <TransportRequestsTab/>;
-      case "notifications": return <NotificationsTab/>;
+      case "locations": return <CollectorLocationsTab/>;
       case "reports": return <ReportsTab/>;
-      case "profile": return <ProfileTab/>;
       default: return <DashboardTab/>;
     }
   };
