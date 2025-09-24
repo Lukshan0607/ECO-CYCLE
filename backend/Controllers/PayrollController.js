@@ -616,6 +616,66 @@ const generatePayslip = async (req, res) => {
 };
 
 // Export all controller functions
+// @desc    Get employee salary expenses breakdown
+// @route   GET /api/payroll/expenses/breakdown
+// @access  Private/Admin
+const getEmployeeSalaryExpenses = asyncHandler(async (req, res) => {
+  try {
+    const { year, month } = req.query;
+    let match = {};
+    
+    // Build date filter
+    if (year && month) {
+      match.month = { $regex: `^${year}-${month.toString().padStart(2, '0')}` };
+    } else if (year) {
+      match.month = { $regex: `^${year}` };
+    }
+
+    const result = await Payroll.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: {
+            month: { $substr: ['$month', 0, 7] }
+          },
+          totalBasicSalary: { $sum: '$basicSalary' },
+          totalEPF: { $sum: { $add: ['$epfEmployee', '$epfEmployer'] } },
+          totalETF: { $sum: '$etfEmployer' },
+          totalOvertime: { $sum: '$overtimePay' },
+          totalDeductions: { $sum: '$deductions' },
+          totalNetPay: { $sum: '$netPay' },
+          employeeCount: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.month': 1 } }
+    ]);
+
+    // Format the response
+    const formattedData = result.map(item => ({
+      month: item._id.month,
+      basicSalary: item.totalBasicSalary,
+      epf: item.totalEPF,
+      etf: item.totalETF,
+      overtime: item.totalOvertime,
+      deductions: item.totalDeductions,
+      netPay: item.totalNetPay,
+      employeeCount: item.employeeCount
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedData
+    });
+  } catch (error) {
+    console.error('Error fetching employee salary expenses:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching employee salary expenses',
+      error: error.message
+    });
+  }
+});
+
 module.exports = {
   processPayroll,
   getPayrolls,
@@ -624,5 +684,6 @@ module.exports = {
   getPayrollSummary,
   updatePayroll,
   deletePayroll,
-  generatePayslip
+  generatePayslip,
+  getEmployeeSalaryExpenses
 };
