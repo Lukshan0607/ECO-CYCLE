@@ -20,6 +20,7 @@ const collectionRoutes = require("./Routes/CollectionRoutes");
 const pointsRoutes = require("./Routes/PointsRoutes");
 const transportRequestRoutes = require("./Routes/TransportRequestRoutes");
 const salesRoutes = require("./Routes/SalesRoutes");
+const expenseRoutes = require("./Routes/ExpenseRoutes");
 
 // CORS Configuration
 const corsOptions = {
@@ -47,14 +48,15 @@ app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/payroll", payrollRoutes);
+app.use("/api/expenses", expenseRoutes);
 app.use("/api/transport", transportRoutes);
-app.use("/api/transport", vehicleRoutes);
+app.use("/api/vehicles", vehicleRoutes);
+
 // Collectors pages required endpoints
 app.use("/api/collections", collectionRoutes);
 app.use("/api/points", pointsRoutes);
 app.use("/api/transport-requests", transportRequestRoutes);
 app.use("/api/sales", salesRoutes);
-
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
