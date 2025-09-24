@@ -287,6 +287,28 @@ const ProductionDashboard = () => {
   // CRUD: Production Plans
   const handlePlanFormChange = (e) => {
     const { name, value } = e.target;
+    // Field-level restrictions
+    if (name === 'productName') {
+      // Only letters and spaces
+      const nameRegex = /^[A-Za-z\s]*$/;
+      if (!nameRegex.test(value)) return;
+    }
+    if (name === 'quantity') {
+      // Only digits, max 4 (no minus, plus, letters, or special chars)
+      const qtyRegex = /^\d{0,4}$/;
+      if (!qtyRegex.test(value)) return;
+    }
+    if (name === 'startDate') {
+      // Build local yyyy-mm-dd (avoid UTC offset issues)
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const ymdToday = `${y}-${m}-${day}`;
+      if (value && value < ymdToday) {
+        return setPlanForm((prev) => ({ ...prev, [name]: ymdToday }));
+      }
+    }
     setPlanForm((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -303,10 +325,26 @@ const ProductionDashboard = () => {
   const submitPlan = async (e) => {
     e.preventDefault();
     try {
+      // Submit-time validation
+      const qtyNum = planForm.quantity ? parseInt(planForm.quantity, 10) : 0;
+      if (!qtyNum || qtyNum <= 0) {
+        alert('Quantity must be a positive number');
+        return;
+      }
+      if (qtyNum > 9999) {
+        alert('Quantity cannot exceed 4 digits (max 9999)');
+        return;
+      }
+      const todayStr = new Date().toISOString().slice(0,10);
+      if (planForm.startDate && planForm.startDate < todayStr) {
+        alert('Start Date cannot be a previous day');
+        return;
+      }
+
       const payload = {
         productName: planForm.productName?.trim() || undefined,
         productId: planForm.productId || undefined,
-        quantity: planForm.quantity ? parseInt(planForm.quantity) : undefined,
+        quantity: qtyNum,
         startDate: planForm.startDate || undefined,
         endDate: planForm.endDate || undefined,
         priority: planForm.priority,
@@ -1358,7 +1396,23 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Quantity</label>
-                      <input name="quantity" value={planForm.quantity} onChange={handlePlanFormChange} type="number" min="1" className="w-full border rounded-lg p-2" placeholder="e.g., 500" />
+                      <input
+                        name="quantity"
+                        value={planForm.quantity}
+                        onChange={handlePlanFormChange}
+                        onKeyDown={(e) => {
+                          const allowedCtrl = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Home','End'];
+                          if (allowedCtrl.includes(e.key)) return;
+                          if (!/^[0-9]$/.test(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={4}
+                        className="w-full border rounded-lg p-2"
+                        placeholder="e.g., 500"
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Priority</label>
@@ -1371,11 +1425,25 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Start Date</label>
-                      <input name="startDate" value={planForm.startDate} onChange={handlePlanFormChange} type="date" className="w-full border rounded-lg p-2" />
+                      <input
+                        name="startDate"
+                        value={planForm.startDate}
+                        onChange={handlePlanFormChange}
+                        type="date"
+                        min={(() => { const d=new Date(); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; })()}
+                        className="w-full border rounded-lg p-2"
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">End Date</label>
-                      <input name="endDate" value={planForm.endDate} onChange={handlePlanFormChange} type="date" className="w-full border rounded-lg p-2" />
+                      <input
+                        name="endDate"
+                        value={planForm.endDate}
+                        onChange={handlePlanFormChange}
+                        type="date"
+                        min={planForm.startDate || (() => { const d=new Date(); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; })()}
+                        className="w-full border rounded-lg p-2"
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Status</label>
