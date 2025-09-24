@@ -1,32 +1,42 @@
 import React from 'react';
 import { DollarSign, CheckCircle, Clock, XCircle } from 'lucide-react';
 
+// Format currency in LKR
+const formatCurrency = (amount) => {
+  return new Intl.NumberFormat('en-LK', {
+    style: 'currency',
+    currency: 'LKR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+};
+
 const ExpenseSummary = ({ summary }) => {
   const cards = [
     {
       title: 'Total Expenses',
-      value: summary.total.toFixed(2),
+      value: formatCurrency(summary.total),
       icon: <DollarSign className="h-6 w-6 text-blue-600" />,
       bgColor: 'bg-blue-50',
       textColor: 'text-blue-600'
     },
     {
       title: 'Paid',
-      value: summary.paid.toFixed(2),
+      value: formatCurrency(summary.paid),
       icon: <CheckCircle className="h-6 w-6 text-green-600" />,
       bgColor: 'bg-green-50',
       textColor: 'text-green-600'
     },
     {
       title: 'Pending',
-      value: summary.pending.toFixed(2),
+      value: formatCurrency(summary.pending),
       icon: <Clock className="h-6 w-6 text-yellow-600" />,
       bgColor: 'bg-yellow-50',
       textColor: 'text-yellow-600'
     },
     {
       title: 'Failed',
-      value: summary.failed.toFixed(2),
+      value: formatCurrency(summary.failed),
       icon: <XCircle className="h-6 w-6 text-red-600" />,
       bgColor: 'bg-red-50',
       textColor: 'text-red-600'

@@ -157,8 +157,6 @@ exports.createExpense = async (req, res) => {
 exports.updateExpense = async (req, res) => {
   try {
     const expenseId = req.params.id;
-    console.log('Updating expense with ID:', expenseId);
-    console.log('Request body:', req.body);
     
     // Validate expense ID
     if (!expenseId) {
@@ -237,7 +235,6 @@ exports.updateExpense = async (req, res) => {
       });
     }
     
-    console.log('Successfully updated expense:', updatedExpense);
     return res.status(200).json({
       success: true,
       message: 'Expense updated successfully',
