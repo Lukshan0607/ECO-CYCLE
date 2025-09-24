@@ -48,6 +48,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use("/api/users", userRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/production-requests", productionRequestRoutes);
+app.use("/api/expenses", expenseRoutes);
 app.use("/api/finance", paymentRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);

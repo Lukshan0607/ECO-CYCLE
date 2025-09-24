@@ -1,5 +1,5 @@
 // src/components/finance/UnifiedFinanceDashboard.jsx
-import React, { useState, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -12,14 +12,14 @@ import {
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import LogoutButton from "../common/LogoutButton";
+import { exportToCSV, exportToExcel, exportToPDF } from '../../utils/exportUtils';
+import ExpenseBreakdown from './ExpenseBreakdown';
 
 // Lazy load components
 const EmployeePayroll = lazy(() => import('./EmployeePayroll'));
 const EmployeeManagement = lazy(() => import('./EmployeeManagement'));
 const OverviewCards = lazy(() => import('./OverviewCards'));
 const FinanceCharts = lazy(() => import('./FinanceCharts'));
-const CustomerPaymentsManagement = lazy(() => import('./CustomerPaymentsManagement'));
-const PaymentProcessing = lazy(() => import('./PaymentProcessing'));
 const OrderManagement = lazy(() => import('./OrderManagement'));
 const ExpensesDashboard = lazy(() => import('./ExpensesDashboard'));
 
@@ -27,43 +27,200 @@ const ExpensesDashboard = lazy(() => import('./ExpensesDashboard'));
 
 export default function UnifiedFinanceDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
+  const [exportFormat, setExportFormat] = useState('csv');
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
 
-  // Sample data for charts
-  const expenseBreakdown = [
-    { name: 'Operations', value: 35, color: '#0088FE' },
-    { name: 'Marketing', value: 25, color: '#00C49F' },
-    { name: 'Salaries', value: 30, color: '#FFBB28' },
-    { name: 'Utilities', value: 10, color: '#FF8042' }
-  ];
+  const [analyticsData, setAnalyticsData] = useState([]);
+  const [financialData, setFinancialData] = useState({
+    recentTransactions: [],
+    expenseBreakdown: []
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const revenueExpensesData = [
-    { month: 'Jan', revenue: 65000, expenses: 45000 },
-    { month: 'Feb', revenue: 72000, expenses: 48000 },
-    { month: 'Mar', revenue: 68000, expenses: 52000 },
-    { month: 'Apr', revenue: 85000, expenses: 55000 },
-    { month: 'May', revenue: 78000, expenses: 51000 },
-    { month: 'Jun', revenue: 92000, expenses: 58000 }
-  ];
+  // Calculate financial metrics for export
+  const calculateFinancialMetrics = (data) => {
+    const totalRevenue = data.reduce((sum, item) => sum + (parseFloat(item.revenue) || 0), 0);
+    const totalExpenses = data.reduce((sum, item) => sum + (parseFloat(item.expenses) || 0), 0);
+    const profit = totalRevenue - totalExpenses;
+    return { totalRevenue, totalExpenses, profit };
+  };
 
-  const recentTransactions = [
-    { id: 1, customer: 'John Doe', amount: 1250, status: 'completed', date: '2024-01-15' },
-    { id: 2, customer: 'Jane Smith', amount: 850, status: 'pending', date: '2024-01-14' },
-    { id: 3, customer: 'Bob Johnson', amount: 2100, status: 'completed', date: '2024-01-13' }
-  ];
+  // Fetch and process expenses data for analytics
+  const fetchAnalyticsData = async () => {
+    setIsLoading(true);
+    try {
+      // Fetch expenses data
+      const response = await fetch('/api/expenses');
+      if (!response.ok) {
+        throw new Error('Failed to fetch expenses data');
+      }
+      const { data: expenses } = await response.json();
+      
+      // Process expenses data for analytics
+      const monthlyData = {};
+      
+      expenses.forEach(expense => {
+        if (!expense.date || !expense.amount) return;
+        
+        const date = new Date(expense.date);
+        const monthYear = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const amount = parseFloat(expense.amount) || 0;
+        
+        if (!monthlyData[monthYear]) {
+          monthlyData[monthYear] = {
+            period: monthYear,
+            revenue: 0,
+            expenses: 0,
+            profit: 0,
+            categories: {}
+          };
+        }
+        
+        // Categorize expenses
+        const category = expense.category?.name || 'Uncategorized';
+        if (!monthlyData[monthYear].categories[category]) {
+          monthlyData[monthYear].categories[category] = 0;
+        }
+        monthlyData[monthYear].categories[category] += amount;
+        
+        // Update totals
+        if (expense.type === 'income') {
+          monthlyData[monthYear].revenue += amount;
+        } else {
+          monthlyData[monthYear].expenses += amount;
+        }
+        monthlyData[monthYear].profit = monthlyData[monthYear].revenue - monthlyData[monthYear].expenses;
+      });
+      
+      // Convert to array and sort by period
+      const processedData = Object.values(monthlyData).sort((a, b) => 
+        a.period.localeCompare(b.period)
+      );
+      
+      setAnalyticsData(processedData);
+      
+      // Store all expenses for the ExpenseBreakdown component
+      setFinancialData(prev => ({
+        ...prev,
+        allExpenses: expenses, // Store all expenses for the breakdown
+        recentTransactions: expenses.slice(0, 5) // Show 5 most recent
+      }));
+      
+    } catch (err) {
+      setError(err.message);
+      console.error('Error processing expenses data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const pendingPayments = [
-    { id: 1, customer: 'Alice Brown', amount: 750, dueDate: '2024-01-20' },
-    { id: 2, customer: 'Charlie Wilson', amount: 1200, dueDate: '2024-01-22' },
-    { id: 3, customer: 'Diana Davis', amount: 950, dueDate: '2024-01-25' }
-  ];
+  // Fetch data when component mounts and when activeTab changes to analytics
+  useEffect(() => {
+    if (activeTab === 'analytics') {
+      fetchAnalyticsData();
+    }
+  }, [activeTab]);
+
+  const handleExport = async (format) => {
+    setExportFormat(format);
+    setShowExportDropdown(false);
+    
+    try {
+      let dataToExport = [];
+      let columns = [];
+      let title = 'Report';
+      const formatToUse = format || exportFormat;
+
+      // Prepare data based on active tab
+      switch (activeTab) {
+        case 'overview':
+          (() => {
+            const { totalRevenue, totalExpenses, profit } = calculateFinancialMetrics(analyticsData);
+            dataToExport = [
+              { metric: 'Total Revenue', value: totalRevenue },
+              { metric: 'Total Expenses', value: totalExpenses },
+              { metric: 'Profit', value: profit },
+            ];
+            columns = [
+              { header: 'Metric', key: 'metric' },
+              { header: 'Value', key: 'value' },
+            ];
+            title = 'Financial_Metrics';
+          })();
+          break;
+        case 'expenses':
+          // Handle expenses export
+          title = 'Expenses_Report';
+          break;
+        case 'analytics':
+          if (isLoading) {
+            alert('Please wait while we prepare your data for export...');
+            return;
+          }
+          if (error) {
+            alert('Error loading analytics data: ' + error);
+            return;
+          }
+          dataToExport = [...analyticsData];
+          columns = [
+            { header: 'Period', key: 'period' },
+            { header: 'Revenue', key: 'revenue' },
+            { header: 'Expenses', key: 'expenses' },
+            { header: 'Profit', key: 'profit' },
+            { header: 'Category', key: 'category' }
+          ];
+          title = 'Financial_Analytics';
+          break;
+        case 'employee-management':
+          title = 'Employee_Management';
+          break;
+        case 'payroll':
+          title = 'Payroll_Report';
+          break;
+        default:
+          console.warn('No export handler for tab:', activeTab);
+          return;
+      }
+
+      if (dataToExport.length === 0) {
+        console.warn('No data to export for tab:', activeTab);
+        return;
+      }
+
+      // Call the appropriate export function
+      switch (formatToUse) {
+        case 'csv':
+          exportToCSV(dataToExport, title);
+          break;
+        case 'excel':
+          exportToExcel(dataToExport, title);
+          break;
+        case 'pdf':
+          exportToPDF(
+            dataToExport,
+            columns,
+            title.replace(/_/g, ' '),
+            title
+          );
+          break;
+        default:
+          exportToCSV(dataToExport, title);
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+    }
+  };
+
+  // Get data from state
+  const { allExpenses = [], recentTransactions = [] } = financialData;
+  const pendingPayments = []; // This will be populated from the backend
 
   const tabs = [
     { id: "overview", name: "Financial Overview", icon: <DollarSign size={20} /> },
     { id: "expenses", name: "Expenses", icon: <Receipt size={20} /> },
     { id: "orders", name: "Order Management", icon: <ShoppingCart size={20} /> },
     { id: "analytics", name: "Financial Analytics", icon: <TrendingUp size={20} /> },
-    { id: "payment-processing", name: "Payment Processing", icon: <Target size={20} /> },
-    { id: "customer-payments", name: "Customer Payments", icon: <Users size={20} /> },
     { id: "employee-management", name: "Employee Management", icon: <UsersIcon size={20} /> },
     { id: "payroll", name: "Employee Payroll", icon: <Briefcase size={20} /> },
   ];
@@ -89,10 +246,6 @@ export default function UnifiedFinanceDashboard() {
         return renderWithSuspense(OrderManagement);
       case 'analytics':
         return renderAnalytics();
-      case 'payment-processing':
-        return renderWithSuspense(PaymentProcessing);
-      case 'customer-payments':
-        return renderWithSuspense(CustomerPaymentsManagement);
       case 'employee-management':
         return renderWithSuspense(EmployeeManagement);
       case 'payroll':
@@ -112,37 +265,15 @@ export default function UnifiedFinanceDashboard() {
   const renderAnalytics = () => (
     <div className="space-y-8">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card>
-          <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Expense Breakdown</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={expenseBreakdown}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {expenseBreakdown.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+        <ExpenseBreakdown expenses={allExpenses} />
 
         <Card>
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold mb-4">Profit Trend</h3>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={revenueExpensesData}>
+              <LineChart data={analyticsData}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
+                <XAxis dataKey="period" />
                 <YAxis />
                 <Tooltip />
                 <Line type="monotone" dataKey="profit" stroke="#10B981" strokeWidth={3} />
@@ -165,10 +296,39 @@ export default function UnifiedFinanceDashboard() {
               <Filter size={16} className="mr-2" />
               Filter
             </Button>
-            <Button variant="outline" size="sm">
-              <Download size={16} className="mr-2" />
-              Export
-            </Button>
+            <div className="relative group">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleExport}
+                className="flex items-center"
+              >
+                <Download size={16} className="mr-2" />
+                Export
+              </Button>
+              <div className="absolute right-0 mt-1 w-40 bg-white rounded-md shadow-lg z-10 hidden group-hover:block">
+                <div className="py-1">
+                  <button 
+                    onClick={() => { setExportFormat('csv'); setTimeout(handleExport, 100); }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Export as CSV
+                  </button>
+                  <button 
+                    onClick={() => { setExportFormat('excel'); setTimeout(handleExport, 100); }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Export as Excel
+                  </button>
+                  <button 
+                    onClick={() => { setExportFormat('pdf'); setTimeout(handleExport, 100); }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Export as PDF
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -319,14 +479,79 @@ export default function UnifiedFinanceDashboard() {
               </p>
             </div>
             <div className="flex space-x-3">
-              <Button variant="outline">
-                <Calendar size={16} className="mr-2" />
-                Date Range
-              </Button>
-              <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
-                <Download size={16} className="mr-2" />
-                Export Report
-              </Button>
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  className="flex items-center space-x-2"
+                  onClick={() => handleExport(exportFormat)}
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Export</span>
+                  <svg
+                    className={`w-4 h-4 ml-1 transition-transform ${showExportDropdown ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowExportDropdown(!showExportDropdown);
+                    }}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </Button>
+                
+                {showExportDropdown && (
+                  <div className="absolute right-0 z-10 w-40 mt-1 bg-white rounded-md shadow-lg">
+                    <div className="py-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExport('csv');
+                        }}
+                        className={`block w-full px-4 py-2 text-sm text-left ${
+                          exportFormat === 'csv' 
+                            ? 'bg-blue-50 text-blue-700' 
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Export as CSV
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExport('excel');
+                        }}
+                        className={`block w-full px-4 py-2 text-sm text-left ${
+                          exportFormat === 'excel' 
+                            ? 'bg-blue-50 text-blue-700' 
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Export as Excel
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExport('pdf');
+                        }}
+                        className={`block w-full px-4 py-2 text-sm text-left ${
+                          exportFormat === 'pdf' 
+                            ? 'bg-blue-50 text-blue-700' 
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Export as PDF
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
