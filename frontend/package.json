@@ -12,7 +12,7 @@
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.11.0",
     "date-fns": "^2.29.3",
-    "jspdf": "^3.0.2",
+    "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.542.0",

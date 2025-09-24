@@ -1,12 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Plus, Edit, Trash2, Filter, Download, Search, 
+  Plus, Edit, Trash2, Filter, Download as DownloadIcon, Search, 
   CheckCircle, Clock, XCircle, DollarSign, X 
 } from 'lucide-react';
+// Import jsPDF and autoTable
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 import ExpenseForm from './ExpenseForm';
 import ExpenseSummary from './ExpenseSummary';
 
 const API_BASE_URL = 'http://localhost:5000/api';
+
+// Format currency helper function
+const formatCurrency = (amount) => {
+  return new Intl.NumberFormat('en-LK', {
+    style: 'currency',
+    currency: 'LKR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+};
 
 const ExpensesDashboard = () => {
   const [expenses, setExpenses] = useState([]);
@@ -259,6 +272,106 @@ const ExpensesDashboard = () => {
     );
   }
 
+  // Generate and download PDF
+  const generateAndDownloadPDF = async () => {
+    try {
+      if (expenses.length === 0) {
+        showNotification('No expenses to download', 'info');
+        return;
+      }
+
+      // Dynamically import jsPDF and its plugins
+      const { jsPDF } = await import('jspdf');
+      const autoTable = (await import('jspdf-autotable')).default;
+      
+      // Create a new PDF document
+      const doc = new jsPDF();
+      const currentDate = new Date().toLocaleDateString();
+      
+      // Add title and date
+      doc.setFontSize(18);
+      doc.setTextColor(40);
+      doc.text('Expenses Report', 14, 20);
+      
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text(`Generated on: ${currentDate}`, 14, 28);
+
+      // Prepare table data
+      const headers = [
+        'Description',
+        'Category',
+        'Date',
+        'Payment Method',
+        'Amount',
+        'Status'
+      ];
+
+      // Format the data
+      const tableData = expenses.map(expense => [
+        expense.description || '-',
+        expense.category || '-',
+        expense.date ? new Date(expense.date).toLocaleDateString() : '-',
+        expense.paymentMethod || '-',
+        formatCurrency(Number(expense.amount || 0)),
+        expense.status ? expense.status.charAt(0).toUpperCase() + expense.status.slice(1) : '-'
+      ]);
+
+      // Add the table using the autoTable plugin
+      autoTable(doc, {
+        head: [headers],
+        body: tableData,
+        startY: 40,
+        headStyles: {
+          fillColor: [41, 128, 185],
+          textColor: 255,
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        styles: {
+          fontSize: 9,
+          cellPadding: 3,
+          overflow: 'linebreak',
+          cellWidth: 'wrap',
+          textColor: [0, 0, 0],
+          lineColor: [200, 200, 200],
+          lineWidth: 0.1
+        },
+        columnStyles: {
+          0: { cellWidth: 35, halign: 'left' },
+          1: { cellWidth: 25, halign: 'left' },
+          2: { cellWidth: 20, halign: 'left' },
+          3: { cellWidth: 25, halign: 'left' },
+          4: { cellWidth: 20, halign: 'right' },
+          5: { cellWidth: 20, halign: 'center' }
+        },
+        margin: { top: 35 },
+        didDrawPage: function(data) {
+          // Add page number
+          const pageCount = doc.internal.getNumberOfPages();
+          const pageSize = doc.internal.pageSize;
+          const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
+          doc.setFontSize(10);
+          doc.text(`Page ${pageCount}`, data.settings.margin.left, pageHeight - 10);
+        }
+      });
+
+      // Add total amount
+      const totalAmount = expenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+      doc.setFontSize(11);
+      doc.setFont(undefined, 'bold');
+      doc.text(`Total Expenses: ${formatCurrency(totalAmount)}`, 14, doc.lastAutoTable.finalY + 15);
+
+      // Save the PDF
+      doc.save('expenses_report.pdf');
+      showNotification('PDF downloaded successfully!', 'success');
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      showNotification(`Failed to generate PDF: ${error.message}`, 'error');
+    }
+  };
+
   // Show error state
   if (error) {
     return (
@@ -309,16 +422,25 @@ const ExpensesDashboard = () => {
           <h1 className="text-2xl font-bold text-gray-900">Expenses Dashboard</h1>
           <p className="text-gray-600">Manage and track your expenses</p>
         </div>
-        <button
-          onClick={() => {
-            setCurrentExpense(null);
-            setIsFormOpen(true);
-          }}
-          className="mt-4 md:mt-0 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-        >
-          <Plus className="-ml-1 mr-2 h-5 w-5" />
-          Add Expense
-        </button>
+        <div className="flex space-x-3">
+          <button
+            onClick={generateAndDownloadPDF}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center"
+          >
+            <DownloadIcon className="w-4 h-4 mr-2" />
+            Download PDF
+          </button>
+          <button
+            onClick={() => {
+              setCurrentExpense(null);
+              setIsFormOpen(true);
+            }}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Expense
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -443,7 +565,7 @@ const ExpensesDashboard = () => {
                       {expense.paymentMethod}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      ${expense.amount.toFixed(2)}
+                      {formatCurrency(expense.amount)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
                       {getStatusBadge(expense.status)}
