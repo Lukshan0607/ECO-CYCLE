@@ -24,7 +24,6 @@ function Login() {
     transport: { email: "transport@example.com", password: "transport123", dashboard: "/transport" },
     inventory: { email: "inventory@example.com", password: "inventory123", dashboard: "/inventory" },
     production: { email: "production@example.com", password: "production123", dashboard: "/production" },
-    sales: { email: "sales@example.com", password: "sales123", dashboard: "/sales" },
     finance: { email: "finance@example.com", password: "finance123", dashboard: "/finance" }
   };
 
