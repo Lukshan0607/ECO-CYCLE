@@ -15,6 +15,57 @@ export default function InventoryStockManagement() {
   const [editingId, setEditingId] = useState(null);
   const [editWeightKg, setEditWeightKg] = useState("");
 
+  // Numeric helpers and constraints for Requested weight inputs
+  const MIN_KG = 1;
+  const MAX_KG = 100000;
+  const handleNumericKeyDown = (e) => {
+    // Disallow scientific notation and signs in number input
+    if (e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-') {
+      e.preventDefault();
+    }
+    // Only one decimal point and not as the first character
+    if (e.key === '.') {
+      const { value } = e.currentTarget;
+      if (value.length === 0 || value.includes('.')) {
+        e.preventDefault();
+        return;
+      }
+    }
+    // Prevent starting with 0 (values must be >= 1)
+    if (/^\d$/.test(e.key)) {
+      const { value } = e.currentTarget;
+      if ((value === '' && e.key === '0') || value === '0') {
+        e.preventDefault();
+      }
+    }
+    // Do not allow typing a digit that would push the value over MAX_KG
+    if (/^\d$/.test(e.key)) {
+      const input = e.currentTarget;
+      const { selectionStart, selectionEnd, value } = input;
+      const next = value.slice(0, selectionStart ?? value.length) + e.key + value.slice((selectionEnd ?? selectionStart) ?? value.length);
+      const nextNum = Number(next);
+      if (!Number.isNaN(nextNum) && nextNum > MAX_KG) {
+        e.preventDefault();
+        return;
+      }
+      // Enforce maximum three decimal places when typing
+      const match = next.match(/^\d*(?:\.(\d*))?$/);
+      if (match) {
+        const decimals = match[1] || '';
+        if (decimals.length > 3) {
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+  };
+  const formatClamp3 = (value) => {
+    const n = Number(value);
+    if (Number.isNaN(n)) return '';
+    const clamped = Math.max(MIN_KG, Math.min(MAX_KG, n));
+    return clamped.toFixed(3);
+  };
+
   const fetchDeliveredTotal = async () => {
     try {
       setLoading(true);
@@ -43,9 +94,9 @@ export default function InventoryStockManagement() {
 
   const submitEdit = async (e) => {
     e.preventDefault();
-    const newWeight = Number(editWeightKg);
-    if (Number.isNaN(newWeight) || newWeight <= 0) {
-      alert('Please enter a valid requested weight in Kg (> 0)');
+    const newWeight = Number(formatClamp3(editWeightKg));
+    if (Number.isNaN(newWeight) || newWeight < MIN_KG || newWeight > MAX_KG) {
+      alert(`Please enter a valid requested weight in Kg (between ${MIN_KG} and ${MAX_KG})`);
       return;
     }
     const currentReq = requests.find((r) => (r._id || r.id) === editingId);
@@ -114,9 +165,9 @@ export default function InventoryStockManagement() {
 
   const submitRequest = async (e) => {
     e.preventDefault();
-    const weight = Number(requestWeightKg);
-    if (Number.isNaN(weight) || weight <= 0) {
-      alert('Please enter a valid requested weight in Kg (> 0)');
+    const weight = Number(formatClamp3(requestWeightKg));
+    if (Number.isNaN(weight) || weight < MIN_KG || weight > MAX_KG) {
+      alert(`Please enter a valid requested weight in Kg (between ${MIN_KG} and ${MAX_KG})`);
       return;
     }
     if (weight > deliveredTotalKg) {
@@ -253,9 +304,12 @@ export default function InventoryStockManagement() {
                     <input
                       type="number"
                       min="0.001"
+                      max="100000"
                       step="0.001"
                       value={requestWeightKg}
                       onChange={(e)=> setRequestWeightKg(e.target.value)}
+                      onKeyDown={handleNumericKeyDown}
+                      onBlur={(e)=> setRequestWeightKg(formatClamp3(e.target.value))}
                       placeholder="e.g., 12.500"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
@@ -353,9 +407,12 @@ export default function InventoryStockManagement() {
                     <input
                       type="number"
                       min="0.001"
+                      max="100000"
                       step="0.001"
                       value={editWeightKg}
                       onChange={(e)=> setEditWeightKg(e.target.value)}
+                      onKeyDown={handleNumericKeyDown}
+                      onBlur={(e)=> setEditWeightKg(formatClamp3(e.target.value))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
