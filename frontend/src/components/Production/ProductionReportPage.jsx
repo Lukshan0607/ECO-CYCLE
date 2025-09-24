@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { CheckCircle, FileText, Factory, Package, TrendingUp, AlertTriangle, Printer } from "lucide-react";
+import { Link } from "react-router-dom";
+import LogoutButton from "../common/LogoutButton";
+import { LayoutDashboard, CheckCircle, FileText, Factory, Package, TrendingUp, AlertTriangle, Printer, Settings } from "lucide-react";
 
 const ProductionReportPage = () => {
   const [acceptedMaterials, setAcceptedMaterials] = useState([]);
@@ -55,6 +57,16 @@ const ProductionReportPage = () => {
     ]).finally(() => setLoading(false));
   }, []);
 
+  const menuItems = [
+    { name: "Overview", key: "overview", icon: <LayoutDashboard size={20} /> },
+    { name: "Products", key: "products", icon: <Package size={20} /> },
+    { name: "Production Planning", key: "planning", icon: <Factory size={20} /> },
+    { name: "Raw Materials", key: "materials", icon: <Package size={20} /> },
+    { name: "Quality Control", key: "quality", icon: <Settings size={20} /> },
+    { name: "Analytics", key: "analytics", icon: <TrendingUp size={20} /> },
+    { name: "Reports", key: "reports", icon: <FileText size={20} /> },
+  ];
+
   const approvedRequestsCount = acceptedMaterials.length;
   const approvedTotalQty = acceptedMaterials.reduce((sum, r) => sum + (parseFloat(r?.requestedQty) || 0), 0);
   const inProgressPlans = plans.filter(p => p.status === 'In Progress').length;
@@ -68,12 +80,70 @@ const ProductionReportPage = () => {
   })();
 
   const handlePrint = () => {
+    const originalTitle = document.title;
+    document.title = 'Production Report';
+    const restoreTitle = () => {
+      document.title = originalTitle;
+      window.removeEventListener('afterprint', restoreTitle);
+    };
+    window.addEventListener('afterprint', restoreTitle);
     window.print();
+    // Fallback restore in case afterprint isn't fired
+    setTimeout(restoreTitle, 1500);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6">
-      <header className="bg-white border border-gray-200 rounded-2xl p-6 mb-6 flex items-center justify-between">
+    <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Sidebar */}
+      <aside className="w-72 bg-white shadow-xl border-r border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
+              <Factory className="text-white" size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Production Hub</h2>
+              <p className="text-sm text-gray-500">Manufacturing Operations</p>
+            </div>
+          </div>
+        </div>
+        <nav className="p-4 space-y-2">
+          {menuItems.map((item) => (
+            item.key === 'reports' ? (
+              <div
+                key={item.key}
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </div>
+            ) : item.key === 'analytics' ? (
+              <Link
+                key={item.key}
+                to="/production/analytics"
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </Link>
+            ) : (
+              <Link
+                key={item.key}
+                to={`/production?tab=${item.key}`}
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </Link>
+            )
+          ))}
+          <LogoutButton />
+        </nav>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto">
+      <header className="bg-white border-b border-gray-200 p-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
             <FileText className="text-white" size={20} />
@@ -83,11 +153,14 @@ const ProductionReportPage = () => {
             <p className="text-gray-600">Summary of production KPIs and records</p>
           </div>
         </div>
-        <button onClick={handlePrint} className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
-          <Printer size={18} /> Print / Export
-        </button>
+        <div>
+          <button onClick={handlePrint} className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
+            <Printer size={18} /> Print / Export
+          </button>
+        </div>
       </header>
 
+      <div className="p-6">
       {loading ? (
         <div className="text-center text-gray-600">Loading report...</div>
       ) : (
@@ -212,6 +285,8 @@ const ProductionReportPage = () => {
           </div>
         </>
       )}
+      </div>
+      </div>
     </div>
   );
 };
