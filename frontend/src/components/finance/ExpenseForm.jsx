@@ -60,77 +60,149 @@ const ExpenseForm = ({ expense, onSave, onCancel, isEdit = false }) => {
     { value: 'failed', label: 'Failed', icon: <XCircle className="w-4 h-4 text-red-500" /> }
   ];
 
+  // Silent validation - returns boolean instead of error message
+  const validateField = (name, value) => {
+    if (!value && (name === 'description' || name === 'amount' || 
+                  name === 'category' || name === 'paymentMethod' || 
+                  name === 'status')) {
+      return false; // Required fields
+    }
+
+    switch (name) {
+      case 'description':
+        // Only allow letters, numbers, and spaces
+        return value.trim().length >= 3 && 
+               value.length <= 100 && 
+               /^[a-zA-Z0-9\s]+$/.test(value); // Only allow letters, numbers, and spaces
+      
+      case 'amount':
+        if (isNaN(parseFloat(value)) || !/^\d+(\.\d{1,2})?$/.test(value)) {
+          return false;
+        }
+        const amount = parseFloat(value);
+        return amount > 0 && amount <= 1000000 && value.split('.')[0].length <= 7; // Max 7 digits before decimal
+      
+      case 'date':
+        if (!value) return false;
+        const selectedDate = new Date(value);
+        if (isNaN(selectedDate.getTime())) return false;
+        const today = new Date();
+        today.setHours(23, 59, 59, 999); // End of today
+        return selectedDate <= today;
+      
+      case 'category':
+        return categories.includes(value);
+      
+      case 'paymentMethod':
+        return paymentMethods.includes(value);
+      
+      case 'status':
+        return statuses.some(s => s.value === value);
+      
+      case 'notes':
+        return !value || (
+          value.length <= 500 && 
+          !/[<>{}`~$^]/.test(value) && // Block potentially dangerous characters
+          /^[\w\s.,!?@#$%^&*()\-+=:;"'\/\\|\[\]{}()\n\r]+$/.test(value) // Allow safe characters including newlines
+        );
+      
+      default:
+        return true;
+    }
+  };
+
   const validate = () => {
-    const newErrors = {};
-    
-    // Validate description
-    if (!formData.description.trim()) {
-      newErrors.description = 'Description is required';
-    } else if (formData.description.trim().length > 500) {
-      newErrors.description = 'Description cannot exceed 500 characters';
-    }
-    
-    // Validate amount
-    if (!formData.amount) {
-      newErrors.amount = 'Amount is required';
-    } else if (isNaN(parseFloat(formData.amount))) {
-      newErrors.amount = 'Amount must be a valid number';
-    } else if (parseFloat(formData.amount) <= 0) {
-      newErrors.amount = 'Amount must be greater than 0';
-    }
-    
-    // Validate category
-    if (!formData.category) {
-      newErrors.category = 'Category is required';
-    } else if (!categories.includes(formData.category)) {
-      newErrors.category = 'Please select a valid category';
-    }
-    
-    // Validate date
-    if (!formData.date) {
-      newErrors.date = 'Date is required';
-    } else if (isNaN(new Date(formData.date).getTime())) {
-      newErrors.date = 'Please enter a valid date';
-    }
-    
-    // Validate payment method
-    if (!formData.paymentMethod) {
-      newErrors.paymentMethod = 'Payment method is required';
-    } else if (!paymentMethods.includes(formData.paymentMethod)) {
-      newErrors.paymentMethod = 'Please select a valid payment method';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return Object.keys(formData).every(field => validateField(field, formData[field]));
   };
 
   const handleChange = (e) => {
-    const { name, value, type } = e.target;
-    
-    // Handle different input types
-    const newValue = type === 'number' 
-      ? value === '' ? '' : parseFloat(value) || ''
-      : value;
-    
+    const { name, value } = e.target;
+    let processedValue = value;
+
+    // Apply input restrictions based on field type
+    switch (name) {
+      case 'description':
+        // Only allow letters, numbers, and spaces
+        processedValue = value
+          .replace(/[^a-zA-Z0-9\s]/g, '') // Only allow letters, numbers, and spaces
+          .replace(/\s{2,}/g, ' ') // Replace multiple spaces with single space
+          .trimStart() // Remove leading spaces
+          .slice(0, 100); // Limit to 100 characters
+        break;
+        
+      case 'amount':
+        // Only allow numbers and exactly 2 decimal places
+        if (value === '') {
+          processedValue = '';
+        } else if (/^\d*\.?\d{0,2}$/.test(value)) {
+          // Ensure proper decimal formatting
+          if (value.includes('.')) {
+            const [whole, decimal] = value.split('.');
+            // Don't allow more than 2 decimal places
+            if (decimal && decimal.length > 2) return;
+            // Ensure there's at least one digit before decimal if decimal exists
+            if (whole === '' && decimal) return;
+          }
+          // Limit to 1,000,000.00
+          if (parseFloat(value) > 1000000) return;
+          processedValue = value;
+        } else {
+          return; // Don't update if invalid
+        }
+        break;
+        
+      case 'date': {
+        // Ensure date is not in the future and is a valid date
+        const selectedDate = new Date(value);
+        const today = new Date();
+        today.setHours(23, 59, 59, 999); // End of today
+        
+        if (isNaN(selectedDate.getTime()) || selectedDate > today) {
+          // If invalid or future date, reset to today's date
+          const todayStr = new Date().toISOString().split('T')[0];
+          processedValue = todayStr;
+        } else {
+          processedValue = value;
+        }
+        break;
+      }
+        
+      case 'notes':
+        // Allow common punctuation but block potentially dangerous characters
+        processedValue = value
+          .replace(/[<>{}`~$^]/g, '') // Block potentially dangerous characters
+          .replace(/\s{2,}/g, ' ') // Replace multiple spaces with single space
+          .trimStart() // Remove leading spaces
+          .slice(0, 500); // Limit to 500 characters
+        break;
+        
+      default:
+        processedValue = value;
+    }
+
+    // Update form data
     setFormData(prev => ({
       ...prev,
-      [name]: newValue
+      [name]: processedValue
     }));
     
-    // Clear error when user starts typing
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
-    }
+    // No need to validate in real-time for silent validation
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!validate() || isSubmitting) {
-      return; // Don't proceed if validation fails or already submitting
+    // Final validation before submission
+    const isFormValid = Object.entries(formData).every(([field, value]) => {
+      // Special handling for required fields
+      if ((field === 'description' || field === 'amount' || field === 'category' || field === 'paymentMethod') && !value) {
+        return false;
+      }
+      return validateField(field, value);
+    });
+    
+    if (isSubmitting || !isFormValid) {
+      return; // Silently prevent submission if invalid or already submitting
     }
     
     setIsSubmitting(true);
@@ -174,6 +246,23 @@ const ExpenseForm = ({ expense, onSave, onCancel, isEdit = false }) => {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <div>
+          <label htmlFor="date" className="block text-sm font-medium text-gray-700">
+            Date <span className="text-red-500">*</span>
+          </label>
+          <div className="mt-1">
+            <input
+              type="date"
+              name="date"
+              id="date"
+              value={formData.date}
+              onChange={handleChange}
+              max={new Date().toISOString().split('T')[0]}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+        </div>
+        
         <div className="sm:col-span-2">
           <label htmlFor="description" className="block text-sm font-medium text-gray-700">
             Description <span className="text-red-500">*</span>
@@ -199,9 +288,6 @@ const ExpenseForm = ({ expense, onSave, onCancel, isEdit = false }) => {
             Amount <span className="text-red-500">*</span>
           </label>
           <div className="mt-1 relative rounded-md shadow-sm">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <span className="text-gray-500 sm:text-sm">$</span>
-            </div>
             <input
               type="number"
               name="amount"
@@ -210,9 +296,12 @@ const ExpenseForm = ({ expense, onSave, onCancel, isEdit = false }) => {
               onChange={handleChange}
               step="0.01"
               min="0"
-              className={`block w-full pl-7 pr-12 sm:text-sm rounded-md ${errors.amount ? 'border-red-300' : 'border-gray-300'} focus:ring-blue-500 focus:border-blue-500`}
+              className={`block w-full pl-3 pr-16 sm:text-sm rounded-md ${errors.amount ? 'border-red-300' : 'border-gray-300'} focus:ring-blue-500 focus:border-blue-500`}
               placeholder="0.00"
             />
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+              <span className="text-gray-500 sm:text-sm">LKR</span>
+            </div>
           </div>
           {errors.amount && (
             <p className="mt-1 text-sm text-red-600">{errors.amount}</p>
@@ -242,24 +331,6 @@ const ExpenseForm = ({ expense, onSave, onCancel, isEdit = false }) => {
           )}
         </div>
 
-        <div>
-          <label htmlFor="date" className="block text-sm font-medium text-gray-700">
-            Date <span className="text-red-500">*</span>
-          </label>
-          <div className="mt-1">
-            <input
-              type="date"
-              name="date"
-              id="date"
-              value={formData.date}
-              onChange={handleChange}
-              className={`block w-full rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${errors.date ? 'border-red-300' : 'border-gray-300'}`}
-            />
-            {errors.date && (
-              <p className="mt-1 text-sm text-red-600">{errors.date}</p>
-            )}
-          </div>
-        </div>
 
         <div>
           <label htmlFor="paymentMethod" className="block text-sm font-medium text-gray-700">

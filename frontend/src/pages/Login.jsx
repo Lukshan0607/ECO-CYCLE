@@ -24,7 +24,8 @@ function Login() {
     transport: { email: "transport@example.com", password: "transport123", dashboard: "/transport" },
     inventory: { email: "inventory@example.com", password: "inventory123", dashboard: "/inventory" },
     production: { email: "production@example.com", password: "production123", dashboard: "/production" },
-    finance: { email: "finance@example.com", password: "finance123", dashboard: "/finance" }
+    finance: { email: "finance@example.com", password: "finance123", dashboard: "/finance" },
+    collectors: { email: "collectors@example.com", password: "collectors123", dashboard: "/collectors" }
   };
 
   // Check if user is already logged in

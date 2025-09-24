@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, User, DollarSign, Clock, AlertCircle, Loader2, Save } from 'lucide-react';
 import { Button } from '../ui/button';
+import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import employeeApi from '../../services/employeeApi';
 import payrollApi from '../../services/payrollApi';
 
-const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
+const PayrollForm = ({ onSave, onClose, initialData = null, payrollConfig = {} }) => {
   // Default payroll configuration for Sri Lanka
   const defaultConfig = {
     EMPLOYEE_EPF_RATE: 0.08,    // 8% deduction from employee
@@ -16,21 +18,22 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
     ...payrollConfig
   };
 
-  const [formData, setFormData] = useState({
-    employeeId: "",
-    employeeName: "",
-    department: "",
-    position: "",
-    month: new Date().toISOString().slice(0, 7),
-    basicSalary: "",
-    allowances: "",
-    overtimeHours: "",
-    deductions: "",
-    epfEmployee: 0,
-    epfEmployer: 0,
-    etfEmployer: 0,
-    notes: ""
-  });
+  const [formData, setFormData] = useState(() => ({
+    employeeId: initialData?.employeeId || "",
+    employeeName: initialData?.employeeName || "",
+    department: initialData?.department || "",
+    position: initialData?.position || "",
+    month: initialData?.month || new Date().toISOString().slice(0, 7),
+    basicSalary: initialData?.basicSalary?.toString() || "",
+    allowances: initialData?.allowances?.toString() || "",
+    overtimeHours: initialData?.overtimeHours?.toString() || "",
+    deductions: initialData?.deductions?.toString() || "",
+    epfEmployee: initialData?.epfEmployee || 0,
+    epfEmployer: initialData?.epfEmployer || 0,
+    etfEmployer: initialData?.etfEmployer || 0,
+    notes: initialData?.notes || "",
+    _id: initialData?._id || null
+  }));
 
   // Calculate payroll values when form data changes
   useEffect(() => {
@@ -215,9 +218,8 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
     setSubmitError(null);
 
     try {
-      // Ensure we're only sending the necessary data to the parent component
-      // and not trying to pass the entire employee object
-      const newPayroll = {
+      // Prepare payroll data for submission
+      const payrollData = {
         employeeId: formData.employeeId,
         employeeName: formData.employeeName || 'Unknown Employee',
         department: formData.department || '',
@@ -233,32 +235,63 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
         etfEmployer: parseFloat(formData.etfEmployer) || 0,
         grossPay: parseFloat(formData.grossPay) || 0,
         netPay: parseFloat(calculateNetPay()) || 0,
-        status: 'pending',
+        status: initialData?.status || 'pending',
         notes: formData.notes || '',
-        processedAt: new Date().toISOString()
+        ...(initialData?._id && { _id: initialData._id }), // Include _id if editing
+        processedAt: initialData?.processedAt || new Date().toISOString()
       };
 
-      // Call the API to process payroll
-      await payrollApi.processPayroll(newPayroll);
-      
-      // Notify parent component about successful save
-      onSave(newPayroll);
+      // Call the parent's save handler
+      await onSave(payrollData);
       onClose();
       
     } catch (error) {
       console.error('Error processing payroll:', error);
-      setSubmitError(error.message || 'Failed to process payroll. Please try again.');
+      const errorMessage = error.message || 'Failed to process payroll. Please try again.';
+      setSubmitError(errorMessage);
+      
+      // Show toast notification for better user feedback
+      toast.error(errorMessage, {
+        position: "top-right",
+        autoClose: 5000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        progress: undefined,
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // Fetch employees when component mounts
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const data = await employeeApi.getEmployees();
+        setEmployees(data);
+      } catch (err) {
+        console.error('Error fetching employees:', err);
+        setError('Failed to load employees. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchEmployees();
+  }, []);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800">New Payroll Entry</h2>
+            <h2 className="text-2xl font-bold text-gray-800">
+              {initialData ? 'Edit Payroll Entry' : 'New Payroll Entry'}
+            </h2>
             <button 
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600"
@@ -547,8 +580,16 @@ const PayrollForm = ({ onSave, onClose, payrollConfig = {} }) => {
               <button
                 type="submit"
                 className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                disabled={isSubmitting}
               >
-                Process Payroll
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4 inline" />
+                    {initialData ? 'Updating...' : 'Processing...'}
+                  </>
+                ) : (
+                  <>{initialData ? 'Update Payroll' : 'Process Payroll'}</>
+                )}
               </button>
             </div>
           </form>
