@@ -297,7 +297,7 @@ export default function EmployeePayroll() {
     try {
       setViewPayslip(prev => ({ ...prev, isLoading: true, isOpen: true }));
       
-      const response = await fetch(`http://localhost:5000/api/payroll/${payroll._id}/payslip`, {
+      const response = await fetch(`http://localhost:5000/api/payroll/payslip/${payroll._id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -355,7 +355,7 @@ export default function EmployeePayroll() {
       }
 
       // Otherwise, fetch the payslip
-      const response = await fetch(`http://localhost:5000/api/payroll/${payroll._id}/payslip`, {
+      const response = await fetch(`http://localhost:5000/api/payroll/payslip/${payroll._id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
