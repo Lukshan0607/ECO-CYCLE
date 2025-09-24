@@ -1,6 +1,9 @@
 const { UserPoints, PointsTransaction } = require('../Model/UserProfileModel');
 const User = require('../Model/UserModel');
 const Collection = require('../Model/CollectionModel');
+const PointsPayment = require('../Model/PointsPaymentModel');
+const { SalesOrder, Product } = require('../Model/SalesModel');
+const mongoose = require('mongoose');
 
 const normalizePhone = (p) => (p || '').replace(/[^0-9]/g, '');
 
@@ -69,3 +72,167 @@ const awardPoints = async (req, res) => {
 };
 
 module.exports = { awardPoints };
+
+// GET /api/points/balance?userId=<ObjectId>
+async function getBalance(req, res) {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ success: false, message: 'userId is required' });
+    if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ success: false, message: 'Invalid userId' });
+
+    let up = await UserPoints.findOne({ userId });
+    if (!up) {
+      up = await UserPoints.create({ userId, totalPoints: 0, availablePoints: 0, lifetimeEarned: 0, lifetimeRedeemed: 0 });
+    }
+    return res.status(200).json({ success: true, balance: up.availablePoints });
+  } catch (err) {
+    console.error('getBalance error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+// POST /api/points/pay-product { userId, productId, quantity? }
+// Immediately deducts points and creates a paid/completed order (no verification step)
+async function payProduct(req, res) {
+  try {
+    const { userId, productId, quantity } = req.body || {};
+    const qty = Number(quantity || 1);
+    if (!userId || !productId) return res.status(400).json({ success: false, message: 'userId and productId are required' });
+    if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ success: false, message: 'Invalid userId' });
+    if (!mongoose.isValidObjectId(productId)) return res.status(400).json({ success: false, message: 'Invalid productId' });
+    if (!qty || qty <= 0) return res.status(400).json({ success: false, message: 'quantity must be > 0' });
+
+    const product = await Product.findById(productId);
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+    if (Number(product.stock) < qty) {
+      return res.status(400).json({ success: false, message: 'Insufficient stock for this product' });
+    }
+
+    const subtotal = Number(product.price) * qty;
+    const rate = Number(process.env.POINTS_PER_RUPEE || 0.10); // default: 0.10 points per 1 LKR
+    const requiredPoints = Math.round(subtotal * rate);
+    if (requiredPoints <= 0) return res.status(400).json({ success: false, message: 'Calculated required points is invalid' });
+
+    let up = await UserPoints.findOne({ userId });
+    if (!up) {
+      up = await UserPoints.create({ userId, totalPoints: 0, availablePoints: 0, lifetimeEarned: 0, lifetimeRedeemed: 0 });
+    }
+    if (up.availablePoints < requiredPoints) {
+      return res.status(400).json({ success: false, message: `Insufficient points. Need ${requiredPoints}, have ${up.availablePoints}` });
+    }
+
+    // Atomically decrement stock to prevent overselling
+    const stockUpdate = await Product.updateOne({ _id: productId, stock: { $gte: qty } }, { $inc: { stock: -qty } });
+    if (!stockUpdate?.modifiedCount) {
+      return res.status(400).json({ success: false, message: 'Insufficient stock (race condition), please try again' });
+    }
+
+    const orderCount = await SalesOrder.countDocuments();
+    const orderIdStr = `ORD${String(orderCount + 1).padStart(6, '0')}`;
+    const order = await SalesOrder.create({
+      orderId: orderIdStr,
+      customerId: String(userId),
+      customerName: 'Customer',
+      products: [{
+        productId: product._id,
+        productName: product.name || product.productName || 'Item',
+        quantity: qty,
+        unitPrice: Number(product.price),
+        totalPrice: 0,
+      }],
+      totalAmount: subtotal,
+      status: 'Completed',
+      paymentStatus: 'Paid',
+      notes: `Paid with points: ${requiredPoints} pts @ rate ${rate}`,
+    });
+
+    // Deduct points immediately and log transaction
+    up.availablePoints -= requiredPoints;
+    up.lifetimeRedeemed += requiredPoints;
+    await up.save();
+    await PointsTransaction.create({
+      userId,
+      type: 'redeemed',
+      points: requiredPoints,
+      source: 'reward_redemption',
+      description: `Redeemed for order ${order.orderId} (subtotal LKR ${subtotal.toFixed(2)} @ rate ${rate})`,
+    });
+
+    // Optional: create an approved PointsPayment record for audit trail
+    try {
+      await PointsPayment.create({
+        userId,
+        orderId: order._id,
+        requiredPoints,
+        subtotalSnapshot: subtotal,
+        rateSnapshot: rate,
+        status: 'approved',
+      });
+    } catch (e) {
+      // non-fatal
+    }
+
+    return res.status(200).json({ success: true, message: 'Purchased with points successfully', orderId: order.orderId, requiredPoints, balance: up.availablePoints });
+  } catch (err) {
+    console.error('payProduct error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+// POST /api/points/verify { paymentId, approved }
+async function verifyPayment(req, res) {
+  try {
+    const { paymentId, approved } = req.body || {};
+    if (!paymentId) return res.status(400).json({ success: false, message: 'paymentId is required' });
+
+    const payment = await PointsPayment.findById(paymentId);
+    if (!payment) return res.status(404).json({ success: false, message: 'Payment not found' });
+    if (payment.status !== 'pending') return res.status(400).json({ success: false, message: `Payment is already ${payment.status}` });
+
+    const order = await SalesOrder.findById(payment.orderId);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    if (!approved) {
+      payment.status = 'rejected';
+      await payment.save();
+      order.status = 'Cancelled';
+      order.paymentStatus = 'Failed';
+      await order.save();
+      return res.status(200).json({ success: true, message: 'Payment rejected, order cancelled' });
+    }
+
+    // Approve path: deduct points and mark order paid
+    let up = await UserPoints.findOne({ userId: payment.userId });
+    if (!up) return res.status(400).json({ success: false, message: 'User points record not found' });
+    if (up.availablePoints < payment.requiredPoints) {
+      return res.status(400).json({ success: false, message: `Insufficient points at approval. Need ${payment.requiredPoints}, have ${up.availablePoints}` });
+    }
+
+    up.availablePoints -= payment.requiredPoints;
+    up.lifetimeRedeemed += payment.requiredPoints;
+    await up.save();
+    await PointsTransaction.create({
+      userId: payment.userId,
+      type: 'redeemed',
+      points: payment.requiredPoints,
+      source: 'reward_redemption',
+      description: `Redeemed for order ${order.orderId} (subtotal LKR ${payment.subtotalSnapshot.toFixed(2)} @ rate ${payment.rateSnapshot})`,
+    });
+
+    payment.status = 'approved';
+    await payment.save();
+
+    order.paymentStatus = 'Paid';
+    order.status = 'Completed';
+    await order.save();
+
+    return res.status(200).json({ success: true, message: 'Payment approved and points deducted', orderId: order.orderId, balance: up.availablePoints });
+  } catch (err) {
+    console.error('verifyPayment error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+module.exports.getBalance = getBalance;
+module.exports.payProduct = payProduct;
+module.exports.verifyPayment = verifyPayment;

@@ -90,8 +90,8 @@ function CartPage() {
 
   // Calculate totals
   const subtotal = cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
-  const tax = subtotal * 0.1; // 10% tax
-  const total = subtotal + tax;
+  const tax = 0; // Tax removed
+  const total = subtotal; // Total equals subtotal since tax is removed
   const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0);
 
   if (loading) {
@@ -168,7 +168,7 @@ function CartPage() {
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-gray-900">{item.productName}</h3>
                     <p className="text-gray-600 text-sm mt-1">{item.description}</p>
-                    <p className="text-green-600 font-bold mt-2">LKR {parseFloat(item.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} each</p>
+                    <p className="text-green-600 font-bold mt-2">LKR {parseFloat(item.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                   </div>
                   
                   <div className="flex items-center space-x-3">
@@ -216,10 +216,7 @@ function CartPage() {
                     <span className="text-gray-600">Subtotal ({totalItems} items)</span>
                     <span className="font-medium">LKR {subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Tax</span>
-                    <span className="font-medium">LKR {tax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
+                  {/* Tax removed */}
                   <div className="border-t pt-3">
                     <div className="flex justify-between">
                       <span className="text-lg font-bold">Total</span>
