@@ -578,7 +578,7 @@ const ProductionDashboard = () => {
     if (!requestQuery) return true;
     const q = requestQuery.toLowerCase();
     return (
-      String(r._id || '').toLowerCase().includes(q) ||
+      String(r.requestId || r._id || '').toLowerCase().includes(q) ||
       String(r.team || '').toLowerCase().includes(q) ||
       String(r.priority || '').toLowerCase().includes(q) ||
       String(r.status || '').toLowerCase().includes(q) ||
@@ -1744,7 +1744,7 @@ const ProductionDashboard = () => {
                           <tbody>
                             {pagedRequests.map((req) => (
                               <tr key={req._id} className="border-t text-sm">
-                                <td className="py-3 px-4 text-gray-900">{req._id?.slice(-8) || '-'}</td>
+                                <td className="py-3 px-4 text-gray-900">{req.requestId || (req._id?.slice(-8)) || '-'}</td>
                                 <td className="py-3 px-4">{req.team}</td>
                                 <td className="py-3 px-4">{req.inventoryItemId?.name || 'Unknown Item'}</td>
                                 <td className="py-3 px-4">{req.requestedQty}</td>
