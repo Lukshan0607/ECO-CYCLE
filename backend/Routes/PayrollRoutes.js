@@ -7,7 +7,8 @@ const {
   updatePayrollStatus,
   getPayrollSummary,
   generatePayslip,
-  deletePayroll
+  deletePayroll,
+  updatePayroll
 } = require('../Controllers/PayrollController');
 
 // Process new payroll
@@ -21,6 +22,9 @@ router.get('/summary', getPayrollSummary);
 
 // Get single payroll by ID
 router.get('/:id', getPayrollById);
+
+// Update payroll record
+router.put('/:id', updatePayroll);
 
 // Update payroll status
 router.patch('/:id/status', updatePayrollStatus);

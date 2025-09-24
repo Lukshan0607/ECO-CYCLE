@@ -219,10 +219,74 @@ const getPayrollSummary = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Update a payroll record
+// @route   PUT /api/payroll/:id
+// @access  Private/Admin
+const updatePayroll = asyncHandler(async (req, res) => {
+  const payroll = await Payroll.findById(req.params.id);
+
+  if (!payroll) {
+    res.status(404);
+    throw new Error('Payroll record not found');
+  }
+
+  const {
+    month,
+    basicSalary,
+    allowances,
+    overtimeHours,
+    overtimePay,
+    deductions,
+    notes,
+    status,
+    dateProcessed
+  } = req.body;
+
+  // Update only the fields that are provided in the request
+  const updateFields = {};
+  if (month) updateFields.month = month;
+  if (basicSalary !== undefined) updateFields.basicSalary = basicSalary;
+  if (allowances !== undefined) updateFields.allowances = allowances;
+  if (overtimeHours !== undefined) updateFields.overtimeHours = overtimeHours;
+  if (overtimePay !== undefined) updateFields.overtimePay = overtimePay;
+  if (deductions !== undefined) updateFields.deductions = deductions;
+  if (notes !== undefined) updateFields.notes = notes;
+  if (status) updateFields.status = status;
+  if (dateProcessed) updateFields.dateProcessed = dateProcessed;
+  
+  // Recalculate totals if any financial fields are updated
+  if (basicSalary !== undefined || allowances !== undefined || 
+      overtimePay !== undefined || deductions !== undefined) {
+    const grossPay = (parseFloat(basicSalary || payroll.basicSalary) || 0) + 
+                    (parseFloat(allowances || payroll.allowances) || 0) + 
+                    (parseFloat(overtimePay || payroll.overtimePay) || 0);
+    
+    const epfEmployee = (parseFloat(basicSalary || payroll.basicSalary) || 0) * 0.08; // 8% of basic
+    const etfEmployer = (parseFloat(basicSalary || payroll.basicSalary) || 0) * 0.03; // 3% of basic
+    const netPay = grossPay - (parseFloat(deductions || payroll.deductions) || 0) - epfEmployee;
+    
+    updateFields.grossPay = grossPay;
+    updateFields.epfEmployee = epfEmployee;
+    updateFields.etfEmployer = etfEmployer;
+    updateFields.netPay = netPay;
+  }
+
+  const updatedPayroll = await Payroll.findByIdAndUpdate(
+    req.params.id,
+    { $set: updateFields },
+    { new: true, runValidators: true }
+  );
+
+  res.status(200).json({
+    success: true,
+    data: updatedPayroll
+  });
+});
+
 // @desc    Delete a payroll record
 // @route   DELETE /api/payroll/:id
 // @access  Private/Admin
-const deletePayroll = async (req, res) => {
+const deletePayroll = asyncHandler(async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -267,130 +331,133 @@ const deletePayroll = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
+});
+
+// @desc    Generate payslip PDF
+// @route   GET /api/payroll/:id/payslip
+// @access  Private/Admin
+const generatePayslip = async (req, res) => {
+  try {
+    const payroll = await Payroll.findById(req.params.id);
+
+    if (!payroll) {
+      return res.status(404).json({ success: false, message: 'Payroll not found' });
+    }
+
+    return new Promise((resolve, reject) => {
+      // Create a new PDF document
+      const doc = new PDFDocument({ margin: 50 });
+      
+      // Create a buffer to store the PDF
+      const chunks = [];
+      
+      // Collect PDF chunks
+      doc.on('data', (chunk) => chunks.push(chunk));
+      
+      // When PDF generation is done
+      doc.on('end', () => {
+        try {
+          const pdfBuffer = Buffer.concat(chunks);
+          const base64Pdf = pdfBuffer.toString('base64');
+          res.json({
+            success: true,
+            filename: `payslip-${payroll.employeeId || 'employee'}-${payroll.month || 'date'}.pdf`,
+            data: `data:application/pdf;base64,${base64Pdf}`
+          });
+          resolve();
+        } catch (error) {
+          console.error('Error processing PDF:', error);
+          if (!res.headersSent) {
+            res.status(500).json({ success: false, message: 'Error processing PDF' });
+          }
+          reject(error);
+        }
+      });
+      
+      // Handle errors
+      doc.on('error', (err) => {
+        console.error('PDF generation error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ success: false, message: 'Error generating PDF' });
+        }
+        reject(err);
+      });
+      
+      // Generate PDF content
+      doc
+        .fontSize(20)
+        .text('EcoCycle', { align: 'center' })
+        .fontSize(16)
+        .text('PAYSLIP', { align: 'center', underline: true })
+        .moveDown()
+        
+        // Employee details
+        .fontSize(10)
+        .text(`Employee: ${payroll.employeeName || 'N/A'}`, { continued: true })
+        .text(`ID: ${payroll.employeeId || 'N/A'}`, { align: 'right' })
+        .text(`Department: ${payroll.department || 'N/A'}`, { continued: true })
+        .text(`Position: ${payroll.position || 'N/A'}`, { align: 'right' })
+        .text(`Pay Period: ${payroll.month ? new Date(payroll.month).toLocaleDateString('en-US', { year: 'numeric', month: 'long' }) : 'N/A'}`)
+        .moveDown()
+        
+        // Earnings section
+        .fontSize(12)
+        .text('Earnings', { underline: true })
+        .fontSize(10)
+        .text(`Basic Salary: LKR ${parseFloat(payroll.basicSalary || 0).toFixed(2)}`)
+        .text(`Allowances: LKR ${parseFloat(payroll.allowances || 0).toFixed(2)}`)
+        .text(`Overtime (${payroll.overtimeHours || 0} hrs): LKR ${parseFloat(payroll.overtimePay || 0).toFixed(2)}`)
+        .moveDown()
+        
+        // Deductions section
+        .fontSize(12)
+        .text('Deductions', { underline: true })
+        .fontSize(10)
+        .text(`EPF (Employee 8%): LKR ${parseFloat(payroll.epfEmployee || 0).toFixed(2)}`)
+        .text(`EPF (Employer 12%): LKR ${parseFloat(payroll.epfEmployer || 0).toFixed(2)}`)
+        .text(`ETF (Employer 3%): LKR ${parseFloat(payroll.etfEmployer || 0).toFixed(2)}`)
+        .text(`Other Deductions: LKR ${parseFloat(payroll.deductions || 0).toFixed(2)}`)
+        .moveDown()
+        
+        // Summary
+        .fontSize(12)
+        .text('Summary', { underline: true })
+        .fontSize(10)
+        .text(`Gross Pay: LKR ${parseFloat(payroll.grossPay || 0).toFixed(2)}`)
+        .text(`Total Deductions: LKR ${(parseFloat(payroll.epfEmployee || 0) + parseFloat(payroll.deductions || 0)).toFixed(2)}`)
+        .font('Helvetica-Bold')
+        .text(`Net Pay: LKR ${parseFloat(payroll.netPay || 0).toFixed(2)}`)
+        .moveDown()
+        
+        // Footer
+        .font('Helvetica')
+        .fontSize(8)
+        .text('This is a computer-generated payslip. No signature is required.', { align: 'center' })
+        .text(`Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, { align: 'center' });
+      
+      // Finalize the PDF
+      doc.end();
+    });
+  } catch (error) {
+    console.error('Error in payslip generation:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error generating payslip', 
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
 };
 
+// Export all controller functions
 module.exports = {
   processPayroll,
   getPayrolls,
   getPayrollById,
   updatePayrollStatus,
   getPayrollSummary,
+  updatePayroll,
   deletePayroll,
-  
-  // @desc    Generate payslip PDF
-  // @route   GET /api/payroll/:id/payslip
-  // @access  Private/Admin
-  generatePayslip: async (req, res) => {
-    try {
-      const payroll = await Payroll.findById(req.params.id);
-
-      if (!payroll) {
-        return res.status(404).json({ success: false, message: 'Payroll not found' });
-      }
-
-      return new Promise((resolve, reject) => {
-        // Create a new PDF document
-        const doc = new PDFDocument({ margin: 50 });
-        
-        // Create a buffer to store the PDF
-        const chunks = [];
-        
-        // Collect PDF chunks
-        doc.on('data', (chunk) => chunks.push(chunk));
-        
-        // When PDF generation is done
-        doc.on('end', () => {
-          try {
-            const pdfBuffer = Buffer.concat(chunks);
-            const base64Pdf = pdfBuffer.toString('base64');
-            res.json({
-              success: true,
-              filename: `payslip-${payroll.employeeId || 'employee'}-${payroll.month || 'date'}.pdf`,
-              data: `data:application/pdf;base64,${base64Pdf}`
-            });
-            resolve();
-          } catch (error) {
-            console.error('Error processing PDF:', error);
-            if (!res.headersSent) {
-              res.status(500).json({ success: false, message: 'Error processing PDF' });
-            }
-            reject(error);
-          }
-        });
-        
-        // Handle errors
-        doc.on('error', (err) => {
-          console.error('PDF generation error:', err);
-          if (!res.headersSent) {
-            res.status(500).json({ success: false, message: 'Error generating PDF' });
-          }
-          reject(err);
-        });
-        
-        // Generate PDF content
-        doc
-          .fontSize(20)
-          .text('EcoCycle', { align: 'center' })
-          .fontSize(16)
-          .text('PAYSLIP', { align: 'center', underline: true })
-          .moveDown()
-          
-          // Employee details
-          .fontSize(10)
-          .text(`Employee: ${payroll.employeeName || 'N/A'}`, { continued: true })
-          .text(`ID: ${payroll.employeeId || 'N/A'}`, { align: 'right' })
-          .text(`Department: ${payroll.department || 'N/A'}`, { continued: true })
-          .text(`Position: ${payroll.position || 'N/A'}`, { align: 'right' })
-          .text(`Pay Period: ${payroll.month ? new Date(payroll.month).toLocaleDateString('en-US', { year: 'numeric', month: 'long' }) : 'N/A'}`)
-          .moveDown()
-          
-          // Earnings section
-          .fontSize(12)
-          .text('Earnings', { underline: true })
-          .fontSize(10)
-          .text(`Basic Salary: LKR ${parseFloat(payroll.basicSalary || 0).toFixed(2)}`)
-          .text(`Allowances: LKR ${parseFloat(payroll.allowances || 0).toFixed(2)}`)
-          .text(`Overtime (${payroll.overtimeHours || 0} hrs): LKR ${parseFloat(payroll.overtimePay || 0).toFixed(2)}`)
-          .moveDown()
-          
-          // Deductions section
-          .fontSize(12)
-          .text('Deductions', { underline: true })
-          .fontSize(10)
-          .text(`EPF (Employee 8%): LKR ${parseFloat(payroll.epfEmployee || 0).toFixed(2)}`)
-          .text(`EPF (Employer 12%): LKR ${parseFloat(payroll.epfEmployer || 0).toFixed(2)}`)
-          .text(`ETF (Employer 3%): LKR ${parseFloat(payroll.etfEmployer || 0).toFixed(2)}`)
-          .text(`Other Deductions: LKR ${parseFloat(payroll.deductions || 0).toFixed(2)}`)
-          .moveDown()
-          
-          // Summary
-          .fontSize(12)
-          .text('Summary', { underline: true })
-          .fontSize(10)
-          .text(`Gross Pay: LKR ${parseFloat(payroll.grossPay || 0).toFixed(2)}`)
-          .text(`Total Deductions: LKR ${(parseFloat(payroll.epfEmployee || 0) + parseFloat(payroll.deductions || 0)).toFixed(2)}`)
-          .font('Helvetica-Bold')
-          .text(`Net Pay: LKR ${parseFloat(payroll.netPay || 0).toFixed(2)}`)
-          .moveDown()
-          
-          // Footer
-          .font('Helvetica')
-          .fontSize(8)
-          .text('This is a computer-generated payslip. No signature is required.', { align: 'center' })
-          .text(`Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, { align: 'center' });
-        
-        // Finalize the PDF
-        doc.end();
-      });
-    } catch (error) {
-      console.error('Error in payslip generation:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ 
-          success: false, 
-          message: 'Error generating payslip', 
-          error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-        });
-      }
-    }
-  }
+  generatePayslip
 };
