@@ -1035,7 +1035,23 @@ export default function TransportDashboard() {
             <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
               <div>
                 <label className="block text-sm font-medium mb-1">Vehicle ID</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.vehicleId} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, vehicleId: e.target.value })} />
+                <input
+                  type="text"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.vehicleId}
+                  maxLength={10}
+                  placeholder="Max 10 letters/numbers"
+                  title="Only letters and numbers. Max 10 characters."
+                  onChange={(e) => {
+                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase();
+                    setAddVehicleForm({ ...addVehicleForm, vehicleId: sanitized });
+                  }}
+                />
+                <p className="mt-1 text-xs text-gray-500">Allowed: A–Z, 0–9. Max length 10.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Type</label>
@@ -1058,7 +1074,28 @@ export default function TransportDashboard() {
 
               <div>
                 <label className="block text-sm font-medium mb-1">Capacity (Bottles)</label>
-                <input type="number" className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.capacityBottles} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, capacityBottles: e.target.value })} />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="border rounded-lg px-3 py-2 w-full"
+                  placeholder="1 – 10,000"
+                  title="Enter whole number of bottles between 1 and 10,000"
+                  value={addVehicleForm.capacityBottles}
+                  onChange={(e) => {
+                    const digits = (e.target.value || '').replace(/[^0-9]/g, '').slice(0, 5);
+                    if (digits === '') { setAddVehicleForm({ ...addVehicleForm, capacityBottles: '' }); return; }
+                    let n = parseInt(digits, 10);
+                    if (Number.isNaN(n)) { n = ''; }
+                    // clamp to 1..10000
+                    if (n !== '') {
+                      if (n < 1) n = 1;
+                      if (n > 10000) n = 10000;
+                    }
+                    setAddVehicleForm({ ...addVehicleForm, capacityBottles: n === '' ? '' : String(n) });
+                  }}
+                />
+                <p className="mt-1 text-xs text-gray-500">Whole number between 1 and 10,000.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Capacity (Weight kg)</label>
@@ -1067,16 +1104,65 @@ export default function TransportDashboard() {
               
               <div>
                 <label className="block text-sm font-medium mb-1">Model</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.model} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, model: e.target.value })} />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.model}
+                  maxLength={20}
+                  placeholder="Letters only"
+                  title="Only letters A–Z. Max 20 characters."
+                  onChange={(e) => {
+                    const onlyLetters = e.target.value.replace(/[^a-zA-Z]/g, '');
+                    const limited = onlyLetters.slice(0, 20);
+                    setAddVehicleForm({ ...addVehicleForm, model: limited });
+                  }}
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-1">License Plate</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.licensePlate} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, licensePlate: e.target.value })} />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.licensePlate}
+                  maxLength={12}
+                  placeholder="e.g., ABC-1234"
+                  title="Letters, numbers, hyphen and spaces only. Max 12 characters."
+                  onChange={(e) => {
+                    const upper = e.target.value.toUpperCase();
+                    const allowed = upper.replace(/[^A-Z0-9\-\s]/g, '');
+                    const collapsed = allowed.replace(/\s+/g, ' ').trim();
+                    const limited = collapsed.slice(0, 12);
+                    setAddVehicleForm({ ...addVehicleForm, licensePlate: limited });
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Color</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={addVehicleForm.color} onChange={(e) => setAddVehicleForm({ ...addVehicleForm, color: e.target.value })} />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={addVehicleForm.color}
+                  maxLength={20}
+                  placeholder="e.g., Dark Blue"
+                  title="Letters and spaces only. Max 20 characters."
+                  onChange={(e) => {
+                    const onlyLettersSpaces = e.target.value.replace(/[^a-zA-Z\s]/g, '');
+                    const collapsed = onlyLettersSpaces.replace(/\s+/g, ' ').trim();
+                    const titleCased = collapsed.split(' ').map(w => w ? (w[0].toUpperCase() + w.slice(1).toLowerCase()) : '').join(' ');
+                    const limited = titleCased.slice(0, 20);
+                    setAddVehicleForm({ ...addVehicleForm, color: limited });
+                  }}
+                />
               </div>
 
               <div>
@@ -1108,11 +1194,40 @@ export default function TransportDashboard() {
                 try {
                   // Basic validation
                   if (!addVehicleForm.vehicleId || !addVehicleForm.type) return;
+                  // Enforce Vehicle ID format: alphanumeric only up to 10 chars
+                  if (!/^[A-Za-z0-9]{1,10}$/.test(addVehicleForm.vehicleId)) {
+                    window.alert('Vehicle ID must contain only letters and numbers, maximum 10 characters.');
+                    return;
+                  }
+                  // Color validation: optional, but if present must be letters and spaces, max 20
+                  const colorVal = (addVehicleForm.color || '').trim();
+                  if (colorVal && !/^[A-Za-z ]{1,20}$/.test(colorVal)) {
+                    window.alert('Color can only contain letters and spaces (max 20 characters).');
+                    return;
+                  }
+                  // License Plate validation: optional, but if present must be A–Z, 0–9, hyphen and spaces, max 12
+                  const plateVal = (addVehicleForm.licensePlate || '').trim();
+                  if (plateVal && !/^[A-Z0-9\- ]{1,12}$/.test(plateVal)) {
+                    window.alert('License Plate can only contain letters (A–Z), numbers, hyphen and spaces (max 12 characters).');
+                    return;
+                  }
+                  // Model validation: optional, but if present must be letters only, max 20
+                  const modelVal = (addVehicleForm.model || '').trim();
+                  if (modelVal && !/^[A-Za-z]{1,20}$/.test(modelVal)) {
+                    window.alert('Model can only contain letters (A–Z) with no spaces (max 20 characters).');
+                    return;
+                  }
+                  // Capacity (Bottles) validation: required integer 1..10000
+                  const bottlesVal = parseInt(addVehicleForm.capacityBottles, 10);
+                  if (!Number.isInteger(bottlesVal) || bottlesVal < 1 || bottlesVal > 10000) {
+                    window.alert('Capacity (Bottles) must be a whole number between 1 and 10,000.');
+                    return;
+                  }
                   const payload = {
                     vehicleId: addVehicleForm.vehicleId,
                     type: addVehicleForm.type,
                     capacity: {
-                      bottles: Number(addVehicleForm.capacityBottles) || 0,
+                      bottles: bottlesVal,
                       weight: Number(addVehicleForm.capacityWeight) || 0,
                     },
                     specifications: {
@@ -1154,7 +1269,22 @@ export default function TransportDashboard() {
             <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 max-h-[70vh] overflow-auto">
               <div>
                 <label className="block text-sm font-medium mb-1">Vehicle ID</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.vehicleId} onChange={(e)=>setEditVehicleForm({...editVehicleForm, vehicleId: e.target.value})} />
+                <input
+                  type="text"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={editVehicleForm.vehicleId}
+                  maxLength={10}
+                  placeholder="Max 10 letters/numbers"
+                  title="Only letters and numbers. Max 10 characters."
+                  onChange={(e)=>{
+                    const sanitized = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0,10).toUpperCase();
+                    setEditVehicleForm({...editVehicleForm, vehicleId: sanitized});
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Type</label>
@@ -1185,7 +1315,24 @@ export default function TransportDashboard() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">License Plate</label>
-                <input className="border rounded-lg px-3 py-2 w-full" value={editVehicleForm.licensePlate} onChange={(e)=>setEditVehicleForm({...editVehicleForm, licensePlate: e.target.value})} />
+                <input
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  value={editVehicleForm.licensePlate}
+                  maxLength={12}
+                  placeholder="e.g., ABC-1234"
+                  title="Letters, numbers, hyphen and spaces only. Max 12 characters."
+                  onChange={(e)=>{
+                    const upper = e.target.value.toUpperCase();
+                    const allowed = upper.replace(/[^A-Z0-9\-\s]/g, '');
+                    const collapsed = allowed.replace(/\s+/g, ' ').trim();
+                    const limited = collapsed.slice(0, 12);
+                    setEditVehicleForm({...editVehicleForm, licensePlate: limited});
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Fuel Level (%)</label>
