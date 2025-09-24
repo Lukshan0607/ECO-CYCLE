@@ -15,13 +15,14 @@ import InventoryDashboard from "./components/Inventory/InventoryDashboard";
 import InventoryProfile from "./components/Inventory/InventoryProfile";
 import InventoryForms from "./components/Inventory/InventoryForms";
 import InventorySorting from "./components/Inventory/InventorySorting";
-import ReportPage from "./components/Inventory/ReportPage";
+import InventoryReports from "./components/Inventory/InventoryReports";
+import InventoryAnalytics from "./components/Inventory/InventoryAnalytics";
 import InventoryRequests from "./components/Inventory/InventoryRequests";
 import InventoryDeliveryRecords from "./components/Inventory/InventoryDeliveryRecords";
 import ProductionDashboard from "./components/Production/ProductionDashboard";
+import ProductionReportPage from "./components/Production/ProductionReportPage";
 import UnifiedFinanceDashboard from "./components/finance/UnifiedFinanceDashboard";
 import AdminDashboard from "./components/admin/AdminDashboard";
-import SalesDashboard from "./components/sales/SalesDashboard";
 import TransportDashboard from "./components/transport/TransportDashboard";
 import TransportReports from "./components/transport/TransportReports";
 import CollectorsDashboard from "./components/collectors/CollectorsDashboard";
@@ -134,6 +135,14 @@ function App() {
             }
           />
           <Route
+            path="/inventory/analytics"
+            element={
+              <ProtectedRoute>
+                <InventoryAnalytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/inventory/sorting"
             element={
               <ProtectedRoute>
@@ -145,7 +154,7 @@ function App() {
             path="/inventory/reports"
             element={
               <ProtectedRoute>
-                <ReportPage />
+                <InventoryReports />
               </ProtectedRoute>
             }
           />
@@ -167,18 +176,18 @@ function App() {
             }
           />
           <Route
-            path="/finance"
+            path="/production/reports"
             element={
-              <ProtectedRoute requiredRole="finance">
-                <UnifiedFinanceDashboard />
+              <ProtectedRoute requiredRole="production">
+                <ProductionReportPage />
               </ProtectedRoute>
             }
           />
           <Route
-            path="/sales"
+            path="/finance"
             element={
-              <ProtectedRoute requiredRole="sales">
-                <SalesDashboard />
+              <ProtectedRoute requiredRole="finance">
+                <UnifiedFinanceDashboard />
               </ProtectedRoute>
             }
           />

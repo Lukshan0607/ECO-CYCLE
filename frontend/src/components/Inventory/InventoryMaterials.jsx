@@ -38,6 +38,71 @@ export default function InventoryMaterials() {
     imagePreview: null,
   });
 
+  // Numeric helpers and constraints for Stock (Kg)
+  const MIN_KG = 0.01;
+  const MAX_KG = 100000;
+  const formatClamp3 = (value) => {
+    const n = Number(value);
+    if (Number.isNaN(n)) return '';
+    const clamped = Math.max(MIN_KG, Math.min(MAX_KG, n));
+    return clamped.toFixed(3);
+  };
+  const handleNumericKeyDown = (e) => {
+    // Disallow scientific notation and signs in number input
+    if (e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-') {
+      e.preventDefault();
+      return;
+    }
+    const isDecimalPoint = e.key === '.';
+    if (isDecimalPoint) {
+      const { value } = e.currentTarget;
+      // Only one decimal point, not as first character
+      if (value.includes('.') || value.length === 0) {
+        e.preventDefault();
+      }
+      return;
+    }
+    // If current value is exactly '0.0', block another '0' (prevents 0.00) but allow 0.01, 0.02, ...
+    if (/^\d$/.test(e.key)) {
+      const { value } = e.currentTarget;
+      if (value === '0.0' && e.key === '0') {
+        e.preventDefault();
+        return;
+      }
+    }
+  };
+
+  const sanitizeStockPaste = (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (typeof text !== 'string') return;
+    // keep only digits and one dot
+    let cleaned = text.replace(/[^0-9.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot !== -1) {
+      // remove subsequent dots
+      cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+    }
+    // prevent starting with dot
+    if (cleaned.startsWith('.')) cleaned = '0' + cleaned;
+    // limit to 3 decimals
+    if (firstDot !== -1) {
+      const [intPart, decPart = ''] = cleaned.split('.');
+      cleaned = intPart + '.' + decPart.slice(0, 3);
+    }
+    // clamp range
+    const num = Number(cleaned);
+    if (!Number.isNaN(num)) {
+      cleaned = formatClamp3(num);
+    }
+    const target = e.currentTarget;
+    setNewItem((prev) => ({ ...prev, stock: cleaned }));
+    // place caret at end on next tick
+    requestAnimationFrame(() => {
+      try { target.setSelectionRange(cleaned.length, cleaned.length); } catch {}
+    });
+  };
+
   // Derived: filtered inventory by search term (name, color, type)
   const filteredInventory = inventory.filter((item) => {
     const needle = searchTerm.trim().toLowerCase();
@@ -142,7 +207,7 @@ export default function InventoryMaterials() {
       image,
     } = newItem;
 
-    if (!name || !color || !type || !stock || !lastUpdatedDate || !lastUpdatedTime) {
+    if (!name || !color || !type || !stock) {
       alert("⚠️ Please fill all required fields");
       return;
     }
@@ -153,8 +218,8 @@ export default function InventoryMaterials() {
       alert("⚠️ Stock must be a number");
       return;
     }
-    if (stockNum < 0.001 || stockNum > 100000) {
-      alert("⚠️ Stock must be between 0.001 and 100000 Kg");
+    if (stockNum < 0.01 || stockNum > 100000) {
+      alert("⚠️ Stock must be between 0.01 and 100000 Kg");
       return;
     }
     const decimalPart = (stock.toString().split('.')[1] || '');
@@ -163,11 +228,7 @@ export default function InventoryMaterials() {
       return;
     }
 
-    const selectedDateTime = new Date(`${lastUpdatedDate}T${lastUpdatedTime}`);
-    if (selectedDateTime > new Date()) {
-      alert("⚠️ Cannot select a future time");
-      return;
-    }
+    // No last updated validation needed; timestamp will be set automatically on edit
 
     try {
       const formData = new FormData();
@@ -175,12 +236,13 @@ export default function InventoryMaterials() {
       formData.append("color", color);
       formData.append("type", type);
       formData.append("stock", stock);
-      formData.append("lastUpdated", `${lastUpdatedDate} ${lastUpdatedTime}`);
       if (image) {
         formData.append("image", image);
       }
 
       if (editItemId !== null) {
+        // Automatically set lastUpdated to now for edits
+        formData.append("lastUpdated", new Date().toISOString());
         const response = await axios.put(
           `http://localhost:5000/api/inventory/${editItemId}`,
           formData,
@@ -398,6 +460,8 @@ export default function InventoryMaterials() {
                 <option value="Green">Green</option>
                 <option value="Brown">Brown</option>
                 <option value="Blue">Blue</option>
+                <option value="Red">Red</option>
+                <option value="Yellow">Yellow</option>
                 <option value="Mixed">Mixed</option>
               </select>
             </div>
@@ -426,25 +490,21 @@ export default function InventoryMaterials() {
                 type="number" 
                 name="stock" 
                 value={newItem.stock} 
-                onChange={handleInputChange} 
+                onChange={handleInputChange}
+                onKeyDown={handleNumericKeyDown}
+                onPaste={sanitizeStockPaste}
+                onBlur={(e)=> setNewItem((prev)=> ({ ...prev, stock: formatClamp3(e.target.value) }))}
+                onWheel={(e)=> e.currentTarget.blur()}
                 className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
                 placeholder="Enter stock in Kg (up to 3 decimals)"
-                min="0.001"
+                min="0.01"
                 max="100000"
                 step="0.001"
               />
-              <p className="text-xs text-gray-500 mt-1">Allowed range: 0.001–100000 Kg. Up to 3 decimal places.</p>
+              <p className="text-xs text-gray-500 mt-1">Allowed range: 0.01–100000 Kg. Up to 3 decimal places.</p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium">Last Updated Date</label>
-              <input type="date" name="lastUpdatedDate" value={newItem.lastUpdatedDate} onChange={handleInputChange} className="w-full border p-2 rounded" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium">Last Updated Time</label>
-              <input type="time" name="lastUpdatedTime" value={newItem.lastUpdatedTime} min={minTime} onChange={handleInputChange} className="w-full border p-2 rounded" />
-            </div>
+            {/* Last Updated fields removed for both Add and Edit; timestamp handled automatically */}
 
             <div>
               <label className="block text-sm font-medium">Item Image</label>
@@ -580,11 +640,26 @@ export default function InventoryMaterials() {
                           item.stock > 50 ? 'bg-yellow-100 text-yellow-800' :
                           'bg-red-100 text-red-800'
                         }`}>
-                          {item.stock} Kg
+                          {Number(item.stock || 0).toFixed(3)} Kg
                         </span>
                       </td>
                       <td className="p-3 border border-gray-200 text-sm text-gray-600">
-                        {item.lastUpdated}
+                        {(() => {
+                          try {
+                            const d = new Date(item.lastUpdated);
+                            const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Colombo' });
+                            const timeStr = d.toLocaleTimeString('en-LK', {
+                              timeZone: 'Asia/Colombo',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                              hour12: false,
+                            });
+                            return `${dateStr} ${timeStr}`;
+                          } catch (e) {
+                            return item.lastUpdated;
+                          }
+                        })()}
                       </td>
                       <td className="p-3 border border-gray-200">
                         <div className="flex justify-center gap-2">

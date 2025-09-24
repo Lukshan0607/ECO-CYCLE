@@ -1,5 +1,5 @@
 // src/components/finance/UnifiedFinanceDashboard.jsx
-import React, { useState } from "react";
+import React, { useState, lazy, Suspense } from "react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -7,19 +7,21 @@ import {
 import { 
   DollarSign, FileText, TrendingUp, 
   Users, Briefcase, Target, Users as UsersIcon,
-  Plus, Filter, Download, Calendar
+  Plus, Filter, Download, Calendar, ShoppingCart, Receipt
 } from "lucide-react";
-import EmployeePayroll from "./EmployeePayroll";
-import EmployeeManagement from "./EmployeeManagement";
-import OverviewCards from "./OverviewCards";
-import FinanceCharts from "./FinanceCharts";
-import CustomerPaymentsManagement from "./CustomerPaymentsManagement";
-import PaymentCRUD from "./PaymentCRUD";
-import PaymentProcessing from "./PaymentProcessing";
-import ExpenseManagement from "./ExpenseManagement";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import LogoutButton from "../common/LogoutButton";
+
+// Lazy load components
+const EmployeePayroll = lazy(() => import('./EmployeePayroll'));
+const EmployeeManagement = lazy(() => import('./EmployeeManagement'));
+const OverviewCards = lazy(() => import('./OverviewCards'));
+const FinanceCharts = lazy(() => import('./FinanceCharts'));
+const CustomerPaymentsManagement = lazy(() => import('./CustomerPaymentsManagement'));
+const PaymentProcessing = lazy(() => import('./PaymentProcessing'));
+const OrderManagement = lazy(() => import('./OrderManagement'));
+const ExpensesDashboard = lazy(() => import('./ExpensesDashboard'));
 
 // Data will be fetched from API
 
@@ -57,14 +59,48 @@ export default function UnifiedFinanceDashboard() {
 
   const tabs = [
     { id: "overview", name: "Financial Overview", icon: <DollarSign size={20} /> },
-    { id: "expenses", name: "Expenses", icon: <FileText size={20} /> },
+    { id: "expenses", name: "Expenses", icon: <Receipt size={20} /> },
+    { id: "orders", name: "Order Management", icon: <ShoppingCart size={20} /> },
     { id: "analytics", name: "Financial Analytics", icon: <TrendingUp size={20} /> },
     { id: "payment-processing", name: "Payment Processing", icon: <Target size={20} /> },
     { id: "customer-payments", name: "Customer Payments", icon: <Users size={20} /> },
-    { id: "payment-crud", name: "Payment Records", icon: <FileText size={20} /> },
     { id: "employee-management", name: "Employee Management", icon: <UsersIcon size={20} /> },
     { id: "payroll", name: "Employee Payroll", icon: <Briefcase size={20} /> },
   ];
+
+  // Render content based on active tab
+  const renderContent = () => {
+    const renderWithSuspense = (Component, props = {}) => (
+      <Suspense fallback={
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      }>
+        <Component {...props} />
+      </Suspense>
+    );
+
+    switch (activeTab) {
+      case 'overview':
+        return renderOverview();
+      case 'expenses':
+        return renderWithSuspense(ExpensesDashboard);
+      case 'orders':
+        return renderWithSuspense(OrderManagement);
+      case 'analytics':
+        return renderAnalytics();
+      case 'payment-processing':
+        return renderWithSuspense(PaymentProcessing);
+      case 'customer-payments':
+        return renderWithSuspense(CustomerPaymentsManagement);
+      case 'employee-management':
+        return renderWithSuspense(EmployeeManagement);
+      case 'payroll':
+        return renderWithSuspense(EmployeePayroll);
+      default:
+        return <div className="p-6">Select a tab to view content</div>;
+    }
+  };
 
   const renderOverview = () => (
     <div className="space-y-8">
@@ -233,29 +269,6 @@ export default function UnifiedFinanceDashboard() {
       </CardContent>
     </Card>
   );
-
-  const renderContent = () => {
-    switch (activeTab) {
-      case "overview":
-        return renderOverview();
-      case "expenses":
-        return <ExpenseManagement />;
-      case "analytics":
-        return renderAnalytics();
-      case "payment-processing":
-        return <PaymentProcessing />;
-      case "customer-payments":
-        return <CustomerPaymentsManagement />;
-      case "payment-crud":
-        return <PaymentCRUD />;
-      case "employee-management":
-        return <EmployeeManagement />;
-      case "payroll":
-        return <EmployeePayroll />;
-      default:
-        return renderOverview();
-    }
-  };
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
