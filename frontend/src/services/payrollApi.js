@@ -99,11 +99,8 @@ const payrollApi = {
   // Generate payslip
   generatePayslip: async (payrollId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/payroll/${payrollId}/payslip`, {
-        headers: {
-          'Authorization': getAuthHeaders().Authorization
-        },
-        responseType: 'blob' // Important for handling binary data
+      const response = await fetch(`${API_BASE_URL}/payroll/payslip/${payrollId}`, {
+        headers: getAuthHeaders()
       });
       
       if (!response.ok) {
@@ -111,9 +108,37 @@ const payrollApi = {
         throw new Error(error.message || 'Failed to generate payslip');
       }
       
-      return await response.blob(); // Return the PDF as a blob
+      // Handle the PDF blob response
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `payslip-${payrollId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+      return { success: true };
     } catch (error) {
       console.error('Error generating payslip:', error);
+      throw error;
+    }
+  },
+  
+  // Get employee salary expenses breakdown
+  getEmployeeSalaryExpenses: async (year = new Date().getFullYear(), month = null) => {
+    try {
+      const params = new URLSearchParams({ year });
+      if (month) params.append('month', month);
+      
+      const response = await fetch(`${API_BASE_URL}/payroll/expenses/breakdown?${params}`, {
+        headers: getAuthHeaders()
+      });
+      
+      const data = await handleResponse(response);
+      return data.data || [];
+    } catch (error) {
+      console.error('Error fetching employee salary expenses:', error);
       throw error;
     }
   }

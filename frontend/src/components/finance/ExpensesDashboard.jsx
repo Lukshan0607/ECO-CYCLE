@@ -76,13 +76,39 @@ const ExpensesDashboard = () => {
     return matchesSearch && matchesStatus && matchesCategory && matchesDate;
   });
 
-  // Calculate summary values
-  const summary = {
-    total: expenses.reduce((sum, exp) => sum + exp.amount, 0),
-    paid: expenses.filter(e => e.status === 'paid').reduce((sum, exp) => sum + exp.amount, 0),
-    pending: expenses.filter(e => e.status === 'pending').reduce((sum, exp) => sum + exp.amount, 0),
-    failed: expenses.filter(e => e.status === 'failed').reduce((sum, exp) => sum + exp.amount, 0)
+  // State for summary data
+  const [summary, setSummary] = useState({
+    total: 0,
+    paid: 0,
+    pending: 0,
+    failed: 0
+  });
+
+  // Fetch summary data from the backend
+  const fetchSummary = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/expenses/summary`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch expense summary');
+      }
+      const data = await response.json();
+      if (data.success && data.data) {
+        setSummary({
+          total: data.data.total || 0,
+          paid: data.data.paid || 0,
+          pending: data.data.pending || 0,
+          failed: data.data.failed || 0
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching expense summary:', err);
+    }
   };
+
+  // Fetch summary data when component mounts and when expenses change
+  useEffect(() => {
+    fetchSummary();
+  }, [expenses]);
 
   // Handle CRUD operations
   const handleAddExpense = async (expense) => {

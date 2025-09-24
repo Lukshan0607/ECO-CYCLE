@@ -189,8 +189,18 @@ export default function EmployeePayroll() {
         basicSalary: parseFloat(payrollData.basicSalary) || 0,
         allowances: parseFloat(payrollData.allowances) || 0,
         overtimeHours: parseFloat(payrollData.overtimeHours) || 0,
-        overtimePay: parseFloat(payrollData.overtimePay) || 0,
+        overtimePay: parseFloat(calculateOvertimePay(payrollData)) || 0,
         deductions: parseFloat(payrollData.deductions) || 0,
+        epfEmployee: (parseFloat(payrollData.basicSalary) || 0) * 0.08, // 8% of basic salary
+        etfEmployer: (parseFloat(payrollData.basicSalary) || 0) * 0.03, // 3% of basic salary
+        grossPay: (parseFloat(payrollData.basicSalary) || 0) + 
+                 (parseFloat(payrollData.allowances) || 0) + 
+                 (parseFloat(calculateOvertimePay(payrollData)) || 0),
+        netPay: (parseFloat(payrollData.basicSalary) || 0) + 
+               (parseFloat(payrollData.allowances) || 0) + 
+               (parseFloat(calculateOvertimePay(payrollData)) || 0) - 
+               (parseFloat(payrollData.deductions) || 0) - 
+               ((parseFloat(payrollData.basicSalary) || 0) * 0.08), // Subtract EPF
         month: new Date(payrollData.month).toISOString().substring(0, 7)
       };
       
@@ -199,6 +209,7 @@ export default function EmployeePayroll() {
       
       let response;
       if (isUpdate) {
+        // For updates, use the update endpoint
         response = await fetch(`http://localhost:5000/api/payroll/${payrollData._id}`, {
           method: 'PUT',
           headers: {
@@ -208,6 +219,7 @@ export default function EmployeePayroll() {
           body: JSON.stringify(formattedData)
         });
       } else {
+        // For new records, use the create endpoint
         response = await fetch('http://localhost:5000/api/payroll', {
           method: 'POST',
           headers: {
@@ -224,39 +236,26 @@ export default function EmployeePayroll() {
         throw new Error(data.message || 'Failed to save payroll');
       }
 
-      // For new records, get the latest employee data first
-      const updatedEmployees = await fetchEmployees();
+      // Always refresh the entire list after save/update
+      const [updatedPayrolls, updatedEmployees] = await Promise.all([
+        payrollApi.getPayrolls(),
+        fetchEmployees()
+      ]);
       
-      // If this is a new record, add it to the list with the latest employee info
-      if (!isUpdate) {
-        const employee = updatedEmployees.find(emp => emp._id === payrollData.employeeId);
-        const newPayroll = {
-          ...formattedData,
-          employeeId: employee?._id || payrollData.employeeId,
-          employeeName: employee?.name || payrollData.employeeName || 'Unknown Employee',
-          department: employee?.department || payrollData.department || '',
-          position: employee?.position || payrollData.position || '',
-          employeeMongoId: employee?._id || payrollData.employeeId || ''
+      // Process the data to ensure we have the latest employee information
+      const processedData = updatedPayrolls.map(payroll => {
+        const employee = updatedEmployees.find(emp => emp._id === payroll.employeeId);
+        return {
+          ...payroll,
+          employeeId: payroll.employeeId || '',
+          employeeName: payroll.employeeName || employee?.name || 'Unknown Employee',
+          department: payroll.department || employee?.department || '',
+          position: payroll.position || employee?.position || '',
+          employeeMongoId: payroll.employeeId || employee?._id || ''
         };
-        
-        // Add the new payroll to the beginning of the list
-        setPayrollRuns(prev => [newPayroll, ...prev]);
-      } else {
-        // For updates, refresh the entire list
-        const updatedPayrolls = await payrollApi.getPayrolls();
-        const processedData = updatedPayrolls.map(payroll => {
-          const emp = updatedEmployees.find(e => e._id === payroll.employeeId);
-          return {
-            ...payroll,
-            employeeId: payroll.employeeId || emp?._id || '',
-            employeeName: payroll.employeeName || emp?.name || 'Unknown Employee',
-            department: payroll.department || emp?.department || '',
-            position: payroll.position || emp?.position || '',
-            employeeMongoId: payroll.employeeId || emp?._id || ''
-          };
-        });
-        setPayrollRuns(processedData);
-      }
+      });
+      
+      setPayrollRuns(processedData);
       
       setShowPayrollForm(false);
       setSelectedEmployee(null);
@@ -298,7 +297,7 @@ export default function EmployeePayroll() {
     try {
       setViewPayslip(prev => ({ ...prev, isLoading: true, isOpen: true }));
       
-      const response = await fetch(`http://localhost:5000/api/payroll/${payroll._id}/payslip`, {
+      const response = await fetch(`http://localhost:5000/api/payroll/payslip/${payroll._id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -356,7 +355,7 @@ export default function EmployeePayroll() {
       }
 
       // Otherwise, fetch the payslip
-      const response = await fetch(`http://localhost:5000/api/payroll/${payroll._id}/payslip`, {
+      const response = await fetch(`http://localhost:5000/api/payroll/payslip/${payroll._id}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -475,6 +474,14 @@ export default function EmployeePayroll() {
     { id: "overview", name: "Overview", icon: <Calculator size={20} /> },
     { id: "reports", name: "Payroll Reports", icon: <BarChart size={20} /> }
   ];
+
+  // Calculate overtime pay for a payroll record
+  const calculateOvertimePay = (payrollData) => {
+    const basic = parseFloat(payrollData.basicSalary) || 0;
+    const hours = parseFloat(payrollData.overtimeHours) || 0;
+    const hourlyRate = basic / (payrollConfig.WORKING_DAYS_PER_MONTH * payrollConfig.WORKING_HOURS_PER_DAY);
+    return (hourlyRate * payrollConfig.OVERTIME_MULTIPLIER * hours).toFixed(2);
+  };
 
   // Calculate payroll for an employee
   const calculatePayroll = (employee) => {
@@ -682,12 +689,14 @@ export default function EmployeePayroll() {
                       <td className="p-3">LKR {run.basicSalary ? parseFloat(run.basicSalary).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
                       <td className="p-3 font-medium">LKR {run.netPay ? parseFloat(run.netPay).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}</td>
                       <td className="p-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          run.status === 'completed' ? 'bg-green-100 text-green-600' :
-                          run.status === 'pending' ? 'bg-yellow-100 text-yellow-600' :
-                          'bg-red-100 text-red-600'
+                        <span className={`px-3 py-1.5 rounded-full text-xs font-medium ${
+                          run.status === 'completed' ? 'bg-green-50 text-green-700 border border-green-200' :
+                          run.status === 'pending' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                          run.status === 'processed' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                          run.status === 'updated' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                          'bg-gray-50 text-gray-700 border border-gray-200'
                         }`}>
-                          {run.status || 'Pending'}
+                          {run.status ? run.status.charAt(0).toUpperCase() + run.status.slice(1) : 'Pending'}
                         </span>
                       </td>
                       <td className="p-3">
@@ -1344,14 +1353,12 @@ export default function EmployeePayroll() {
                 </button>
               </div>
               <PayrollForm 
-                employee={selectedEmployee}
+                initialData={showPayrollForm.isEdit ? showPayrollForm.payrollData : null}
                 onSave={handleSavePayroll}
                 onClose={() => {
                   setShowPayrollForm(false);
                   setSelectedEmployee(null);
                 }}
-                payrollData={showPayrollForm.payrollData}
-                isEdit={showPayrollForm.isEdit}
               />
             </div>
           </div>

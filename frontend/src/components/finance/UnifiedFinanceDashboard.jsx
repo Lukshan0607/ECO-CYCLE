@@ -7,7 +7,8 @@ import {
 import { 
   DollarSign, FileText, TrendingUp, 
   Users, Briefcase, Target, Users as UsersIcon,
-  Plus, Filter, Download, Calendar, ShoppingCart, Receipt
+  Plus, Filter, Download, Calendar, ShoppingCart, Receipt,
+  CreditCard
 } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
@@ -22,6 +23,8 @@ const OverviewCards = lazy(() => import('./OverviewCards'));
 const FinanceCharts = lazy(() => import('./FinanceCharts'));
 const OrderManagement = lazy(() => import('./OrderManagement'));
 const ExpensesDashboard = lazy(() => import('./ExpensesDashboard'));
+const PaymentsManagement = lazy(() => import('./PaymentsManagement'));
+const Reports = lazy(() => import('./Reports'));
 
 // Data will be fetched from API
 
@@ -223,6 +226,8 @@ export default function UnifiedFinanceDashboard() {
     { id: "analytics", name: "Financial Analytics", icon: <TrendingUp size={20} /> },
     { id: "employee-management", name: "Employee Management", icon: <UsersIcon size={20} /> },
     { id: "payroll", name: "Employee Payroll", icon: <Briefcase size={20} /> },
+    { id: "payments", name: "Payments Management", icon: <CreditCard size={20} /> },
+    { id: "reports", name: "Reports", icon: <FileText size={20} /> }, // Add Reports tab
   ];
 
   // Render content based on active tab
@@ -250,6 +255,10 @@ export default function UnifiedFinanceDashboard() {
         return renderWithSuspense(EmployeeManagement);
       case 'payroll':
         return renderWithSuspense(EmployeePayroll);
+      case 'payments':
+        return renderWithSuspense(PaymentsManagement);
+      case 'reports':
+        return renderWithSuspense(Reports);
       default:
         return <div className="p-6">Select a tab to view content</div>;
     }
