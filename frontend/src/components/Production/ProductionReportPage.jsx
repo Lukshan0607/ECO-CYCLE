@@ -110,7 +110,11 @@ const ProductionReportPage = () => {
           h1, h2, h3 { page-break-after: avoid; }
           table { page-break-inside: auto; }
           tr { page-break-inside: avoid; page-break-after: auto; }
+          /* Show print-only header */
+          .only-print { display: block !important; }
         }
+        /* Hide print-only header on screen */
+        .only-print { display: none; }
       `}</style>
 
       {/* Sidebar */}
@@ -162,6 +166,17 @@ const ProductionReportPage = () => {
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto print-content">
+      {/* Print-only report title and company info */}
+      <div className="only-print" style={{ textAlign: 'center', marginBottom: '12px' }}>
+        <div style={{ fontSize: '12pt', fontWeight: 700, marginBottom: '2px' }}>ECOCYCLE LANKA (PVT) LTD</div>
+        <div style={{ fontSize: '10pt', color: '#444', lineHeight: 1.3 }}>
+          123 Green Tech Park, Colombo 05, Sri Lanka<br/>
+          Tel: +94 11 234 5678 | Email: hr@ecocycle.lk | Web: www.ecocycle.lk
+        </div>
+        <hr style={{ margin: '8px 0', border: 0, borderTop: '1px solid #ccc' }} />
+        <h1 style={{ fontSize: '18pt', margin: 0 }}>Production Report</h1>
+        <div style={{ fontSize: '10pt', color: '#555' }}>Generated on: {new Date().toLocaleString()}</div>
+      </div>
       <header className="no-print bg-white border-b border-gray-200 p-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
