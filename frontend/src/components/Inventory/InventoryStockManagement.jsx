@@ -274,7 +274,7 @@ export default function InventoryStockManagement() {
           <div className="grid grid-cols-1 place-items-center">
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 w-full max-w-xl text-center">
               <div className="text-sm text-gray-500">Total Items in Stock</div>
-              <div className="mt-2 text-3xl font-bold">{loading ? '...' : `${deliveredTotalKg} Kg`}</div>
+              <div className="mt-2 text-3xl font-bold">{loading ? '...' : `${Number(deliveredTotalKg).toFixed(3)} Kg`}</div>
               <div className="mt-2 text-xs text-gray-500">Total delivered to inventory (kg)</div>
             </div>
           </div>
@@ -297,7 +297,7 @@ export default function InventoryStockManagement() {
                   <h3 className="text-xl font-bold text-gray-900">Production Request</h3>
                   <button className="text-gray-500 hover:text-gray-700" onClick={() => { setShowRequestForm(false); resetRequestForm(); }}>✕</button>
                 </div>
-                <p className="text-sm text-gray-600 mb-4">Total Items in Stock: <span className="font-semibold">{deliveredTotalKg} Kg</span></p>
+                <p className="text-sm text-gray-600 mb-4">Total Items in Stock: <span className="font-semibold">{Number(deliveredTotalKg).toFixed(3)} Kg</span></p>
                 <form onSubmit={submitRequest} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium mb-1">Requested weight (Kg)</label>
@@ -341,7 +341,7 @@ export default function InventoryStockManagement() {
                         className="min-w-[220px] bg-white rounded-2xl shadow-lg border border-gray-100 p-5 text-center">
                         <div className="text-xl font-bold text-gray-900">{name}</div>
                         <div className="text-xs text-gray-500 mt-1">Code: {code}</div>
-                        <div className="mt-3 text-3xl font-extrabold text-gray-900">{kg} Kg</div>
+                        <div className="mt-3 text-3xl font-extrabold text-gray-900">{Number(kg).toFixed(3)} Kg</div>
                       </div>
                     );
                   })}
