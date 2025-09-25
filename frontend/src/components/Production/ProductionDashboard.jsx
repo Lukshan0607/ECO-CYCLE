@@ -768,6 +768,28 @@ const ProductionDashboard = () => {
   // Handle request form changes
   const handleRequestFormChange = (e) => {
     const { name, value } = e.target;
+    // Team/Department: letters and spaces only
+    if (name === 'team') {
+      const teamRegex = /^[A-Za-z\s]*$/;
+      if (!teamRegex.test(value)) return;
+      setRequestForm(prev => ({ ...prev, [name]: value }));
+      return;
+    }
+    // Requested Quantity: digits only; clamp 1..selectedItem.stock
+    if (name === 'requestedQty') {
+      const qtyRegex = /^\d*$/;
+      if (!qtyRegex.test(String(value))) return;
+      let next = value === '' ? '' : String(parseInt(value, 10));
+      if (next !== '') {
+        let num = parseInt(next, 10);
+        if (Number.isNaN(num) || num < 1) num = 1;
+        const max = selectedItem?.stock ?? Infinity;
+        if (num > max) num = max;
+        next = String(num);
+      }
+      setRequestForm(prev => ({ ...prev, [name]: next }));
+      return;
+    }
     setRequestForm(prev => ({ ...prev, [name]: value }));
   };
 
@@ -1873,6 +1895,8 @@ const ProductionDashboard = () => {
                       name="team"
                       value={requestForm.team}
                       onChange={handleRequestFormChange}
+                      pattern="^[A-Za-z\s]*$"
+                      title="Only letters and spaces are allowed"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="e.g., Production Team A"
                       required
@@ -1884,12 +1908,18 @@ const ProductionDashboard = () => {
                       Requested Quantity (Available: {selectedItem.stock})
                     </label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d*"
                       name="requestedQty"
                       value={requestForm.requestedQty}
                       onChange={handleRequestFormChange}
-                      max={selectedItem.stock}
-                      min="1"
+                      onKeyDown={(e) => {
+                        const ctrl = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Home','End'];
+                        if (ctrl.includes(e.key)) return;
+                        if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+                      }}
+                      title={`Enter digits only (max ${selectedItem.stock})`}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Enter quantity"
                       required
