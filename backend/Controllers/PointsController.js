@@ -3,6 +3,7 @@ const User = require('../Model/UserModel');
 const Collection = require('../Model/CollectionModel');
 const PointsPayment = require('../Model/PointsPaymentModel');
 const { SalesOrder, Product } = require('../Model/SalesModel');
+const LoyaltySettings = require('../Model/LoyaltySettingsModel');
 const mongoose = require('mongoose');
 
 const normalizePhone = (p) => (p || '').replace(/[^0-9]/g, '');
@@ -236,3 +237,53 @@ async function verifyPayment(req, res) {
 module.exports.getBalance = getBalance;
 module.exports.payProduct = payProduct;
 module.exports.verifyPayment = verifyPayment;
+
+// GET /api/points/settings
+async function getSettings(req, res) {
+  try {
+    let s = await LoyaltySettings.findOne();
+    if (!s) {
+      s = await LoyaltySettings.create({ pointsPerRupee: 0.1 });
+    }
+    return res.status(200).json({ success: true, settings: { pointsPerRupee: s.pointsPerRupee, updatedAt: s.updatedAt } });
+  } catch (err) {
+    console.error('getSettings error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+// POST /api/points/settings { pointsPerRupee }
+async function saveSettings(req, res) {
+  try {
+    const raw = req.body?.pointsPerRupee;
+    const rate = Number(raw);
+    if (!Number.isFinite(rate) || rate < 0) {
+      return res.status(400).json({ success: false, message: 'pointsPerRupee must be a non-negative number' });
+    }
+
+    let s = await LoyaltySettings.findOne();
+    if (!s) {
+      s = await LoyaltySettings.create({ pointsPerRupee: rate });
+    } else {
+      s.pointsPerRupee = rate;
+      await s.save();
+    }
+
+    // Recalculate and persist product points based on current price and new rate
+    const products = await Product.find({}, { _id: 1, price: 1 });
+    let updated = 0;
+    for (const p of products) {
+      const pts = Math.max(0, Math.round(Number(p.price || 0) * rate));
+      const resu = await Product.updateOne({ _id: p._id }, { $set: { points: pts } });
+      if (resu?.modifiedCount) updated += 1;
+    }
+
+    return res.status(200).json({ success: true, settings: { pointsPerRupee: s.pointsPerRupee, updatedAt: s.updatedAt }, updatedProducts: updated });
+  } catch (err) {
+    console.error('saveSettings error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+}
+
+module.exports.getSettings = getSettings;
+module.exports.saveSettings = saveSettings;

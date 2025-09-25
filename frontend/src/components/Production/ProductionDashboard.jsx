@@ -1,6 +1,6 @@
           import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import LogoutButton from "../common/LogoutButton";
 import {
   LayoutDashboard,
@@ -22,27 +22,19 @@ import {
   PackagePlus,
   DollarSign,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  Legend,
-} from "recharts";
+ 
 
 const ProductionDashboard = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("overview");
   const [inventoryItems, setInventoryItems] = useState([]);
   const [acceptedMaterials, setAcceptedMaterials] = useState([]);
   const [requests, setRequests] = useState([]);
+  // Pagination and filtering for Production Requests
+  const [requestPage, setRequestPage] = useState(1);
+  const [requestPageSize, setRequestPageSize] = useState(10);
+  const [requestQuery, setRequestQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -96,15 +88,6 @@ const ProductionDashboard = () => {
     planId: ''
   });
 
-  // Production vs Sales data for analytics
-  const productionData = [
-    { month: "Jan", produced: 1200, sold: 1100 },
-    { month: "Feb", produced: 1350, sold: 1250 },
-    { month: "Mar", produced: 1400, sold: 1380 },
-    { month: "Apr", produced: 1300, sold: 1200 },
-    { month: "May", produced: 1500, sold: 1450 },
-    { month: "Jun", produced: 1600, sold: 1550 },
-  ];
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [products, setProducts] = useState([]);
@@ -117,23 +100,43 @@ const ProductionDashboard = () => {
     imageUrl: "",
     description: "",
     category: "",
+    points: "",
   });
 
-  // Loyalty: points per 1 rupee setting (persisted locally for now)
+  // Loyalty: points per 1 rupee setting (persisted in backend)
   const [pointsPerRupee, setPointsPerRupee] = useState("");
+  const [pointsSavedAt, setPointsSavedAt] = useState("");
+
+  // Load loyalty settings from backend
   useEffect(() => {
-    const saved = localStorage.getItem('pointsPerRupee');
-    if (saved !== null) setPointsPerRupee(saved);
-    const savedAt = localStorage.getItem('pointsPerRupeeSavedAt');
-    if (savedAt) setPointsSavedAt(savedAt);
+    const loadSettings = async () => {
+      try {
+        const res = await axios.get('http://localhost:5000/api/points/settings');
+        const rate = res.data?.settings?.pointsPerRupee;
+        const updatedAt = res.data?.settings?.updatedAt;
+        if (rate !== undefined) setPointsPerRupee(String(rate));
+        if (updatedAt) setPointsSavedAt(updatedAt);
+      } catch (err) {
+        console.error('Failed to load loyalty settings', err);
+      }
+    };
+    loadSettings();
   }, []);
-  const handleSavePointsPerRupee = (e) => {
+
+  const handleSavePointsPerRupee = async (e) => {
     e.preventDefault();
-    localStorage.setItem('pointsPerRupee', pointsPerRupee);
-    const ts = new Date().toISOString();
-    localStorage.setItem('pointsPerRupeeSavedAt', ts);
-    setPointsSavedAt(ts);
-    alert('Saved: points per 1 rupee updated.');
+    try {
+      const body = { pointsPerRupee: Number(pointsPerRupee) };
+      const res = await axios.post('http://localhost:5000/api/points/settings', body);
+      const updatedAt = res.data?.settings?.updatedAt || new Date().toISOString();
+      setPointsSavedAt(updatedAt);
+      // Refresh products so updated points reflect in table
+      await fetchProducts();
+      alert(`Saved: points per 1 rupee updated. Products recalculated: ${res.data?.updatedProducts ?? 0}`);
+    } catch (err) {
+      console.error('Failed to save loyalty settings', err);
+      alert('Failed to save loyalty settings. Please ensure the backend is running.');
+    }
   };
 
   // Fetch quality records
@@ -153,6 +156,28 @@ const ProductionDashboard = () => {
   // Quality form handlers
   const handleQualityChange = (e) => {
     const { name, value } = e.target;
+    // Field-level restrictions for Quality Records form
+    if (name === 'productName') {
+      // Allow only letters and spaces (no numbers or special characters)
+      const nameRegex = /^[A-Za-z\s]*$/;
+      if (!nameRegex.test(value)) return;
+    } else if (name === 'inspectedQuantity') {
+      // Digits only, maximum 4 characters
+      const qtyRegex = /^\d{0,4}$/;
+      if (!qtyRegex.test(value)) return;
+    } else if (name === 'defects') {
+      // Allow only letters, commas, and spaces (e.g., "scratch, color mismatch")
+      const defectsRegex = /^[A-Za-z\s,]*$/;
+      if (!defectsRegex.test(value)) return;
+    } else if (name === 'defectCount') {
+      // Digits only, up to 3 while typing
+      const countRegex = /^\d{0,3}$/;
+      if (!countRegex.test(value)) return;
+    } else if (name === 'inspector') {
+      // Letters and spaces only
+      const inspRegex = /^[A-Za-z\s]*$/;
+      if (!inspRegex.test(value)) return;
+    }
     setQualityForm((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -171,14 +196,47 @@ const ProductionDashboard = () => {
       ...prev,
       productId: id,
       productName: prod ? prod.name : prev.productName,
+      // Auto-derive Batch No from selected product's Product ID (RIP-....)
+      batchNo: prod?.productId ? String(prod.productId) : prev.batchNo,
     }));
   };
 
   const submitQuality = async (e) => {
     e.preventDefault();
     try {
+      // Submit-time validation for Quality Records
+      const nameOk = /^[A-Za-z\s]*$/.test(qualityForm.productName || '');
+      if (!nameOk) {
+        alert('Product Name can contain only letters and spaces.');
+        return;
+      }
+      const qtyOk = /^\d{1,4}$/.test((qualityForm.inspectedQuantity || '').toString());
+      if (qualityForm.inspectedQuantity && !qtyOk) {
+        alert('Inspected Quantity must be digits only, up to 4 digits.');
+        return;
+      }
+      const defectsOk = /^[A-Za-z\s,]*$/.test(qualityForm.defects || '');
+      if (!defectsOk) {
+        alert('Defects must contain only letters, commas, and spaces.');
+        return;
+      }
+      const defectCountOk = /^\d{0,3}$/.test((qualityForm.defectCount || '').toString());
+      if (!defectCountOk) {
+        alert('Defect Count must be digits only, up to 3 digits.');
+        return;
+      }
+      const inspectorOk = /^[A-Za-z\s]*$/.test(qualityForm.inspector || '');
+      if (!inspectorOk) {
+        alert('Inspector can contain only letters and spaces.');
+        return;
+      }
+
+      // Determine batch number from selected product's Product ID (e.g., RIP-0001)
+      const selectedProd = (products || []).find((p) => p._id === qualityForm.productId);
+      const batchNoVal = selectedProd?.productId ? String(selectedProd.productId) : qualityForm.batchNo.trim();
+
       const payload = {
-        batchNo: qualityForm.batchNo.trim(),
+        batchNo: batchNoVal,
         productId: qualityForm.productId || undefined,
         productName: qualityForm.productName?.trim() || undefined,
         status: qualityForm.status,
@@ -284,6 +342,28 @@ const ProductionDashboard = () => {
   // CRUD: Production Plans
   const handlePlanFormChange = (e) => {
     const { name, value } = e.target;
+    // Field-level restrictions
+    if (name === 'productName') {
+      // Only letters and spaces
+      const nameRegex = /^[A-Za-z\s]*$/;
+      if (!nameRegex.test(value)) return;
+    }
+    if (name === 'quantity') {
+      // Only digits, max 4 (no minus, plus, letters, or special chars)
+      const qtyRegex = /^\d{0,4}$/;
+      if (!qtyRegex.test(value)) return;
+    }
+    if (name === 'startDate') {
+      // Build local yyyy-mm-dd (avoid UTC offset issues)
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const ymdToday = `${y}-${m}-${day}`;
+      if (value && value < ymdToday) {
+        return setPlanForm((prev) => ({ ...prev, [name]: ymdToday }));
+      }
+    }
     setPlanForm((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -300,10 +380,26 @@ const ProductionDashboard = () => {
   const submitPlan = async (e) => {
     e.preventDefault();
     try {
+      // Submit-time validation
+      const qtyNum = planForm.quantity ? parseInt(planForm.quantity, 10) : 0;
+      if (!qtyNum || qtyNum <= 0) {
+        alert('Quantity must be a positive number');
+        return;
+      }
+      if (qtyNum > 9999) {
+        alert('Quantity cannot exceed 4 digits (max 9999)');
+        return;
+      }
+      const todayStr = new Date().toISOString().slice(0,10);
+      if (planForm.startDate && planForm.startDate < todayStr) {
+        alert('Start Date cannot be a previous day');
+        return;
+      }
+
       const payload = {
         productName: planForm.productName?.trim() || undefined,
         productId: planForm.productId || undefined,
-        quantity: planForm.quantity ? parseInt(planForm.quantity) : undefined,
+        quantity: qtyNum,
         startDate: planForm.startDate || undefined,
         endDate: planForm.endDate || undefined,
         priority: planForm.priority,
@@ -366,7 +462,9 @@ const ProductionDashboard = () => {
   const goToQuality = (plan) => {
     const prodId = plan.productId?._id || '';
     const prodName = plan.productName || '';
-    const batchNo = plan._id ? `PLAN-${String(plan._id).slice(-6).toUpperCase()}` : new Date().toISOString().slice(0,10);
+    // Prefer product's Product ID (RIP-....) for Batch No when available
+    const linkedProduct = (products || []).find((p) => p._id === prodId);
+    const batchNo = linkedProduct?.productId ? String(linkedProduct.productId) : (plan._id ? `PLAN-${String(plan._id).slice(-6).toUpperCase()}` : new Date().toISOString().slice(0,10));
     setActiveTab('quality');
     setShowQualityForm(true);
     setEditingQuality(null);
@@ -504,7 +602,7 @@ const ProductionDashboard = () => {
     return `RIP-${String(next).padStart(4, '0')}`;
   };
 
-  const [pointsSavedAt, setPointsSavedAt] = useState("");
+  
 
   // Sample data (replace with API calls later)
   const overview = {
@@ -532,27 +630,36 @@ const ProductionDashboard = () => {
     { name: "Green HDPE Bottles", qty: 35000, weight: "890.2kg" },
   ];
 
+  // Derived: filtered and paginated production requests
+  const filteredRequests = (requests || []).filter((r) => {
+    if (!requestQuery) return true;
+    const q = requestQuery.toLowerCase();
+    return (
+      String(r.requestId || r._id || '').toLowerCase().includes(q) ||
+      String(r.team || '').toLowerCase().includes(q) ||
+      String(r.priority || '').toLowerCase().includes(q) ||
+      String(r.status || '').toLowerCase().includes(q) ||
+      String(r?.inventoryItemId?.name || '').toLowerCase().includes(q)
+    );
+  });
+  const totalRequestPages = Math.max(1, Math.ceil(filteredRequests.length / requestPageSize) || 1);
+  const currentRequestPage = Math.min(requestPage, totalRequestPages);
+  const pagedRequests = filteredRequests.slice(
+    (currentRequestPage - 1) * requestPageSize,
+    currentRequestPage * requestPageSize
+  );
+
+  useEffect(() => {
+    // Reset to first page when filters or data change
+    setRequestPage(1);
+  }, [requestQuery, requestPageSize, requests]);
+
   // Filtered products by search
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const productionSales = [
-    { month: "Jan", produced: 120, sold: 100 },
-    { month: "Feb", produced: 140, sold: 110 },
-    { month: "Mar", produced: 160, sold: 120 },
-    { month: "Apr", produced: 180, sold: 150 },
-    { month: "May", produced: 130, sold: 115 },
-    { month: "Jun", produced: 150, sold: 135 },
-  ];
-
-  const revenueData = [
-    { product: "Bottles", revenue: 4 },
-    { product: "Containers", revenue: 3 },
-    { product: "Bags", revenue: 2 },
-    { product: "Sheets", revenue: 1 },
-    { product: "Other", revenue: 0.5 },
-  ];
+  // Analytics visualizations have been moved to a dedicated page.
 
   const recentActivity = [
     { type: "Production", detail: "100 units of Recycled PET Filament completed" },
@@ -661,6 +768,28 @@ const ProductionDashboard = () => {
   // Handle request form changes
   const handleRequestFormChange = (e) => {
     const { name, value } = e.target;
+    // Team/Department: letters and spaces only
+    if (name === 'team') {
+      const teamRegex = /^[A-Za-z\s]*$/;
+      if (!teamRegex.test(value)) return;
+      setRequestForm(prev => ({ ...prev, [name]: value }));
+      return;
+    }
+    // Requested Quantity: digits only; clamp 1..selectedItem.stock
+    if (name === 'requestedQty') {
+      const qtyRegex = /^\d*$/;
+      if (!qtyRegex.test(String(value))) return;
+      let next = value === '' ? '' : String(parseInt(value, 10));
+      if (next !== '') {
+        let num = parseInt(next, 10);
+        if (Number.isNaN(num) || num < 1) num = 1;
+        const max = selectedItem?.stock ?? Infinity;
+        if (num > max) num = max;
+        next = String(num);
+      }
+      setRequestForm(prev => ({ ...prev, [name]: next }));
+      return;
+    }
     setRequestForm(prev => ({ ...prev, [name]: value }));
   };
 
@@ -710,6 +839,16 @@ const ProductionDashboard = () => {
       // Don't show alert for fetch errors, just log them
     }
   };
+
+  // Sync activeTab with URL query (?tab=...)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab && tab !== activeTab) {
+      setActiveTab(tab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
 
   // Load data when component mounts and when tabs change
   useEffect(() => {
@@ -842,12 +981,8 @@ const ProductionDashboard = () => {
         imageUrl: newProduct.imageUrl || '',
         description: newProduct.description?.trim() || '',
         category: newProduct.category,
+        points: newProduct.points ? parseInt(newProduct.points) : 0,
       };
-
-      // Only generate and set productId when creating a new product
-      if (!editingProduct) {
-        productData.productId = generateUniqueProductId();
-      }
 
       console.log('Sending product data:', productData);
 
@@ -886,6 +1021,7 @@ const ProductionDashboard = () => {
           imageUrl: "",
           description: "",
           category: "",
+          points: "",
         });
         setEditingProduct(null);
         setShowAddForm(false);
@@ -934,10 +1070,19 @@ const ProductionDashboard = () => {
                 {item.icon}
                 <span className="font-medium">{item.name}</span>
               </Link>
+            ) : item.key === 'analytics' ? (
+              <Link
+                key={item.key}
+                to="/production/analytics"
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </Link>
             ) : (
               <button
                 key={item.key}
-                onClick={() => setActiveTab(item.key)}
+                onClick={() => { setActiveTab(item.key); navigate(`/production?tab=${item.key}`); }}
                 className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${
                   activeTab === item.key
                     ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
@@ -1088,37 +1233,7 @@ const ProductionDashboard = () => {
             )}
           </div>
 
-          {/* Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white shadow rounded-2xl p-4">
-              <h3 className="font-bold text-lg mb-4">Production vs Sales</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={productionSales}>
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="produced" fill="#3b82f6" /> {/* blue-500 */}
-                  <Bar dataKey="sold" fill="#22c55e" /> {/* green-500 */}
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="bg-white shadow rounded-2xl p-4">
-              <h3 className="font-bold text-lg mb-4">Revenue by Product</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={revenueData}>
-                  <XAxis dataKey="product" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#16a34a"
-                  />{" "}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          {/* Charts moved to Analytics page. */}
 
           {/* Raw Materials + Activity */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1279,12 +1394,7 @@ const ProductionDashboard = () => {
                               <p className="text-sm text-gray-600 truncate" title={p.description}>{p.description || 'No description available'}</p>
                             </td>
                             <td className="py-3 px-4 text-center"><span className="font-bold text-green-600">{parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></td>
-                            <td className="py-3 px-4 text-center"><span className="font-medium text-gray-900">{(() => {
-                              const price = parseFloat(p.price);
-                              const rate = parseFloat(pointsPerRupee || '0');
-                              if (Number.isNaN(price) || Number.isNaN(rate)) return 0;
-                              return Math.round(price * rate);
-                            })()}</span></td>
+                            <td className="py-3 px-4 text-center"><span className="font-medium text-gray-900">{p.points ?? 0}</span></td>
                             <td className="py-3 px-4 text-center">
                               <div className="flex flex-col items-center">
                                 <span className="font-medium text-gray-900">{p.stock}</span>
@@ -1365,7 +1475,23 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Quantity</label>
-                      <input name="quantity" value={planForm.quantity} onChange={handlePlanFormChange} type="number" min="1" className="w-full border rounded-lg p-2" placeholder="e.g., 500" />
+                      <input
+                        name="quantity"
+                        value={planForm.quantity}
+                        onChange={handlePlanFormChange}
+                        onKeyDown={(e) => {
+                          const allowedCtrl = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Home','End'];
+                          if (allowedCtrl.includes(e.key)) return;
+                          if (!/^[0-9]$/.test(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={4}
+                        className="w-full border rounded-lg p-2"
+                        placeholder="e.g., 500"
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Priority</label>
@@ -1378,11 +1504,25 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Start Date</label>
-                      <input name="startDate" value={planForm.startDate} onChange={handlePlanFormChange} type="date" className="w-full border rounded-lg p-2" />
+                      <input
+                        name="startDate"
+                        value={planForm.startDate}
+                        onChange={handlePlanFormChange}
+                        type="date"
+                        min={(() => { const d=new Date(); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; })()}
+                        className="w-full border rounded-lg p-2"
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">End Date</label>
-                      <input name="endDate" value={planForm.endDate} onChange={handlePlanFormChange} type="date" className="w-full border rounded-lg p-2" />
+                      <input
+                        name="endDate"
+                        value={planForm.endDate}
+                        onChange={handlePlanFormChange}
+                        type="date"
+                        min={planForm.startDate || (() => { const d=new Date(); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; })()}
+                        className="w-full border rounded-lg p-2"
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Status</label>
@@ -1641,8 +1781,28 @@ const ProductionDashboard = () => {
 
                   {/* Production Requests Table */}
                   <div className="bg-white shadow-lg rounded-2xl p-6 mt-6">
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Production Requests</h3>
-                    {requests.length === 0 ? (
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-xl font-bold text-gray-900">Production Requests</h3>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          value={requestQuery}
+                          onChange={(e) => setRequestQuery(e.target.value)}
+                          placeholder="Search (ID, team, item, status)"
+                          className="border rounded-lg px-3 py-2 text-sm"
+                        />
+                        <select
+                          value={requestPageSize}
+                          onChange={(e) => setRequestPageSize(parseInt(e.target.value) || 10)}
+                          className="border rounded-lg px-2 py-2 text-sm"
+                        >
+                          <option value={10}>10 / page</option>
+                          <option value={25}>25 / page</option>
+                          <option value={50}>50 / page</option>
+                        </select>
+                      </div>
+                    </div>
+                    {filteredRequests.length === 0 ? (
                       <div className="text-gray-600">No production requests found.</div>
                     ) : (
                       <div className="overflow-x-auto">
@@ -1661,9 +1821,9 @@ const ProductionDashboard = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {requests.map((req) => (
+                            {pagedRequests.map((req) => (
                               <tr key={req._id} className="border-t text-sm">
-                                <td className="py-3 px-4 text-gray-900">{req._id?.slice(-8) || '-'}</td>
+                                <td className="py-3 px-4 text-gray-900">{req.requestId || (req._id?.slice(-8)) || '-'}</td>
                                 <td className="py-3 px-4">{req.team}</td>
                                 <td className="py-3 px-4">{req.inventoryItemId?.name || 'Unknown Item'}</td>
                                 <td className="py-3 px-4">{req.requestedQty}</td>
@@ -1690,6 +1850,29 @@ const ProductionDashboard = () => {
                             ))}
                           </tbody>
                         </table>
+                        <div className="flex items-center justify-between mt-4 text-sm text-gray-700">
+                          <div>
+                            Showing {filteredRequests.length === 0 ? 0 : (currentRequestPage - 1) * requestPageSize + 1}
+                            -{Math.min(currentRequestPage * requestPageSize, filteredRequests.length)} of {filteredRequests.length}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setRequestPage((p) => Math.max(1, p - 1))}
+                              disabled={currentRequestPage === 1}
+                              className={`px-3 py-1 rounded border ${currentRequestPage === 1 ? 'text-gray-400 border-gray-200' : 'hover:bg-gray-50'}`}
+                            >
+                              Prev
+                            </button>
+                            <span className="px-2">Page {currentRequestPage} / {totalRequestPages}</span>
+                            <button
+                              onClick={() => setRequestPage((p) => Math.min(totalRequestPages, p + 1))}
+                              disabled={currentRequestPage === totalRequestPages}
+                              className={`px-3 py-1 rounded border ${currentRequestPage === totalRequestPages ? 'text-gray-400 border-gray-200' : 'hover:bg-gray-50'}`}
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1712,6 +1895,8 @@ const ProductionDashboard = () => {
                       name="team"
                       value={requestForm.team}
                       onChange={handleRequestFormChange}
+                      pattern="^[A-Za-z\s]*$"
+                      title="Only letters and spaces are allowed"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="e.g., Production Team A"
                       required
@@ -1723,12 +1908,18 @@ const ProductionDashboard = () => {
                       Requested Quantity (Available: {selectedItem.stock})
                     </label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d*"
                       name="requestedQty"
                       value={requestForm.requestedQty}
                       onChange={handleRequestFormChange}
-                      max={selectedItem.stock}
-                      min="1"
+                      onKeyDown={(e) => {
+                        const ctrl = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Home','End'];
+                        if (ctrl.includes(e.key)) return;
+                        if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+                      }}
+                      title={`Enter digits only (max ${selectedItem.stock})`}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Enter quantity"
                       required
@@ -1801,7 +1992,7 @@ const ProductionDashboard = () => {
                   <form onSubmit={submitQuality} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div>
                       <label className="block text-sm font-medium">Batch No</label>
-                      <input name="batchNo" value={qualityForm.batchNo} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., 2025-001" />
+                      <input name="batchNo" value={qualityForm.batchNo} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., RIP-0001" pattern="^RIP-\d{4}$" title="Format: RIP-0001" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Product (optional)</label>
@@ -1814,7 +2005,7 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Product Name</label>
-                      <input name="productName" value={qualityForm.productName} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., Recycled PET Bottles" />
+                      <input name="productName" value={qualityForm.productName} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., Recycled PET Bottles" pattern="^[A-Za-z\s]*$" title="Only letters and spaces are allowed" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Status</label>
@@ -1826,15 +2017,15 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Inspected Quantity</label>
-                      <input name="inspectedQuantity" value={qualityForm.inspectedQuantity} onChange={handleQualityChange} type="number" min="0" className="w-full border rounded-lg p-2" placeholder="e.g., 500" />
+                      <input name="inspectedQuantity" value={qualityForm.inspectedQuantity} onChange={handleQualityChange} type="text" inputMode="numeric" pattern="\d{1,4}" maxLength={4} className="w-full border rounded-lg p-2" placeholder="e.g., 500" title="Enter up to 4 digits" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Defects (comma separated)</label>
-                      <input name="defects" value={qualityForm.defects} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., scratch, color mismatch" />
+                      <input name="defects" value={qualityForm.defects} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., scratch, color mismatch" pattern="^[A-Za-z\s,]*$" title="Only letters, commas, and spaces are allowed" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Defect Count</label>
-                      <input name="defectCount" value={qualityForm.defectCount} onChange={handleQualityChange} type="number" min="0" className="w-full border rounded-lg p-2" />
+                      <input name="defectCount" value={qualityForm.defectCount} onChange={handleQualityChange} type="text" inputMode="numeric" pattern="\d{0,3}" maxLength={3} className="w-full border rounded-lg p-2" title="Up to 3 digits" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Inspection Date</label>
@@ -1858,7 +2049,7 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Inspector</label>
-                      <input name="inspector" value={qualityForm.inspector} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., John Doe" />
+                      <input name="inspector" value={qualityForm.inspector} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., John Doe" pattern="^[A-Za-z\s]*$" title="Only letters and spaces are allowed" />
                     </div>
                     <div className="md:col-span-3">
                       <label className="block text-sm font-medium">Notes</label>
@@ -1927,38 +2118,7 @@ const ProductionDashboard = () => {
             </div>
           )}
 
-          {/* Analytics Tab */}
-          {activeTab === "analytics" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-lg font-bold mb-4">Production vs Sales</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={productionData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="produced" fill="#3b82f6" name="Produced" />
-                      <Bar dataKey="sold" fill="#22c55e" name="Sold" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-lg font-bold mb-4">Revenue by Product</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={revenueData}>
-                      <XAxis dataKey="product" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="revenue" stroke="#16a34a" strokeWidth={3} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Analytics moved to separate page at /production/analytics */}
 
           {/* Reports Tab */}
           {activeTab === "reports" && (
