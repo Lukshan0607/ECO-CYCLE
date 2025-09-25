@@ -979,11 +979,12 @@ const ProductionDashboard = () => {
         return; // Don't update if invalid
       }
     } else if (name === 'price') {
-      // Price: max 4 digits, no special characters or letters
-      const priceRegex = /^\d{0,4}(\.\d{0,2})?$/;
-      if (value !== '' && !priceRegex.test(value)) {
-        return; // Don't update if invalid
-      }
+      // Price: digits only, up to 4 digits, auto-format with thousands separators (e.g., 1,000)
+      const digitsOnly = String(value).replace(/[^0-9]/g, '');
+      const limited = digitsOnly.slice(0, 4);
+      const formatted = limited ? Number(limited).toLocaleString('en-US') : '';
+      setNewProduct({ ...newProduct, [name]: formatted });
+      return;
     } else if (name === 'stock') {
       // Stock Level: only digits, up to 4 characters
       const stockRegex = /^\d{0,4}$/;
@@ -1063,9 +1064,10 @@ const ProductionDashboard = () => {
         return;
       }
 
+      const priceNumber = Number(String(newProduct.price || '').replace(/,/g, ''));
       const productData = {
         name: newProduct.name.trim(),
-        price: parseFloat(newProduct.price),
+        price: priceNumber,
         stock: parseInt(newProduct.stock) || 0,
         imageUrl: newProduct.imageUrl || '',
         description: newProduct.description?.trim() || '',
@@ -1377,8 +1379,16 @@ const ProductionDashboard = () => {
                       </div>
                       <div>
                         <label className="block text-sm font-medium">Item Price</label>
-                        <input type="text" name="price" value={newProduct.price} onChange={handleChange} pattern="^\d{1,4}(\.\d{1,2})?$" title="Maximum 4 digits, numbers only (e.g., 1234 or 1234.56)" className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Enter price (max 4 digits, e.g., 1234.56)" />
-                        {newProduct.price && !/^\d{0,4}(\.\d{0,2})?$/.test(newProduct.price) && (<p className="text-red-500 text-xs mt-1">Price must be maximum 4 digits with optional decimal (e.g., 1234.56)</p>)}
+                        <input
+                          type="text"
+                          name="price"
+                          value={newProduct.price}
+                          onChange={handleChange}
+                          inputMode="numeric"
+                          className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="e.g., 1,000"
+                          title="Digits only, auto-formatted with commas (max 4 digits: up to 9,999)"
+                        />
                       </div>
                       <div>
                         <label className="block text-sm font-medium">Stock Level</label>
