@@ -142,6 +142,120 @@ const processRefund = async (req, res) => {
   }
 };
 
+// Update payment for an order
+/**
+ * Update payment for an order
+ * @route PUT /api/finance/payments/:orderId
+ * @access Private
+ */
+const updateOrderPayment = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    const { orderId } = req.params;
+    const { paymentStatus, paymentMethod, amountPaid, notes } = req.body;
+
+    // Validate required fields
+    if (!paymentStatus) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: 'Payment status is required' });
+    }
+
+    // Find the order
+    const order = await Order.findById(orderId).session(session);
+    if (!order) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // Create or update payment transaction
+    let paymentTransaction;
+    if (order.paymentTransaction) {
+      // Update existing transaction
+      paymentTransaction = await PaymentTransaction.findByIdAndUpdate(
+        order.paymentTransaction,
+        {
+          amount: amountPaid || order.totalAmount,
+          paymentMethod: paymentMethod || order.payment?.method,
+          status: paymentStatus,
+          notes,
+          updatedAt: new Date()
+        },
+        { new: true, session }
+      );
+    } else {
+      // Create new transaction
+      const transactionCount = await PaymentTransaction.countDocuments().session(session);
+      const transactionId = `TXN${String(transactionCount + 1).padStart(6, '0')}`;
+      
+      paymentTransaction = new PaymentTransaction({
+        orderId: order._id,
+        customerId: order.customerId,
+        amount: amountPaid || order.totalAmount,
+        paymentMethod: paymentMethod || 'cash',
+        status: paymentStatus,
+        transactionId,
+        notes,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      await paymentTransaction.save({ session });
+    }
+
+    // Update order with payment information
+    order.paymentStatus = paymentStatus;
+    order.payment = {
+      method: paymentMethod || order.payment?.method || 'cash',
+      amountPaid: amountPaid || order.totalAmount,
+      transactionId: paymentTransaction.transactionId,
+      date: new Date(),
+      notes
+    };
+    
+    // Update order status based on payment status
+    if (paymentStatus === 'paid' && order.status === 'pending') {
+      order.status = 'processing';
+    }
+    
+    // Add to payment history
+    order.paymentHistory = order.paymentHistory || [];
+    order.paymentHistory.push({
+      amount: amountPaid || order.totalAmount,
+      paymentMethod: paymentMethod || order.payment?.method || 'cash',
+      transactionId: paymentTransaction.transactionId,
+      status: paymentStatus,
+      date: new Date(),
+      notes
+    });
+
+    await order.save({ session });
+    await session.commitTransaction();
+    session.endSession();
+
+    // Populate the order with customer data before sending response
+    const updatedOrder = await Order.findById(orderId)
+      .populate('customerId', 'name email phone');
+
+    res.status(200).json({
+      success: true,
+      order: updatedOrder,
+      payment: paymentTransaction
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error('Error updating payment:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to update payment',
+      error: error.message 
+    });
+  }
+};
+
 // Get payment analytics
 const getPaymentAnalytics = async (req, res) => {
   try {
@@ -475,5 +589,6 @@ module.exports = {
   createPayment,
   updatePayment,
   deletePayment,
-  updatePaymentStatus
+  updatePaymentStatus,
+  updateOrderPayment
 };

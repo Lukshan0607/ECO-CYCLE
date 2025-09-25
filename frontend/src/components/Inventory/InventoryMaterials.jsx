@@ -6,13 +6,22 @@ import {
   ChartBarIcon,
   DocumentChartBarIcon,
   ArrowTrendingUpIcon,
+  ClipboardDocumentListIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import LogoutButton from "../common/LogoutButton";
 
 export default function InventoryMaterials() {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const highlightByQuery = ["1", "true", "low", "yes"].includes((searchParams.get("highlight") || "").toLowerCase());
+  const highlightLowStock = Boolean(location.state?.highlightLowStock) || highlightByQuery;
+  const LOW_STOCK_THRESHOLD = 10;
   const [inventory, setInventory] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editItemId, setEditItemId] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const today = new Date();
   const todayDateString = today.toISOString().split("T")[0];
@@ -22,12 +31,87 @@ export default function InventoryMaterials() {
     name: "",
     color: "",
     type: "",
-    weight: "",
     stock: "",
     lastUpdatedDate: "",
     lastUpdatedTime: "",
     image: null,
     imagePreview: null,
+  });
+
+  // Numeric helpers and constraints for Stock (Kg)
+  const MIN_KG = 0.01;
+  const MAX_KG = 100000;
+  const formatClamp3 = (value) => {
+    const n = Number(value);
+    if (Number.isNaN(n)) return '';
+    const clamped = Math.max(MIN_KG, Math.min(MAX_KG, n));
+    return clamped.toFixed(3);
+  };
+  const handleNumericKeyDown = (e) => {
+    // Disallow scientific notation and signs in number input
+    if (e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '-') {
+      e.preventDefault();
+      return;
+    }
+    const isDecimalPoint = e.key === '.';
+    if (isDecimalPoint) {
+      const { value } = e.currentTarget;
+      // Only one decimal point, not as first character
+      if (value.includes('.') || value.length === 0) {
+        e.preventDefault();
+      }
+      return;
+    }
+    // If current value is exactly '0.0', block another '0' (prevents 0.00) but allow 0.01, 0.02, ...
+    if (/^\d$/.test(e.key)) {
+      const { value } = e.currentTarget;
+      if (value === '0.0' && e.key === '0') {
+        e.preventDefault();
+        return;
+      }
+    }
+  };
+
+  const sanitizeStockPaste = (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (typeof text !== 'string') return;
+    // keep only digits and one dot
+    let cleaned = text.replace(/[^0-9.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot !== -1) {
+      // remove subsequent dots
+      cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+    }
+    // prevent starting with dot
+    if (cleaned.startsWith('.')) cleaned = '0' + cleaned;
+    // limit to 3 decimals
+    if (firstDot !== -1) {
+      const [intPart, decPart = ''] = cleaned.split('.');
+      cleaned = intPart + '.' + decPart.slice(0, 3);
+    }
+    // clamp range
+    const num = Number(cleaned);
+    if (!Number.isNaN(num)) {
+      cleaned = formatClamp3(num);
+    }
+    const target = e.currentTarget;
+    setNewItem((prev) => ({ ...prev, stock: cleaned }));
+    // place caret at end on next tick
+    requestAnimationFrame(() => {
+      try { target.setSelectionRange(cleaned.length, cleaned.length); } catch {}
+    });
+  };
+
+  // Derived: filtered inventory by search term (name, color, type)
+  const filteredInventory = inventory.filter((item) => {
+    const needle = searchTerm.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      String(item.name || "").toLowerCase().includes(needle) ||
+      String(item.color || "").toLowerCase().includes(needle) ||
+      String(item.type || "").toLowerCase().includes(needle)
+    );
   });
 
   // Fetch inventory
@@ -45,33 +129,50 @@ export default function InventoryMaterials() {
     fetchInventory();
   }, []);
 
+  // Auto-scroll to the first low stock row when coming from dashboard
+  useEffect(() => {
+    if (!highlightLowStock || !Array.isArray(inventory) || inventory.length === 0) return;
+    const firstLow = inventory.find((it) => Number(it.stock) < LOW_STOCK_THRESHOLD);
+    if (firstLow) {
+      const el = document.getElementById(`row-${firstLow._id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [highlightLowStock, inventory]);
+
   // Input change with validation
   const handleInputChange = (e) => {
     const { name, value, files } = e.target;
     
     // Validation logic
     if (name === "name") {
-      // Item Name: only letters and spaces allowed
-      const nameRegex = /^[A-Za-z\s]*$/;
+      // Item Name: only letters (all languages) and spaces allowed
+      const nameRegex = /^[\p{L}\s]*$/u;
       if (!nameRegex.test(value)) {
         return; // Don't update if invalid
       }
-    } else if (name === "weight") {
-      // Weight: max 3 digits, no special chars/letters, no negatives, allows decimals
-      const weightRegex = /^\d{0,3}(\.\d*)?$/;
-      if (value !== "" && (!weightRegex.test(value) || parseFloat(value) < 0)) {
+    } else if (name === "stock") {
+      // Stock (Kg): allow decimals up to 3 places, no negatives
+      const stockRegex = /^\d*(\.\d{0,3})?$/;
+      if (value !== "" && !stockRegex.test(value)) {
         return; // Don't update if invalid
       }
-    } else if (name === "stock") {
-      // Stock: no special characters or letters, no negatives
-      const stockRegex = /^\d*$/;
-      if (value !== "" && (!stockRegex.test(value) || parseInt(value) < 0)) {
-        return; // Don't update if invalid
+      // Prevent entering exactly 0.000 while typing
+      if (value === "0.000") {
+        return;
+      }
+      // Prevent typing more than the maximum allowed (100000)
+      if (value !== "") {
+        const num = parseFloat(value);
+        if (!Number.isNaN(num) && num > 100000) {
+          return;
+        }
       }
     }
     
     if (name === "lastUpdatedDate") {
-      setNewItem({ ...newItem, lastUpdatedDate: value });
+      setNewItem((prev) => ({ ...prev, lastUpdatedDate: value }));
       if (value === todayDateString) {
         const hours = today.getHours().toString().padStart(2, "0");
         const minutes = today.getMinutes().toString().padStart(2, "0");
@@ -82,14 +183,14 @@ export default function InventoryMaterials() {
     } else if (name === "image") {
       const file = files[0];
       if (file) {
-        setNewItem({
-          ...newItem,
+        setNewItem((prev) => ({
+          ...prev,
           image: file,
           imagePreview: URL.createObjectURL(file),
-        });
+        }));
       }
     } else {
-      setNewItem({ ...newItem, [name]: value });
+      setNewItem((prev) => ({ ...prev, [name]: value }));
     }
   };
 
@@ -100,37 +201,48 @@ export default function InventoryMaterials() {
       name,
       color,
       type,
-      weight,
       stock,
       lastUpdatedDate,
       lastUpdatedTime,
       image,
     } = newItem;
 
-    if (!name || !color || !type || !weight || !stock || !lastUpdatedDate || !lastUpdatedTime) {
+    if (!name || !color || !type || !stock) {
       alert("⚠️ Please fill all required fields");
       return;
     }
 
-    const selectedDateTime = new Date(`${lastUpdatedDate}T${lastUpdatedTime}`);
-    if (selectedDateTime > new Date()) {
-      alert("⚠️ Cannot select a future time");
+    // Validate stock range and precision
+    const stockNum = parseFloat(stock);
+    if (isNaN(stockNum)) {
+      alert("⚠️ Stock must be a number");
       return;
     }
+    if (stockNum < 0.01 || stockNum > 100000) {
+      alert("⚠️ Stock must be between 0.01 and 100000 Kg");
+      return;
+    }
+    const decimalPart = (stock.toString().split('.')[1] || '');
+    if (decimalPart.length > 3) {
+      alert("⚠️ Stock can have at most 3 decimal places");
+      return;
+    }
+
+    // No last updated validation needed; timestamp will be set automatically on edit
 
     try {
       const formData = new FormData();
       formData.append("name", name);
       formData.append("color", color);
       formData.append("type", type);
-      formData.append("weight", weight);
       formData.append("stock", stock);
-      formData.append("lastUpdated", `${lastUpdatedDate} ${lastUpdatedTime}`);
       if (image) {
         formData.append("image", image);
       }
 
       if (editItemId !== null) {
+        // Automatically set lastUpdated to now for edits
+        formData.append("lastUpdated", new Date().toISOString());
         const response = await axios.put(
           `http://localhost:5000/api/inventory/${editItemId}`,
           formData,
@@ -140,14 +252,26 @@ export default function InventoryMaterials() {
           prev.map((item) => (item._id === editItemId ? response.data : item))
         );
         setEditItemId(null);
+        alert("✅ Item updated successfully!");
       } else {
         const response = await axios.post(
           "http://localhost:5000/api/inventory/add",
           formData,
           { headers: { "Content-Type": "multipart/form-data" } }
         );
-        // Add new item to the end of the list (newest last)
-        setInventory([...inventory, response.data]);
+        
+        // Check if this was a stock update for existing item or a new item
+        if (response.data.message === "Stock updated for existing item") {
+          // Update the existing item in the inventory list by _id
+          setInventory((prev) =>
+            prev.map((item) => (item._id === response.data._id ? response.data : item))
+          );
+          alert(`✅ Stock updated! Added ${response.data.stockAdded} Kg to existing "${response.data.name}" (${response.data.color}, ${response.data.type}). New total: ${response.data.stock} Kg`);
+        } else {
+          // Add new item to the end of the list (newest last)
+          setInventory([...inventory, response.data]);
+          alert("✅ New item added to inventory successfully!");
+        }
       }
 
       // Reset
@@ -155,7 +279,6 @@ export default function InventoryMaterials() {
         name: "",
         color: "",
         type: "",
-        weight: "",
         stock: "",
         lastUpdatedDate: "",
         lastUpdatedTime: "",
@@ -163,6 +286,7 @@ export default function InventoryMaterials() {
         imagePreview: null,
       });
       setShowForm(false);
+      try { window.dispatchEvent(new CustomEvent('inventory:materials-updated')); } catch {}
     } catch (error) {
       console.error("Full error:", error);
       console.error("Error response:", error.response?.data);
@@ -176,7 +300,6 @@ export default function InventoryMaterials() {
       name: item.name,
       color: item.color,
       type: item.type,
-      weight: item.weight,
       stock: item.stock,
       lastUpdatedDate: item.lastUpdated.split(" ")[0],
       lastUpdatedTime: item.lastUpdated.split(" ")[1],
@@ -193,6 +316,7 @@ export default function InventoryMaterials() {
       try {
         await axios.delete(`http://localhost:5000/api/inventory/${id}`);
         setInventory((prev) => prev.filter((item) => item._id !== id));
+        try { window.dispatchEvent(new CustomEvent('inventory:materials-updated')); } catch {}
       } catch (error) {
         console.error("Error deleting item:", error);
       }
@@ -220,19 +344,40 @@ export default function InventoryMaterials() {
             to="/inventory"
             className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
           >
-            <ChartBarIcon className="w-5 h-5" />
-            <span className="font-medium">Dashboard</span>
+            <CubeIcon className="w-5 h-5" />
+            <span className="font-medium">Inventory Overview</span>
           </Link>
           <Link
-            to="/inventory/forms"
+            to="/inventory/stock"
             className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
           >
-            <CubeIcon className="w-5 h-5" />
-            <span className="font-medium">Inventory Forms</span>
+            <ChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Stock Management</span>
+          </Link>
+          <Link
+            to="/inventory/requests"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <DocumentChartBarIcon className="w-5 h-5" />
+            <span className="font-medium">Production Requests</span>
+          </Link>
+          <Link
+            to="/inventory/deliveries"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ClipboardDocumentListIcon className="w-5 h-5" />
+            <span className="font-medium">Delivery Records</span>
+          </Link>
+          <Link
+            to="/inventory/analytics"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
+          >
+            <ArrowTrendingUpIcon className="w-5 h-5" />
+            <span className="font-medium">Analytics</span>
           </Link>
           <Link
             to="/inventory/materials"
-            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+            className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
           >
             <ArrowTrendingUpIcon className="w-5 h-5" />
             <span className="font-medium">Raw Materials</span>
@@ -244,6 +389,7 @@ export default function InventoryMaterials() {
             <DocumentChartBarIcon className="w-5 h-5" />
             <span className="font-medium">Reports</span>
           </Link>
+          <LogoutButton />
         </nav>
       </aside>
 
@@ -273,6 +419,25 @@ export default function InventoryMaterials() {
             onSubmit={handleAddOrUpdateItem}
             className="mb-6 bg-white p-6 rounded-xl shadow grid grid-cols-1 md:grid-cols-2 gap-6"
           >
+            {/* Information Banner */}
+            {editItemId === null && (
+              <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0">
+                    <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-blue-800">Smart Stock Management</h4>
+                    <p className="text-sm text-blue-700 mt-1">
+                      If you add an item with the same <strong>Item Name</strong>, <strong>Color</strong>, and <strong>Processed Form</strong> as an existing item, 
+                      the stock quantities will be automatically combined instead of creating a duplicate entry.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             {/* --- inputs --- */}
             <div>
               <label className="block text-sm font-medium">Item Name</label>
@@ -295,6 +460,8 @@ export default function InventoryMaterials() {
                 <option value="Green">Green</option>
                 <option value="Brown">Brown</option>
                 <option value="Blue">Blue</option>
+                <option value="Red">Red</option>
+                <option value="Yellow">Yellow</option>
                 <option value="Mixed">Mixed</option>
               </select>
             </div>
@@ -308,44 +475,36 @@ export default function InventoryMaterials() {
                 <option value="Powder">Powder</option>
                 <option value="Pieces">Pieces</option>
                 <option value="Wire">Wire</option>
+                <option value="Plastic Bottle Cap/Lid">Plastic Bottle Cap/Lid</option>
+                <option value="Plastic Bottle Yarn">Plastic Bottle Yarn</option>
+                <option value="Pellets">Pellets</option>
+                <option value="Granules">Granules</option>
+                <option value="Bales">Bales</option>
+                <option value="Regrind">Regrind</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-sm font-medium">Weight (Kg)</label>
+              <label className="block text-sm font-medium">Stock (Kg)</label>
               <input 
-                type="text" 
-                name="weight" 
-                value={newItem.weight} 
-                onChange={handleInputChange} 
-                className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                placeholder="Enter weight (max 3 digits, decimals allowed)"
-              />
-              <p className="text-xs text-gray-500 mt-1">Maximum 3 digits, no negative numbers</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium">Stock</label>
-              <input 
-                type="text" 
+                type="number" 
                 name="stock" 
                 value={newItem.stock} 
-                onChange={handleInputChange} 
+                onChange={handleInputChange}
+                onKeyDown={handleNumericKeyDown}
+                onPaste={sanitizeStockPaste}
+                onBlur={(e)=> setNewItem((prev)=> ({ ...prev, stock: formatClamp3(e.target.value) }))}
+                onWheel={(e)=> e.currentTarget.blur()}
                 className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
-                placeholder="Enter stock quantity (numbers only)"
+                placeholder="Enter stock in Kg (up to 3 decimals)"
+                min="0.01"
+                max="100000"
+                step="0.001"
               />
-              <p className="text-xs text-gray-500 mt-1">Numbers only, no negative values</p>
+              <p className="text-xs text-gray-500 mt-1">Allowed range: 0.01–100000 Kg. Up to 3 decimal places.</p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium">Last Updated Date</label>
-              <input type="date" name="lastUpdatedDate" value={newItem.lastUpdatedDate} onChange={handleInputChange} className="w-full border p-2 rounded" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium">Last Updated Time</label>
-              <input type="time" name="lastUpdatedTime" value={newItem.lastUpdatedTime} min={minTime} onChange={handleInputChange} className="w-full border p-2 rounded" />
-            </div>
+            {/* Last Updated fields removed for both Add and Edit; timestamp handled automatically */}
 
             <div>
               <label className="block text-sm font-medium">Item Image</label>
@@ -365,10 +524,24 @@ export default function InventoryMaterials() {
 
         {/* Table */}
         <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
-          <div className="flex items-center justify-between mb-6">
+          {highlightLowStock && (
+            <div className="mb-4 p-3 rounded-lg border border-red-200 bg-red-50 text-red-800 text-sm">
+              Low stock items are highlighted in red.
+            </div>
+          )}
+          <div className="flex items-center justify-between mb-6 gap-4">
             <h2 className="text-xl font-bold text-gray-900">Inventory List</h2>
             <div className="text-sm text-gray-500">
               Total Items: <span className="font-semibold text-gray-900">{inventory.length}</span>
+            </div>
+            <div className="ml-auto w-full max-w-md relative">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by Item Name, Color, or Processed Form..."
+                className="w-full pl-3 pr-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -380,14 +553,13 @@ export default function InventoryMaterials() {
                   <th className="p-4 border border-gray-200 text-sm font-semibold text-gray-700 bg-blue-50">Item Name</th>
                   <th className="p-4 border border-gray-200 text-sm font-semibold text-gray-700 bg-indigo-50">Color</th>
                   <th className="p-4 border border-gray-200 text-sm font-semibold text-gray-700 bg-blue-50">Processed Form</th>
-                  <th className="p-4 border border-gray-200 text-sm font-semibold text-gray-700 bg-indigo-50">Weight (Kg)</th>
                   <th className="p-4 border border-gray-200 text-sm font-semibold text-gray-700 bg-blue-50">Stock</th>
                   <th className="p-4 border border-gray-200 text-sm font-semibold text-gray-700 bg-indigo-50">Last Updated</th>
                   <th className="p-4 border border-gray-200 text-sm font-semibold text-gray-700 bg-blue-50">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {inventory.map((item) => {
+                {filteredInventory.map((item) => {
                   const getColorBadge = (color) => {
                     const colorClasses = {
                       'Clear': 'bg-gray-100 text-gray-800 border border-gray-300',
@@ -405,13 +577,23 @@ export default function InventoryMaterials() {
                       'Crushed': 'bg-orange-100 text-orange-800',
                       'Powder': 'bg-pink-100 text-pink-800',
                       'Pieces': 'bg-cyan-100 text-cyan-800',
-                      'Wire': 'bg-indigo-100 text-indigo-800'
+                      'Wire': 'bg-indigo-100 text-indigo-800',
+                      'Plastic Bottle Cap/Lid': 'bg-blue-100 text-blue-800',
+                      'Plastic Bottle Yarn': 'bg-purple-100 text-purple-800',
+                      'Pellets': 'bg-teal-100 text-teal-800',
+                      'Granules': 'bg-lime-100 text-lime-800',
+                      'Bales': 'bg-amber-100 text-amber-800',
+                      'Regrind': 'bg-rose-100 text-rose-800'
                     };
                     return typeClasses[type] || 'bg-gray-100 text-gray-800';
                   };
 
                   return (
-                    <tr key={item._id} className="hover:bg-gray-50 transition-colors duration-200">
+                    <tr
+                      key={item._id}
+                      id={`row-${item._id}`}
+                      className={`${highlightLowStock && Number(item.stock) < LOW_STOCK_THRESHOLD ? 'bg-red-100 ring-2 ring-red-200' : ''} hover:bg-gray-50 transition-colors duration-200`}
+                    >
                       <td className="p-3 border border-gray-200 font-mono text-sm font-semibold text-blue-600">
                         {item.itemCode}
                       </td>
@@ -452,20 +634,32 @@ export default function InventoryMaterials() {
                           {item.type}
                         </span>
                       </td>
-                      <td className="p-3 border border-gray-200 font-semibold text-gray-900">
-                        {item.weight} kg
-                      </td>
                       <td className="p-3 border border-gray-200">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                           item.stock > 100 ? 'bg-green-100 text-green-800' :
                           item.stock > 50 ? 'bg-yellow-100 text-yellow-800' :
                           'bg-red-100 text-red-800'
                         }`}>
-                          {item.stock} units
+                          {Number(item.stock || 0).toFixed(3)} Kg
                         </span>
                       </td>
                       <td className="p-3 border border-gray-200 text-sm text-gray-600">
-                        {item.lastUpdated}
+                        {(() => {
+                          try {
+                            const d = new Date(item.lastUpdated);
+                            const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Colombo' });
+                            const timeStr = d.toLocaleTimeString('en-LK', {
+                              timeZone: 'Asia/Colombo',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                              hour12: false,
+                            });
+                            return `${dateStr} ${timeStr}`;
+                          } catch (e) {
+                            return item.lastUpdated;
+                          }
+                        })()}
                       </td>
                       <td className="p-3 border border-gray-200">
                         <div className="flex justify-center gap-2">
@@ -486,9 +680,18 @@ export default function InventoryMaterials() {
                     </tr>
                   );
                 })}
+                {inventory.length > 0 && filteredInventory.length === 0 && (
+                  <tr>
+                    <td colSpan="8" className="p-8 text-center text-gray-500 bg-gray-50">
+                      <CubeIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                      <p className="text-lg font-medium">No items match your search</p>
+                      <p className="text-sm">Try a different Item Name, Color, or Processed Form</p>
+                    </td>
+                  </tr>
+                )}
                 {inventory.length === 0 && (
                   <tr>
-                    <td colSpan="9" className="p-8 text-center text-gray-500 bg-gray-50">
+                    <td colSpan="8" className="p-8 text-center text-gray-500 bg-gray-50">
                       <CubeIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
                       <p className="text-lg font-medium">No items added yet</p>
                       <p className="text-sm">Click "Add Item" to get started</p>

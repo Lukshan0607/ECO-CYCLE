@@ -17,7 +17,8 @@ const {
   createPayment,
   updatePayment,
   deletePayment,
-  updatePaymentStatus
+  updatePaymentStatus,
+  updateOrderPayment
 } = require('../Controllers/PaymentController');
 
 // Payment Transaction Routes
@@ -26,6 +27,9 @@ router.get('/transactions/:id', getTransactionById);
 router.post('/transactions', createTransaction);
 router.put('/transactions/:id/status', updateTransactionStatus);
 router.post('/transactions/:id/refund', processRefund);
+
+// Order Payment Update Route
+router.put('/orders/:orderId/payment', updateOrderPayment);
 
 // Analytics Routes
 router.get('/analytics', getPaymentAnalytics);

@@ -1,5 +1,7 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import "./App.css";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -15,21 +17,23 @@ import InventoryDashboard from "./components/Inventory/InventoryDashboard";
 import InventoryProfile from "./components/Inventory/InventoryProfile";
 import InventoryForms from "./components/Inventory/InventoryForms";
 import InventorySorting from "./components/Inventory/InventorySorting";
-import ReportPage from "./components/Inventory/ReportPage";
+import InventoryReports from "./components/Inventory/InventoryReports";
+import InventoryAnalytics from "./components/Inventory/InventoryAnalytics";
+import InventoryRequests from "./components/Inventory/InventoryRequests";
+import InventoryDeliveryRecords from "./components/Inventory/InventoryDeliveryRecords";
 import ProductionDashboard from "./components/Production/ProductionDashboard";
+import ProductionAnalyticsPage from "./components/Production/ProductionAnalyticsPage";
+import ProductionReportPage from "./components/Production/ProductionReportPage";
 import UnifiedFinanceDashboard from "./components/finance/UnifiedFinanceDashboard";
 import AdminDashboard from "./components/admin/AdminDashboard";
-import SalesDashboard from "./components/sales/SalesDashboard";
 import TransportDashboard from "./components/transport/TransportDashboard";
+import TransportReports from "./components/transport/TransportReports";
+import CollectorsDashboard from "./components/collectors/CollectorsDashboard";
 import InventoryMaterials from "./components/Inventory/InventoryMaterials";
+import InventoryStockManagement from "./components/Inventory/InventoryStockManagement";
 import FAQ from "./components/business/FAQ";
 import Contact from "./components/business/Contact";
 import HelpCenter from "./components/business/HelpCenter";
-
-
-
-
-
 
 function App() {
   return (
@@ -47,139 +51,206 @@ function App() {
           <Route path="/faq" element={<FAQ />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/help" element={<HelpCenter />} />
-          
 
           {/* Protected Routes - General User */}
-          <Route 
-            path="/dashboard" 
+          <Route
+            path="/dashboard"
             element={
               <ProtectedRoute>
                 <UserDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
-          
+          <Route
+            path="/collectors"
+            element={
+              <ProtectedRoute>
+                <CollectorsDashboard />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Protected Routes - Admin Only */}
-          <Route 
-            path="/admin" 
+          <Route
+            path="/admin"
             element={
               <ProtectedRoute requiredRole="admin">
                 <AdminDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/admin-dashboard" 
+          <Route
+            path="/admin-dashboard"
             element={
               <ProtectedRoute requiredRole="admin">
                 <AdminDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
-          
+
           {/* Protected Routes - Manager/Admin */}
-          <Route 
-            path="/inventory" 
+          <Route
+            path="/inventory"
             element={
               <ProtectedRoute requiredRole="inventory">
                 <InventoryDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/inventory/profile" 
+          <Route
+            path="/inventory/requests"
+            element={
+              <ProtectedRoute requiredRole="inventory">
+                <InventoryRequests />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/deliveries"
+            element={
+              <ProtectedRoute requiredRole="inventory">
+                <InventoryDeliveryRecords />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/profile"
             element={
               <ProtectedRoute>
                 <InventoryProfile />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/inventory/forms" 
+          <Route
+            path="/inventory/forms"
             element={
               <ProtectedRoute>
                 <InventoryForms />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/inventory/sorting" 
+          <Route
+            path="/inventory/stock"
+            element={
+              <ProtectedRoute>
+                <InventoryStockManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/analytics"
+            element={
+              <ProtectedRoute>
+                <InventoryAnalytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/sorting"
             element={
               <ProtectedRoute>
                 <InventorySorting />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/inventory/reports" 
+          <Route
+            path="/inventory/reports"
             element={
               <ProtectedRoute>
-                <ReportPage />
+                <InventoryReports />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/inventory/materials" 
+          <Route
+            path="/inventory/materials"
             element={
               <ProtectedRoute>
                 <InventoryMaterials />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/production" 
+
+          <Route
+            path="/production"
             element={
               <ProtectedRoute requiredRole="production">
                 <ProductionDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/finance" 
+          <Route
+            path="/production/analytics"
+            element={
+              <ProtectedRoute requiredRole="production">
+                <ProductionAnalyticsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/production/reports"
+            element={
+              <ProtectedRoute requiredRole="production">
+                <ProductionReportPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/finance"
             element={
               <ProtectedRoute requiredRole="finance">
                 <UnifiedFinanceDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/sales" 
-            element={
-              <ProtectedRoute requiredRole="sales">
-                <SalesDashboard />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/transport" 
+          <Route
+            path="/transport"
             element={
               <ProtectedRoute requiredRole="transport">
                 <TransportDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
-          
+          <Route
+            path="/transport/reports"
+            element={
+              <ProtectedRoute requiredRole="transport">
+                <TransportReports />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Legacy Routes - Redirect to new dashboard */}
-          <Route 
-            path="/user-dashboard" 
+          <Route
+            path="/user-dashboard"
             element={
               <ProtectedRoute>
                 <UserDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/manager-dashboard" 
+          <Route
+            path="/manager-dashboard"
             element={
               <ProtectedRoute requiredRole="manager">
                 <UserDashboard />
               </ProtectedRoute>
-            } 
+            }
           />
         </Routes>
       </div>
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+      />
     </AuthProvider>
   );
 }
-
+//change branch
 export default App;

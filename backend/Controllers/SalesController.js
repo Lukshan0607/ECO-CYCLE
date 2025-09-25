@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { SalesOrder, Customer, Product, SalesAnalytics } = require('../Model/SalesModel');
 
 // Get all sales orders
@@ -29,22 +30,43 @@ const getOrderById = async (req, res) => {
 // Create new sales order
 const createOrder = async (req, res) => {
   try {
-    const { customerId, customerName, products, shippingAddress, notes } = req.body;
-    
-    // Calculate total amount
+    const { customerId, customerName, products, shippingAddress, notes } = req.body || {};
+
+    if (!customerId || !customerName) {
+      return res.status(400).json({ message: 'Missing customer information' });
+    }
+
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ message: 'No products provided for the order' });
+    }
+
+    // Calculate total amount and sanitize products
     let totalAmount = 0;
-    const orderProducts = products.map(product => {
-      const totalPrice = product.quantity * product.unitPrice;
+    const orderProducts = products.map((product) => {
+      const quantity = Math.max(1, parseInt(product.quantity) || 1);
+      const unitPrice = parseFloat(product.unitPrice) || 0;
+      const totalPrice = quantity * unitPrice;
       totalAmount += totalPrice;
+
+      // Cast productId to ObjectId only if it looks valid
+      let castProductId;
+      if (product.productId && typeof product.productId === 'string' && /^[a-fA-F0-9]{24}$/.test(product.productId)) {
+        castProductId = new mongoose.Types.ObjectId(product.productId);
+      }
+
       return {
-        ...product,
-        totalPrice
+        productId: castProductId,
+        productName: product.productName,
+        quantity,
+        unitPrice,
+        totalPrice,
       };
     });
 
-    // Generate order ID
-    const orderCount = await SalesOrder.countDocuments();
-    const orderId = `ORD${String(orderCount + 1).padStart(6, '0')}`;
+    // Generate order ID in a collision-resistant way (no counter needed)
+    const orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, '0')}`;
 
     const newOrder = new SalesOrder({
       orderId,
@@ -57,12 +79,20 @@ const createOrder = async (req, res) => {
     });
 
     const savedOrder = await newOrder.save();
-    
-    // Update customer statistics
-    await Customer.findByIdAndUpdate(customerId, {
-      $inc: { totalOrders: 1, totalSpent: totalAmount },
-      lastOrderDate: new Date()
-    });
+
+    // Try to update customer statistics, but do not fail the order if this errors
+    (async () => {
+      try {
+        if (mongoose.isValidObjectId(customerId)) {
+          await Customer.findByIdAndUpdate(customerId, {
+            $inc: { totalOrders: 1, totalSpent: totalAmount },
+            lastOrderDate: new Date(),
+          });
+        }
+      } catch (e) {
+        console.warn('Customer stats update failed:', e?.message || e);
+      }
+    })();
 
     res.status(201).json(savedOrder);
   } catch (error) {

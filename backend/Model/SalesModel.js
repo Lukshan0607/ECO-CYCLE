@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Product = require('./ProductModel');
 
 // Sales Order Schema
 const salesOrderSchema = new mongoose.Schema({
@@ -8,8 +9,7 @@ const salesOrderSchema = new mongoose.Schema({
     unique: true
   },
   customerId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Customer',
+    type: String,
     required: true
   },
   customerName: {
@@ -113,49 +113,6 @@ const customerSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Product Schema
-const productSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true
-  },
-  description: String,
-  price: {
-    type: Number,
-    required: true,
-    min: 0
-  },
-  category: {
-    type: String,
-    required: true
-  },
-  stock: {
-    type: Number,
-    required: true,
-    min: 0
-  },
-  sku: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  status: {
-    type: String,
-    enum: ['Active', 'Inactive', 'Discontinued'],
-    default: 'Active'
-  },
-  totalSold: {
-    type: Number,
-    default: 0
-  },
-  revenue: {
-    type: Number,
-    default: 0
-  }
-}, {
-  timestamps: true
-});
-
 // Sales Analytics Schema
 const salesAnalyticsSchema = new mongoose.Schema({
   date: {
@@ -193,7 +150,6 @@ const salesAnalyticsSchema = new mongoose.Schema({
 
 const SalesOrder = mongoose.model('SalesOrder', salesOrderSchema);
 const Customer = mongoose.model('Customer', customerSchema);
-const Product = mongoose.model('Product', productSchema);
 const SalesAnalytics = mongoose.model('SalesAnalytics', salesAnalyticsSchema);
 
 module.exports = {

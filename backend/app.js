@@ -10,6 +10,22 @@ const userRoutes = require("./Routes/UserRoutes");
 const inventoryRoutes = require("./Routes/InventoryRoutes");
 const productionRequestRoutes = require("./Routes/ProductionRequestRoutes");
 const paymentRoutes = require("./Routes/PaymentRoutes");
+const productRoutes = require("./Routes/ProductRoutes");
+const cartRoutes = require("./Routes/CartRoutes");
+const employeeRoutes = require("./Routes/EmployeeRoutes");
+const payrollRoutes = require("./Routes/PayrollRoutes");
+const transportRoutes = require("./Routes/TransportRoutes");
+const vehicleRoutes = require("./Routes/VehicleRoutes");
+const binRouteRoutes = require("./Routes/BinRouteRoutes");
+const collectionRoutes = require("./Routes/CollectionRoutes");
+const pointsRoutes = require("./Routes/PointsRoutes");
+const transportRequestRoutes = require("./Routes/TransportRequestRoutes");
+const salesRoutes = require("./Routes/SalesRoutes");
+const productionPlanRoutes = require("./Routes/ProductionPlanRoutes");
+const machineRoutes = require("./Routes/MachineRoutes");
+const qualityRoutes = require("./Routes/QualityRoutes");
+const stockProductionRequestRoutes = require("./Routes/StockProductionRequestRoutes");
+const expenseRoutes = require("./Routes/ExpenseRoutes");
 
 // CORS Configuration
 const corsOptions = {
@@ -32,7 +48,27 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use("/api/users", userRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/production-requests", productionRequestRoutes);
+app.use("/api/expenses", expenseRoutes);
 app.use("/api/finance", paymentRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/employees", employeeRoutes);
+app.use("/api/payroll", payrollRoutes);
+app.use("/api/expenses", expenseRoutes);
+app.use("/api/transport", transportRoutes);
+app.use("/api/vehicles", vehicleRoutes);
+
+app.use("/api/transport", vehicleRoutes);
+app.use("/api/transport", binRouteRoutes);
+// Collectors pages required endpoints
+app.use("/api/collections", collectionRoutes);
+app.use("/api/points", pointsRoutes);
+app.use("/api/transport-requests", transportRequestRoutes);
+app.use("/api/sales", salesRoutes);
+app.use("/api/production-plans", productionPlanRoutes);
+app.use("/api/machines", machineRoutes);
+app.use("/api/quality", qualityRoutes);
+app.use("/api/stock-requests", stockProductionRequestRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

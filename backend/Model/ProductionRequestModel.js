@@ -47,15 +47,35 @@ const productionRequestSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Generate unique request ID before saving
+// Generate unique request ID before saving: RMR-<auto-incrementing number>
 productionRequestSchema.pre('save', async function(next) {
   if (!this.requestId) {
     try {
-      const count = await this.constructor.countDocuments();
-      this.requestId = `PR-${Date.now()}-${String(count + 1).padStart(3, '0')}`;
+      // Find the latest request to determine the next sequence number
+      const latest = await this.constructor
+        .findOne({ requestId: { $regex: /^RMR-\d+$/ } })
+        .sort({ createdAt: -1 })
+        .select('requestId')
+        .lean();
+
+      let nextNumber = 1;
+      if (latest && latest.requestId) {
+        const match = latest.requestId.match(/^RMR-(\d+)$/);
+        if (match) {
+          nextNumber = parseInt(match[1], 10) + 1;
+        }
+      } else {
+        // Fallback to countDocuments if no previous RMR- ids found
+        const count = await this.constructor.countDocuments();
+        nextNumber = count + 1;
+      }
+
+      // Zero-pad to 5 digits (e.g., RMR-00001)
+      this.requestId = `RMR-${String(nextNumber).padStart(5, '0')}`;
     } catch (error) {
       console.error('Error generating requestId:', error);
-      this.requestId = `PR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      // Last resort fallback ensures uniqueness likelihood
+      this.requestId = `RMR-${Date.now()}`;
     }
   }
   next();

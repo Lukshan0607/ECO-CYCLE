@@ -16,12 +16,12 @@ const Layout = ({ children }) => {
   const location = useLocation()
 
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: HomeIcon },
+    { name: 'Home', href: '/', icon: HomeIcon },
     { name: 'Collection & Points', href: '/collection', icon: PackageIcon },
     { name: 'Transport', href: '/transport', icon: TruckIcon },
     { name: 'Inventory', href: '/inventory', icon: WarehouseIcon },
     { name: 'Production', href: '/production', icon: FactoryIcon },
-    { name: 'Sales & Finance', href: '/sales', icon: DollarSignIcon },
+    { name: 'Finance', href: '/finance', icon: DollarSignIcon },
   ]
 
   const isActive = (path) => location.pathname === path

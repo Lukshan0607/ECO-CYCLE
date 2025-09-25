@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+          import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import LogoutButton from "../common/LogoutButton";
 import {
   LayoutDashboard,
@@ -22,26 +22,19 @@ import {
   PackagePlus,
   DollarSign,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  Legend,
-} from "recharts";
+ 
 
 const ProductionDashboard = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("overview");
   const [inventoryItems, setInventoryItems] = useState([]);
   const [acceptedMaterials, setAcceptedMaterials] = useState([]);
+  const [requests, setRequests] = useState([]);
+  // Pagination and filtering for Production Requests
+  const [requestPage, setRequestPage] = useState(1);
+  const [requestPageSize, setRequestPageSize] = useState(10);
+  const [requestQuery, setRequestQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -51,16 +44,50 @@ const ProductionDashboard = () => {
     notes: '',
     priority: 'Medium'
   });
+  const [plans, setPlans] = useState([]);
+  const [machines, setMachines] = useState([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [showPlanForm, setShowPlanForm] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [planForm, setPlanForm] = useState({
+    productName: '',
+    productId: '',
+    quantity: '',
+    startDate: '',
+    endDate: '',
+    priority: 'Medium',
+    status: 'Scheduled',
+    notes: ''
+  });
+  const [showMachineForm, setShowMachineForm] = useState(false);
+  const [editingMachine, setEditingMachine] = useState(null);
+  const [machineForm, setMachineForm] = useState({
+    name: '',
+    code: '',
+    status: 'Idle',
+    efficiency: '',
+    lastMaintenance: '',
+    notes: ''
+  });
+  const [qualityRecords, setQualityRecords] = useState([]);
+  const [loadingQuality, setLoadingQuality] = useState(false);
+  const [showQualityForm, setShowQualityForm] = useState(false);
+  const [editingQuality, setEditingQuality] = useState(null);
+  const [qualityForm, setQualityForm] = useState({
+    batchNo: '',
+    productId: '',
+    productName: '',
+    status: 'Passed',
+    defects: '',
+    defectCount: '',
+    inspectionDate: '',
+    inspector: '',
+    notes: '',
+    checks: { visual: true, dimensions: true, functional: true, packaging: true, safety: true },
+    inspectedQuantity: '',
+    planId: ''
+  });
 
-  // Production vs Sales data for analytics
-  const productionData = [
-    { month: "Jan", produced: 1200, sold: 1100 },
-    { month: "Feb", produced: 1350, sold: 1250 },
-    { month: "Mar", produced: 1400, sold: 1380 },
-    { month: "Apr", produced: 1300, sold: 1200 },
-    { month: "May", produced: 1500, sold: 1450 },
-    { month: "Jun", produced: 1600, sold: 1550 },
-  ];
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [products, setProducts] = useState([]);
@@ -76,6 +103,507 @@ const ProductionDashboard = () => {
     points: "",
   });
 
+  // Loyalty: points per 1 rupee setting (persisted in backend)
+  const [pointsPerRupee, setPointsPerRupee] = useState("");
+  const [pointsSavedAt, setPointsSavedAt] = useState("");
+
+  // Load loyalty settings from backend
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const res = await axios.get('http://localhost:5000/api/points/settings');
+        const rate = res.data?.settings?.pointsPerRupee;
+        const updatedAt = res.data?.settings?.updatedAt;
+        if (rate !== undefined) setPointsPerRupee(String(rate));
+        if (updatedAt) setPointsSavedAt(updatedAt);
+      } catch (err) {
+        console.error('Failed to load loyalty settings', err);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  const handleSavePointsPerRupee = async (e) => {
+    e.preventDefault();
+    try {
+      const body = { pointsPerRupee: Number(pointsPerRupee) };
+      const res = await axios.post('http://localhost:5000/api/points/settings', body);
+      const updatedAt = res.data?.settings?.updatedAt || new Date().toISOString();
+      setPointsSavedAt(updatedAt);
+      // Refresh products so updated points reflect in table
+      await fetchProducts();
+      alert(`Saved: points per 1 rupee updated. Products recalculated: ${res.data?.updatedProducts ?? 0}`);
+    } catch (err) {
+      console.error('Failed to save loyalty settings', err);
+      alert('Failed to save loyalty settings. Please ensure the backend is running.');
+    }
+  };
+
+  // Fetch quality records
+  const fetchQualityRecords = async () => {
+    try {
+      setLoadingQuality(true);
+      const res = await axios.get('http://localhost:5000/api/quality');
+      const list = res.data?.records || [];
+      setQualityRecords(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.error('Error fetching quality records:', err);
+    } finally {
+      setLoadingQuality(false);
+    }
+  };
+
+  // Quality form handlers
+  const handleQualityChange = (e) => {
+    const { name, value } = e.target;
+    // Field-level restrictions for Quality Records form
+    if (name === 'productName') {
+      // Allow only letters and spaces (no numbers or special characters)
+      const nameRegex = /^[A-Za-z\s]*$/;
+      if (!nameRegex.test(value)) return;
+    } else if (name === 'inspectedQuantity') {
+      // Digits only, maximum 4 characters
+      const qtyRegex = /^\d{0,4}$/;
+      if (!qtyRegex.test(value)) return;
+    } else if (name === 'defects') {
+      // Allow only letters, commas, and spaces (e.g., "scratch, color mismatch")
+      const defectsRegex = /^[A-Za-z\s,]*$/;
+      if (!defectsRegex.test(value)) return;
+    } else if (name === 'defectCount') {
+      // Digits only, up to 3 while typing
+      const countRegex = /^\d{0,3}$/;
+      if (!countRegex.test(value)) return;
+    } else if (name === 'inspector') {
+      // Letters and spaces only
+      const inspRegex = /^[A-Za-z\s]*$/;
+      if (!inspRegex.test(value)) return;
+    }
+    setQualityForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleQualityCheckToggle = (e) => {
+    const { name, checked } = e.target;
+    setQualityForm((prev) => ({
+      ...prev,
+      checks: { ...prev.checks, [name]: checked },
+    }));
+  };
+
+  const handleQualityProductSelect = (e) => {
+    const id = e.target.value;
+    const prod = (products || []).find((p) => p._id === id);
+    setQualityForm((prev) => ({
+      ...prev,
+      productId: id,
+      productName: prod ? prod.name : prev.productName,
+      // Auto-derive Batch No from selected product's Product ID (RIP-....)
+      batchNo: prod?.productId ? String(prod.productId) : prev.batchNo,
+    }));
+  };
+
+  const submitQuality = async (e) => {
+    e.preventDefault();
+    try {
+      // Submit-time validation for Quality Records
+      const nameOk = /^[A-Za-z\s]*$/.test(qualityForm.productName || '');
+      if (!nameOk) {
+        alert('Product Name can contain only letters and spaces.');
+        return;
+      }
+      const qtyOk = /^\d{1,4}$/.test((qualityForm.inspectedQuantity || '').toString());
+      if (qualityForm.inspectedQuantity && !qtyOk) {
+        alert('Inspected Quantity must be digits only, up to 4 digits.');
+        return;
+      }
+      const defectsOk = /^[A-Za-z\s,]*$/.test(qualityForm.defects || '');
+      if (!defectsOk) {
+        alert('Defects must contain only letters, commas, and spaces.');
+        return;
+      }
+      const defectCountOk = /^\d{0,3}$/.test((qualityForm.defectCount || '').toString());
+      if (!defectCountOk) {
+        alert('Defect Count must be digits only, up to 3 digits.');
+        return;
+      }
+      const inspectorOk = /^[A-Za-z\s]*$/.test(qualityForm.inspector || '');
+      if (!inspectorOk) {
+        alert('Inspector can contain only letters and spaces.');
+        return;
+      }
+
+      // Determine batch number from selected product's Product ID (e.g., RIP-0001)
+      const selectedProd = (products || []).find((p) => p._id === qualityForm.productId);
+      const batchNoVal = selectedProd?.productId ? String(selectedProd.productId) : qualityForm.batchNo.trim();
+
+      const payload = {
+        batchNo: batchNoVal,
+        productId: qualityForm.productId || undefined,
+        productName: qualityForm.productName?.trim() || undefined,
+        status: qualityForm.status,
+        defects: qualityForm.defects,
+        defectCount: qualityForm.defectCount ? parseInt(qualityForm.defectCount) : 0,
+        inspectionDate: qualityForm.inspectionDate || undefined,
+        inspector: qualityForm.inspector.trim(),
+        notes: qualityForm.notes?.trim() || '',
+        inspectedQuantity: qualityForm.inspectedQuantity ? parseInt(qualityForm.inspectedQuantity) : 0,
+        planId: qualityForm.planId || undefined,
+        checks: {
+          visual: !!qualityForm.checks?.visual,
+          dimensions: !!qualityForm.checks?.dimensions,
+          functional: !!qualityForm.checks?.functional,
+          packaging: !!qualityForm.checks?.packaging,
+          safety: !!qualityForm.checks?.safety,
+        }
+      };
+      let res;
+      if (editingQuality) {
+        res = await axios.put(`http://localhost:5000/api/quality/${editingQuality._id}`, payload);
+      } else {
+        res = await axios.post('http://localhost:5000/api/quality', payload);
+      }
+      const saved = res.data?.record;
+      if (saved) {
+        setQualityRecords((prev) => editingQuality ? prev.map(r => r._id === saved._id ? saved : r) : [saved, ...prev]);
+      } else {
+        await fetchQualityRecords();
+      }
+      setEditingQuality(null);
+      setShowQualityForm(false);
+      setQualityForm({ batchNo: '', productId: '', productName: '', status: 'Passed', defects: '', defectCount: '', inspectionDate: '', inspector: '', notes: '', checks: { visual: true, dimensions: true, functional: true, packaging: true, safety: true }, inspectedQuantity: '', planId: '' });
+      alert(`Quality record ${editingQuality ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+      console.error('submitQuality error', err);
+      alert('Failed to save quality record');
+    }
+  };
+
+  const editQuality = (rec) => {
+    setEditingQuality(rec);
+    setQualityForm({
+      batchNo: rec.batchNo || '',
+      productId: rec.productId?._id || '',
+      productName: rec.productName || '',
+      status: rec.status || 'Passed',
+      defects: (rec.defects || []).join(', '),
+      defectCount: (rec.defectCount ?? '').toString(),
+      inspectionDate: rec.inspectionDate ? new Date(rec.inspectionDate).toISOString().slice(0,10) : '',
+      inspector: rec.inspector || '',
+      notes: rec.notes || '',
+      inspectedQuantity: (rec.inspectedQuantity ?? '').toString(),
+      planId: rec.planId || '',
+      checks: {
+        visual: rec.checks?.visual ?? true,
+        dimensions: rec.checks?.dimensions ?? true,
+        functional: rec.checks?.functional ?? true,
+        packaging: rec.checks?.packaging ?? true,
+        safety: rec.checks?.safety ?? true,
+      }
+    });
+    setShowQualityForm(true);
+  };
+
+  const deleteQuality = async (id) => {
+    if (!window.confirm('Delete this quality record?')) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/quality/${id}`);
+      setQualityRecords((prev) => prev.filter((r) => r._id !== id));
+      alert('Quality record deleted');
+    } catch (err) {
+      console.error('deleteQuality error', err);
+      alert('Failed to delete quality record');
+    }
+  };
+
+  // Fetch production plans
+  const fetchProductionPlans = async () => {
+    try {
+      setLoadingPlans(true);
+      const response = await axios.get('http://localhost:5000/api/production-plans');
+      const list = response.data?.plans || [];
+      setPlans(Array.isArray(list) ? list : []);
+    } catch (error) {
+      console.error('Error fetching production plans:', error);
+    } finally {
+      setLoadingPlans(false);
+    }
+  };
+
+  // Fetch machines
+  const fetchMachines = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/machines');
+      const list = response.data?.machines || [];
+      setMachines(Array.isArray(list) ? list : []);
+    } catch (error) {
+      console.error('Error fetching machines:', error);
+    }
+  };
+
+  // CRUD: Production Plans
+  const handlePlanFormChange = (e) => {
+    const { name, value } = e.target;
+    // Field-level restrictions
+    if (name === 'productName') {
+      // Only letters and spaces
+      const nameRegex = /^[A-Za-z\s]*$/;
+      if (!nameRegex.test(value)) return;
+    }
+    if (name === 'quantity') {
+      // Only digits, max 4 (no minus, plus, letters, or special chars)
+      const qtyRegex = /^\d{0,4}$/;
+      if (!qtyRegex.test(value)) return;
+    }
+    if (name === 'startDate') {
+      // Build local yyyy-mm-dd (avoid UTC offset issues)
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const ymdToday = `${y}-${m}-${day}`;
+      if (value && value < ymdToday) {
+        return setPlanForm((prev) => ({ ...prev, [name]: ymdToday }));
+      }
+    }
+    setPlanForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handlePlanProductSelect = (e) => {
+    const id = e.target.value;
+    const prod = (products || []).find((p) => p._id === id);
+    setPlanForm((prev) => ({
+      ...prev,
+      productId: id,
+      productName: prod ? prod.name : prev.productName,
+    }));
+  };
+
+  const submitPlan = async (e) => {
+    e.preventDefault();
+    try {
+      // Submit-time validation
+      const qtyNum = planForm.quantity ? parseInt(planForm.quantity, 10) : 0;
+      if (!qtyNum || qtyNum <= 0) {
+        alert('Quantity must be a positive number');
+        return;
+      }
+      if (qtyNum > 9999) {
+        alert('Quantity cannot exceed 4 digits (max 9999)');
+        return;
+      }
+      const todayStr = new Date().toISOString().slice(0,10);
+      if (planForm.startDate && planForm.startDate < todayStr) {
+        alert('Start Date cannot be a previous day');
+        return;
+      }
+
+      const payload = {
+        productName: planForm.productName?.trim() || undefined,
+        productId: planForm.productId || undefined,
+        quantity: qtyNum,
+        startDate: planForm.startDate || undefined,
+        endDate: planForm.endDate || undefined,
+        priority: planForm.priority,
+        status: planForm.status,
+        notes: planForm.notes?.trim() || ''
+      };
+      let res;
+      if (editingPlan) {
+        res = await axios.put(`http://localhost:5000/api/production-plans/${editingPlan._id}`, payload);
+      } else {
+        res = await axios.post('http://localhost:5000/api/production-plans', payload);
+      }
+      const saved = res.data?.plan;
+      if (saved) {
+        if (editingPlan) {
+          setPlans((prev) => prev.map((p) => (p._id === editingPlan._id ? saved : p)));
+        } else {
+          setPlans((prev) => [saved, ...prev]);
+        }
+      } else {
+        await fetchProductionPlans();
+      }
+      setEditingPlan(null);
+      setPlanForm({ productName: '', productId: '', quantity: '', startDate: '', endDate: '', priority: 'Medium', status: 'Scheduled', notes: '' });
+      setShowPlanForm(false);
+      alert(`Plan ${editingPlan ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+      console.error('submitPlan error', err);
+      alert('Failed to save plan');
+    }
+  };
+
+  const editPlan = (plan) => {
+    setEditingPlan(plan);
+    setPlanForm({
+      productName: plan.productName || '',
+      productId: plan.productId?._id || '',
+      quantity: plan.quantity?.toString() || '',
+      startDate: plan.startDate ? new Date(plan.startDate).toISOString().slice(0,10) : '',
+      endDate: plan.endDate ? new Date(plan.endDate).toISOString().slice(0,10) : '',
+      priority: plan.priority || 'Medium',
+      status: plan.status || 'Scheduled',
+      notes: plan.notes || ''
+    });
+    setShowPlanForm(true);
+  };
+
+  const deletePlan = async (id) => {
+    if (!window.confirm('Delete this plan?')) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/production-plans/${id}`);
+      setPlans((prev) => prev.filter((p) => p._id !== id));
+      alert('Plan deleted');
+    } catch (err) {
+      console.error('deletePlan error', err);
+      alert('Failed to delete plan');
+    }
+  };
+
+  const goToQuality = (plan) => {
+    const prodId = plan.productId?._id || '';
+    const prodName = plan.productName || '';
+    // Prefer product's Product ID (RIP-....) for Batch No when available
+    const linkedProduct = (products || []).find((p) => p._id === prodId);
+    const batchNo = linkedProduct?.productId ? String(linkedProduct.productId) : (plan._id ? `PLAN-${String(plan._id).slice(-6).toUpperCase()}` : new Date().toISOString().slice(0,10));
+    setActiveTab('quality');
+    setShowQualityForm(true);
+    setEditingQuality(null);
+    setQualityForm({
+      batchNo,
+      productId: prodId,
+      productName: prodName,
+      status: 'Passed',
+      defects: '',
+      defectCount: '',
+      inspectionDate: new Date().toISOString().slice(0,10),
+      inspector: '',
+      notes: `QC for plan ${batchNo}`,
+      checks: { visual: true, dimensions: true, functional: true, packaging: true, safety: true },
+      inspectedQuantity: plan.quantity ? String(plan.quantity) : '',
+      planId: plan._id || ''
+    });
+  };
+
+  const completePlan = async (plan) => {
+    try {
+      const res = await axios.put(`http://localhost:5000/api/production-plans/${plan._id}`, { status: 'Completed' });
+      const updated = res.data?.plan || null;
+      if (updated) {
+        setPlans((prev) => prev.map((p) => (p._id === plan._id ? updated : p)));
+      } else {
+        await fetchProductionPlans();
+      }
+      alert('Plan marked as Completed.');
+
+      // Jump to Quality form prefilled for this plan
+      goToQuality(updated || plan);
+    } catch (err) {
+      console.error('completePlan error', err);
+      alert('Failed to complete plan');
+    }
+  };
+
+  // CRUD: Machines
+  const handleMachineFormChange = (e) => {
+    const { name, value } = e.target;
+    setMachineForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const submitMachine = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        name: machineForm.name.trim(),
+        code: machineForm.code.trim(),
+        status: machineForm.status,
+        efficiency: machineForm.efficiency ? parseInt(machineForm.efficiency) : 0,
+        lastMaintenance: machineForm.lastMaintenance || undefined,
+        notes: machineForm.notes?.trim() || ''
+      };
+      let res;
+      if (editingMachine) {
+        res = await axios.put(`http://localhost:5000/api/machines/${editingMachine._id}`, payload);
+      } else {
+        res = await axios.post('http://localhost:5000/api/machines', payload);
+      }
+      const saved = res.data?.machine;
+      if (saved) {
+        if (editingMachine) {
+          setMachines((prev) => prev.map((m) => (m._id === editingMachine._id ? saved : m)));
+        } else {
+          setMachines((prev) => [saved, ...prev]);
+        }
+      } else {
+        await fetchMachines();
+      }
+      setEditingMachine(null);
+      setMachineForm({ name: '', code: '', status: 'Idle', efficiency: '', lastMaintenance: '', notes: '' });
+      setShowMachineForm(false);
+      alert(`Machine ${editingMachine ? 'updated' : 'created'} successfully`);
+    } catch (err) {
+      console.error('submitMachine error', err);
+      alert(err?.response?.data?.message || 'Failed to save machine');
+    }
+  };
+
+  const editMachine = (machine) => {
+    setEditingMachine(machine);
+    setMachineForm({
+      name: machine.name || '',
+      code: machine.code || '',
+      status: machine.status || 'Idle',
+      efficiency: (machine.efficiency ?? '').toString(),
+      lastMaintenance: machine.lastMaintenance ? new Date(machine.lastMaintenance).toISOString().slice(0,10) : '',
+      notes: machine.notes || ''
+    });
+    setShowMachineForm(true);
+  };
+
+  const deleteMachine = async (id) => {
+    if (!window.confirm('Delete this machine?')) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/machines/${id}`);
+      setMachines((prev) => prev.filter((m) => m._id !== id));
+      alert('Machine deleted');
+    } catch (err) {
+      console.error('deleteMachine error', err);
+      alert('Failed to delete machine');
+    }
+  };
+
+  // Generate unique Product ID starting from RIP-0001 and incrementing
+  const generateUniqueProductId = () => {
+    const ids = (products || [])
+      .map(p => String(p.productId || ''))
+      .map(id => {
+        const m = id.match(/^RIP-(\d{4})$/);
+        return m ? parseInt(m[1], 10) : null;
+      })
+      .filter(n => n !== null);
+
+    const existingSet = new Set(ids);
+    let next = 1;
+    if (ids.length > 0) {
+      const max = Math.max(...ids);
+      next = max + 1;
+    }
+
+    // If exceeded 9999, find first available gap from 1..9999
+    if (next > 9999) {
+      next = 1;
+      while (next <= 9999 && existingSet.has(next)) next++;
+      if (next > 9999) {
+        // As a last resort, fallback to a timestamp-based suffix (still numeric) trimmed to 4 digits
+        const ts = Date.now() % 10000;
+        next = ts === 0 ? 1 : ts;
+      }
+    }
+
+    return `RIP-${String(next).padStart(4, '0')}`;
+  };
+
+  
+
   // Sample data (replace with API calls later)
   const overview = {
     totalProducts: products.length,
@@ -88,6 +616,12 @@ const ProductionDashboard = () => {
     ).toFixed(2),
   };
 
+  // Approved materials metrics
+  const approvedRequestsCount = Array.isArray(acceptedMaterials) ? acceptedMaterials.length : 0;
+  const approvedTotalQty = Array.isArray(acceptedMaterials)
+    ? acceptedMaterials.reduce((sum, r) => sum + (parseFloat(r?.requestedQty) || 0), 0)
+    : 0;
+
   const rawMaterials = [
     { name: "Rice (Mixed)", qty: 50, weight: "5kg" },
     { name: "Bottle (Mixed)", qty: 200, weight: "50kg" },
@@ -96,27 +630,36 @@ const ProductionDashboard = () => {
     { name: "Green HDPE Bottles", qty: 35000, weight: "890.2kg" },
   ];
 
+  // Derived: filtered and paginated production requests
+  const filteredRequests = (requests || []).filter((r) => {
+    if (!requestQuery) return true;
+    const q = requestQuery.toLowerCase();
+    return (
+      String(r.requestId || r._id || '').toLowerCase().includes(q) ||
+      String(r.team || '').toLowerCase().includes(q) ||
+      String(r.priority || '').toLowerCase().includes(q) ||
+      String(r.status || '').toLowerCase().includes(q) ||
+      String(r?.inventoryItemId?.name || '').toLowerCase().includes(q)
+    );
+  });
+  const totalRequestPages = Math.max(1, Math.ceil(filteredRequests.length / requestPageSize) || 1);
+  const currentRequestPage = Math.min(requestPage, totalRequestPages);
+  const pagedRequests = filteredRequests.slice(
+    (currentRequestPage - 1) * requestPageSize,
+    currentRequestPage * requestPageSize
+  );
+
+  useEffect(() => {
+    // Reset to first page when filters or data change
+    setRequestPage(1);
+  }, [requestQuery, requestPageSize, requests]);
+
   // Filtered products by search
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const productionSales = [
-    { month: "Jan", produced: 120, sold: 100 },
-    { month: "Feb", produced: 140, sold: 110 },
-    { month: "Mar", produced: 160, sold: 120 },
-    { month: "Apr", produced: 180, sold: 150 },
-    { month: "May", produced: 130, sold: 115 },
-    { month: "Jun", produced: 150, sold: 135 },
-  ];
-
-  const revenueData = [
-    { product: "Bottles", revenue: 4 },
-    { product: "Containers", revenue: 3 },
-    { product: "Bags", revenue: 2 },
-    { product: "Sheets", revenue: 1 },
-    { product: "Other", revenue: 0.5 },
-  ];
+  // Analytics visualizations have been moved to a dedicated page.
 
   const recentActivity = [
     { type: "Production", detail: "100 units of Recycled PET Filament completed" },
@@ -127,18 +670,16 @@ const ProductionDashboard = () => {
 
   const menuItems = [
     { name: "Overview", key: "overview", icon: <LayoutDashboard size={20} /> },
+    { name: "Products", key: "products", icon: <ShoppingCart size={20} /> },
     { name: "Production Planning", key: "planning", icon: <Factory size={20} /> },
     { name: "Raw Materials", key: "materials", icon: <Package size={20} /> },
     { name: "Quality Control", key: "quality", icon: <Settings size={20} /> },
     { name: "Analytics", key: "analytics", icon: <TrendingUp size={20} /> },
     { name: "Reports", key: "reports", icon: <FileText size={20} /> },
   ];
+  
 
-  const productionSchedule = [
-    { id: 1, product: "Recycled PET Bottles", quantity: 500, startDate: "2025-09-02", endDate: "2025-09-05", status: "In Progress", priority: "High" },
-    { id: 2, product: "Eco-friendly Bags", quantity: 200, startDate: "2025-09-03", endDate: "2025-09-06", status: "Scheduled", priority: "Medium" },
-    { id: 3, product: "Recycled Paper", quantity: 1000, startDate: "2025-09-04", endDate: "2025-09-08", status: "Scheduled", priority: "Low" },
-  ];
+  // Planning and machines are fetched from backend now
 
   const qualityMetrics = [
     { metric: "Defect Rate", value: "2.1%", target: "< 3%", status: "Good" },
@@ -147,12 +688,7 @@ const ProductionDashboard = () => {
     { metric: "On-time Delivery", value: "96.2%", target: "> 95%", status: "Good" },
   ];
 
-  const machineStatus = [
-    { id: 1, name: "Extruder #1", status: "Running", efficiency: 95, lastMaintenance: "2025-08-15" },
-    { id: 2, name: "Molding Machine #2", status: "Maintenance", efficiency: 0, lastMaintenance: "2025-09-01" },
-    { id: 3, name: "Shredder #1", status: "Running", efficiency: 88, lastMaintenance: "2025-08-20" },
-    { id: 4, name: "Washing Unit #1", status: "Running", efficiency: 92, lastMaintenance: "2025-08-25" },
-  ];
+  // Machine status loaded from backend
 
   // Fetch inventory data
   const fetchInventoryData = async () => {
@@ -183,7 +719,8 @@ const ProductionDashboard = () => {
         inventoryItemId: selectedItem._id,
         requestedQty: parseInt(requestForm.requestedQty),
         notes: requestForm.notes,
-        priority: requestForm.priority
+        priority: requestForm.priority,
+        status: 'Pending'
       };
 
       console.log('Sending request data:', requestData);
@@ -231,6 +768,28 @@ const ProductionDashboard = () => {
   // Handle request form changes
   const handleRequestFormChange = (e) => {
     const { name, value } = e.target;
+    // Team/Department: letters and spaces only
+    if (name === 'team') {
+      const teamRegex = /^[A-Za-z\s]*$/;
+      if (!teamRegex.test(value)) return;
+      setRequestForm(prev => ({ ...prev, [name]: value }));
+      return;
+    }
+    // Requested Quantity: digits only; clamp 1..selectedItem.stock
+    if (name === 'requestedQty') {
+      const qtyRegex = /^\d*$/;
+      if (!qtyRegex.test(String(value))) return;
+      let next = value === '' ? '' : String(parseInt(value, 10));
+      if (next !== '') {
+        let num = parseInt(next, 10);
+        if (Number.isNaN(num) || num < 1) num = 1;
+        const max = selectedItem?.stock ?? Infinity;
+        if (num > max) num = max;
+        next = String(num);
+      }
+      setRequestForm(prev => ({ ...prev, [name]: next }));
+      return;
+    }
     setRequestForm(prev => ({ ...prev, [name]: value }));
   };
 
@@ -247,6 +806,16 @@ const ProductionDashboard = () => {
       setAcceptedMaterials(response.data);
     } catch (error) {
       console.error('Error fetching accepted materials:', error);
+    }
+  };
+
+  // Fetch ALL production requests (for table display)
+  const fetchProductionRequests = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/production-requests');
+      setRequests(Array.isArray(response.data) ? response.data : (response.data?.requests || []));
+    } catch (error) {
+      console.error('Error fetching production requests:', error);
     }
   };
 
@@ -271,13 +840,36 @@ const ProductionDashboard = () => {
     }
   };
 
+  // Sync activeTab with URL query (?tab=...)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab && tab !== activeTab) {
+      setActiveTab(tab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   // Load data when component mounts and when tabs change
   useEffect(() => {
-    if (activeTab === 'overview') {
+    if (activeTab === 'products') {
       fetchProducts();
     } else if (activeTab === 'materials') {
       fetchInventoryData();
       fetchAcceptedMaterials();
+      fetchProductionRequests();
+    } else if (activeTab === 'overview') {
+      // Keep key metrics fresh on the dashboard
+      fetchProducts();
+      fetchAcceptedMaterials();
+    } else if (activeTab === 'planning') {
+      // Ensure we have latest products for the dropdown
+      fetchProducts();
+      fetchProductionPlans();
+      fetchMachines();
+    } else if (activeTab === 'quality') {
+      fetchProducts();
+      fetchQualityRecords();
     }
   }, [activeTab]);
 
@@ -303,10 +895,11 @@ const ProductionDashboard = () => {
       if (value !== '' && !priceRegex.test(value)) {
         return; // Don't update if invalid
       }
-    } else if (name === 'stock' || name === 'points') {
-      // Stock Level and Reward Points: no negative numbers
-      if (value < 0) {
-        return; // Don't update if negative
+    } else if (name === 'stock') {
+      // Stock Level: only digits, up to 4 characters
+      const stockRegex = /^\d{0,4}$/;
+      if (!stockRegex.test(value)) {
+        return; // Block letters, special chars, or more than 4 digits
       }
     }
     
@@ -334,7 +927,6 @@ const ProductionDashboard = () => {
       imageUrl: product.imageUrl || '',
       description: product.description || '',
       category: product.category || '',
-      points: product.points?.toString() || '0',
     });
     setEditingProduct(product);
     setShowAddForm(true);
@@ -389,7 +981,7 @@ const ProductionDashboard = () => {
         imageUrl: newProduct.imageUrl || '',
         description: newProduct.description?.trim() || '',
         category: newProduct.category,
-        points: parseInt(newProduct.points) || 0,
+        points: newProduct.points ? parseInt(newProduct.points) : 0,
       };
 
       console.log('Sending product data:', productData);
@@ -406,8 +998,20 @@ const ProductionDashboard = () => {
       console.log('Server response:', response.data);
       
       if (response.status === 200 || response.status === 201) {
-        // Refresh products list from database
-        await fetchProducts();
+        // Update products list in-place to preserve order (append new, update existing)
+        if (editingProduct) {
+          const updated = response.data?.product || response.data;
+          setProducts((prev) => prev.map((p) => (p._id === editingProduct._id ? { ...p, ...updated } : p)));
+        } else {
+          const created = response.data?.product || response.data;
+          if (created) {
+            // Append new product to the end so it shows after previous items
+            setProducts((prev) => [...prev, created]);
+          } else {
+            // Fallback: refresh from server if response format is unknown
+            await fetchProducts();
+          }
+        }
         
         // Reset form
         setNewProduct({
@@ -457,18 +1061,38 @@ const ProductionDashboard = () => {
         
         <nav className="p-4 space-y-2">
           {menuItems.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setActiveTab(item.key)}
-              className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${
-                activeTab === item.key
-                  ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
-                  : "text-gray-700 hover:bg-gray-100"
-              }`}
-            >
-              {item.icon}
-              <span className="font-medium">{item.name}</span>
-            </button>
+            item.key === 'reports' ? (
+              <Link
+                key={item.key}
+                to="/production/reports"
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </Link>
+            ) : item.key === 'analytics' ? (
+              <Link
+                key={item.key}
+                to="/production/analytics"
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </Link>
+            ) : (
+              <button
+                key={item.key}
+                onClick={() => { setActiveTab(item.key); navigate(`/production?tab=${item.key}`); }}
+                className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${
+                  activeTab === item.key
+                    ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg"
+                    : "text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.name}</span>
+              </button>
+            )
           ))}
           <LogoutButton />
         </nav>
@@ -486,15 +1110,7 @@ const ProductionDashboard = () => {
               <h1 className="text-3xl font-bold text-gray-900">Production Dashboard</h1>
               <p className="text-gray-600 mt-1">Manufacturing operations and inventory management</p>
             </div>
-            <div className="flex space-x-3">
-              <button 
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200"
-              >
-                <PackagePlus size={16} className="mr-2 inline" />
-                Add Product
-              </button>
-            </div>
+            <div className="flex space-x-3"></div>
           </div>
         </header>
 
@@ -503,7 +1119,7 @@ const ProductionDashboard = () => {
           {activeTab === "overview" && (
             <>
               {/* Enhanced Overview Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
             <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-0 shadow-lg rounded-2xl p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -547,321 +1163,77 @@ const ProductionDashboard = () => {
                 <AlertTriangle size={40} className="text-orange-200" />
               </div>
             </div>
-          </div>
-
-          {/* Add Product Form */}
-          {showAddForm && (
-            <div className="bg-white shadow rounded-2xl p-6">
-              <h3 className="text-lg font-bold mb-4">
-                {editingProduct ? "✏️ Edit Product" : "➕ Add New Product"}
-              </h3>
-              <form onSubmit={handleAddProduct} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium">
-                      Product Name *
-                    </label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={newProduct.name}
-                      onChange={handleChange}
-                      pattern="^[A-Za-z\s]+$"
-                      title="Only letters and spaces are allowed - no numbers or special characters"
-                      required
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter product name (letters and spaces only)"
-                    />
-                    {newProduct.name && !/^[A-Za-z\s]*$/.test(newProduct.name) && (
-                      <p className="text-red-500 text-xs mt-1">Product name can only contain letters and spaces</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">Price (LKR)</label>
-                    <input
-                      type="text"
-                      name="price"
-                      value={newProduct.price}
-                      onChange={handleChange}
-                      pattern="^\d{1,4}(\.\d{1,2})?$"
-                      title="Maximum 4 digits, numbers only (e.g., 1234 or 1234.56)"
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter price (max 4 digits, e.g., 1234.56)"
-                    />
-                    {newProduct.price && !/^\d{0,4}(\.\d{0,2})?$/.test(newProduct.price) && (
-                      <p className="text-red-500 text-xs mt-1">Price must be maximum 4 digits with optional decimal (e.g., 1234.56)</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">
-                      Stock Level
-                    </label>
-                    <input
-                      type="number"
-                      name="stock"
-                      value={newProduct.stock}
-                      onChange={handleChange}
-                      min="0"
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter stock level (positive numbers only)"
-                    />
-                    {newProduct.stock < 0 && (
-                      <p className="text-red-500 text-xs mt-1">Stock level cannot be negative</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">Category</label>
-                    <select
-                      name="category"
-                      value={newProduct.category}
-                      onChange={handleChange}
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select Category</option>
-                      <option value="Household Items">Household Items</option>
-                      <option value="Fashion & Accessories">Fashion & Accessories</option>
-                      <option value="Furniture & Home Decor">Furniture & Home Decor</option>
-                      <option value="Construction Materials">Construction Materials</option>
-                      <option value="Stationery & Office Supplies">Stationery & Office Supplies</option>
-                      <option value="Outdoor & Travel">Outdoor & Travel</option>
-                      <option value="Toys & Kids Items">Toys & Kids Items</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">Product Image</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="w-full border rounded-lg p-2"
-                    />
-                    {newProduct.imageUrl && (
-                      <img
-                        src={newProduct.imageUrl}
-                        alt="Preview"
-                        className="mt-2 w-32 h-32 object-cover rounded-lg border"
-                      />
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium">Reward Points</label>
-                    <input
-                      type="number"
-                      name="points"
-                      value={newProduct.points}
-                      onChange={handleChange}
-                      min="0"
-                      className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter reward points (positive numbers only)"
-                    />
-                    {newProduct.points < 0 && (
-                      <p className="text-red-500 text-xs mt-1">Reward points cannot be negative</p>
-                    )}
-                  </div>
-                </div>
+            <div className="bg-gradient-to-br from-green-500 to-teal-600 text-white border-0 shadow-lg rounded-2xl p-6">
+              <div className="flex items-center justify-between">
                 <div>
-                  <label className="block text-sm font-medium">Description</label>
-                  <textarea
-                    name="description"
-                    value={newProduct.description}
-                    onChange={handleChange}
-                    className="w-full border rounded-lg p-2"
-                    placeholder="Enter product description"
-                  ></textarea>
+                  <p className="text-green-100 text-sm font-medium">Approved Raw Materials</p>
+                  <h2 className="text-3xl font-bold">{approvedRequestsCount}</h2>
+                  <p className="text-green-100 text-sm mt-1">Stock(Kg): {approvedTotalQty}</p>
                 </div>
-                <div className="flex space-x-3">
-                  <button
-                    type="submit"
-                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg"
-                  >
-{editingProduct ? "Update Product" : "Create Product"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAddForm(false);
-                      setEditingProduct(null);
-                      setNewProduct({
-                        name: "",
-                        price: "",
-                        stock: "",
-                        imageUrl: "",
-                        description: "",
-                        category: "",
-                        points: "",
-                      });
-                    }}
-                    className="border px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-200"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Products Section */}
-          <div className="bg-white shadow rounded-2xl p-4">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg">Products</h3>
-              {/* Search Bar */}
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
-                <input
-                  type="text"
-                  placeholder="Search products..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg shadow-sm 
-                             focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-700"
-                />
+                <CheckCircle size={40} className="text-green-200" />
               </div>
             </div>
+          </div>
 
-            {/* Products Table */}
-            <div className="overflow-x-auto">
-              {filteredProducts.length > 0 ? (
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Image</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Product Name</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Category</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Description</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Price (LKR)</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Stock</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Reward Points</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredProducts.map((p, idx) => (
-                      <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4">
-                          {p.imageUrl ? (
-                            <img
-                              src={p.imageUrl}
-                              alt={p.name}
-                              className="w-16 h-16 object-cover rounded-lg border"
-                            />
-                          ) : (
-                            <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
-                              <Package size={24} className="text-gray-400" />
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-gray-900">{p.name}</div>
-                          <div className="text-sm text-gray-500">ID: {p._id?.slice(-6) || idx}</div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
-                            {p.category || 'Uncategorized'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 max-w-xs">
-                          <p className="text-sm text-gray-600 truncate" title={p.description}>
-                            {p.description || 'No description available'}
-                          </p>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="font-bold text-green-600">
-                            {parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex flex-col items-center">
-                            <span className="font-medium text-gray-900">{p.stock}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                              p.stock < 50 
-                                ? "bg-red-100 text-red-600" 
-                                : p.stock < 100 
-                                ? "bg-yellow-100 text-yellow-600"
-                                : "bg-green-100 text-green-600"
-                            }`}>
-                              {p.stock < 50 ? "Low" : p.stock < 100 ? "Medium" : "High"}
+          {/* Featured Products (first 8 items) */}
+          <div className="mt-8 bg-white shadow rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold">Featured Products</h3>
+              <button
+                onClick={() => setActiveTab('products')}
+                className="text-sm bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-lg shadow hover:shadow-md transition"
+              >
+                View All Products
+              </button>
+            </div>
+            {products.length === 0 ? (
+              <div className="text-center py-10 text-gray-500">No products available yet</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {products.slice(0, 8).map((p, idx) => (
+                  <div key={p._id || idx} className="group border border-gray-100 rounded-2xl overflow-hidden bg-white hover:shadow-xl transition-shadow">
+                    <div className="relative h-40 bg-gray-50 overflow-hidden">
+                      {p.imageUrl ? (
+                        <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                          <Package size={36} />
+                        </div>
+                      )}
+                      <div className={`${p.stock < 10 ? 'bg-red-100 text-red-700' : p.stock < 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'} absolute top-3 left-3 text-xs px-2 py-1 rounded-full font-medium`}>
+                        {p.stock < 10 ? 'Out of Stock' : p.stock < 50 ? 'Low Stock' : 'In Stock'}
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between">
+                        <h4 className="font-semibold text-gray-900 truncate pr-2" title={p.name}>{p.name}</h4>
+                        <span className="text-green-600 font-bold text-sm">LKR {parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">Product ID: {p.productId || (p._id ? `RIP-${(p._id + '').replace(/\\D/g,'').slice(-4).padStart(4,'0')}` : '-')}</div>
+                      <div className="mt-3 flex items-center gap-2">
+                        {(() => {
+                          const price = parseFloat(p.price);
+                          const rate = parseFloat(pointsPerRupee || '0');
+                          if (Number.isNaN(price) || Number.isNaN(rate) || rate <= 0) return null;
+                          const points = Math.round(price * rate);
+                          return (
+                            <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">
+                              ⭐ {points} pts
                             </span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex flex-col items-center">
-                            <span className="font-medium text-purple-600">{p.points || 0}</span>
-                            <span className="text-xs text-gray-500">points</span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-                            p.stock > 0 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                          }`}>
-                            {p.stock > 0 ? "Available" : "Out of Stock"}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex justify-center space-x-2">
-                            <button 
-                              onClick={() => handleEditProduct(p)}
-                              className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1"
-                              title="Edit Product"
-                            >
-                              <Settings size={14} />
-                              <span>Edit</span>
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteProduct(p._id || idx)}
-                              className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1"
-                              title="Delete Product"
-                            >
-                              <XCircle size={14} />
-                              <span>Delete</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="text-center py-12">
-                  <Package size={48} className="mx-auto text-gray-400 mb-4" />
-                  <p className="text-gray-500 text-lg">No products found</p>
-                  <p className="text-gray-400 text-sm">Add your first product using the form above</p>
-                </div>
-              )}
-            </div>
+                          );
+                        })()}
+                        <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
+                          {p.category || 'Uncategorized'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white shadow rounded-2xl p-4">
-              <h3 className="font-bold text-lg mb-4">Production vs Sales</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={productionSales}>
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="produced" fill="#3b82f6" /> {/* blue-500 */}
-                  <Bar dataKey="sold" fill="#22c55e" /> {/* green-500 */}
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="bg-white shadow rounded-2xl p-4">
-              <h3 className="font-bold text-lg mb-4">Revenue by Product</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={revenueData}>
-                  <XAxis dataKey="product" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#16a34a"
-                  />{" "}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          {/* Charts moved to Analytics page. */}
 
           {/* Raw Materials + Activity */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -898,6 +1270,180 @@ const ProductionDashboard = () => {
               </ul>
             </div>
           </div>
+
+            </>
+          )}
+
+          {activeTab === 'products' && (
+            <>
+              {showAddForm && (
+                <div className="bg-white shadow rounded-2xl p-6 mb-6">
+                  <h3 className="text-lg font-bold mb-4">{editingProduct ? "✏️ Edit Product" : "➕ Add New Product"}</h3>
+                  <form onSubmit={handleAddProduct} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium">Product Name *</label>
+                        <input type="text" name="name" value={newProduct.name} onChange={handleChange} pattern="^[A-Za-z\s]+$" title="Only letters and spaces are allowed - no numbers or special characters" required className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Enter product name (letters and spaces only)" />
+                        {newProduct.name && !/^[A-Za-z\s]*$/.test(newProduct.name) && (<p className="text-red-500 text-xs mt-1">Product name can only contain letters and spaces</p>)}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium">Item Price</label>
+                        <input type="text" name="price" value={newProduct.price} onChange={handleChange} pattern="^\d{1,4}(\.\d{1,2})?$" title="Maximum 4 digits, numbers only (e.g., 1234 or 1234.56)" className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Enter price (max 4 digits, e.g., 1234.56)" />
+                        {newProduct.price && !/^\d{0,4}(\.\d{0,2})?$/.test(newProduct.price) && (<p className="text-red-500 text-xs mt-1">Price must be maximum 4 digits with optional decimal (e.g., 1234.56)</p>)}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium">Stock Level</label>
+                        <input
+                          type="text"
+                          name="stock"
+                          value={newProduct.stock}
+                          onChange={handleChange}
+                          inputMode="numeric"
+                          maxLength={4}
+                          className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="Enter stock (max 4 digits)"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium">Category</label>
+                        <select name="category" value={newProduct.category} onChange={handleChange} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                          <option value="">Select Category</option>
+                          <option value="Household Items">Household Items</option>
+                          <option value="Fashion & Accessories">Fashion & Accessories</option>
+                          <option value="Furniture & Home Decor">Furniture & Home Decor</option>
+                          <option value="Construction Materials">Construction Materials</option>
+                          <option value="Stationery & Office Supplies">Stationery & Office Supplies</option>
+                          <option value="Outdoor & Travel">Outdoor & Travel</option>
+                          <option value="Toys & Kids Items">Toys & Kids Items</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium">Product Image</label>
+                        <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full border rounded-lg p-2" />
+                        {newProduct.imageUrl && (<img src={newProduct.imageUrl} alt="Preview" className="mt-2 w-32 h-32 object-cover rounded-lg border" />)}
+                      </div>
+                      
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Description</label>
+                      <textarea name="description" value={newProduct.description} onChange={handleChange} className="w-full border rounded-lg p-2" placeholder="Enter product description"></textarea>
+                    </div>
+                    <div className="flex space-x-3">
+                      <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingProduct ? "Update Product" : "Create Product"}</button>
+                      <button type="button" onClick={() => { setShowAddForm(false); setEditingProduct(null); setNewProduct({ name: "", price: "", stock: "", imageUrl: "", description: "", category: "" }); }} className="border px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-200">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Two-column layout: left (products) and right (loyalty config) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="md:col-span-2 bg-white shadow rounded-2xl p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold text-lg">Products</h3>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                      <input type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-700" />
+                    </div>
+                  </div>
+                  <div className="mb-4">
+                    <button
+                      onClick={() => setShowAddForm(!showAddForm)}
+                      className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-lg shadow hover:shadow-md transition-all duration-200"
+                    >
+                      <PackagePlus size={16} className="mr-2 inline" />
+                      {showAddForm ? 'Close Form' : 'Add Product'}
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    {filteredProducts.length > 0 ? (
+                      <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Image</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Product Name</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Category</th>
+                          <th className="text-left py-3 px-4 font-semibold text-gray-700">Description</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Item Price (LKR)</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Reward Points</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Stock</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
+                          <th className="text-center py-3 px-4 font-semibold text-gray-700">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredProducts.map((p, idx) => (
+                          <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                            <td className="py-3 px-4">
+                              {p.imageUrl ? (
+                                <img src={p.imageUrl} alt={p.name} className="w-16 h-16 object-cover rounded-lg border" />
+                              ) : (
+                                <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
+                                  <Package size={24} className="text-gray-400" />
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-semibold text-gray-900">{p.name}</div>
+                              <div className="text-sm text-gray-500">Product ID: {p.productId || (p._id ? `RIP-${(p._id + '').replace(/\D/g,'').slice(-4).padStart(4,'0')}` : `RIP-${String(idx).padStart(4,'0')}`)}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">{p.category || 'Uncategorized'}</span>
+                            </td>
+                            <td className="py-3 px-4 max-w-xs">
+                              <p className="text-sm text-gray-600 truncate" title={p.description}>{p.description || 'No description available'}</p>
+                            </td>
+                            <td className="py-3 px-4 text-center"><span className="font-bold text-green-600">{parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></td>
+                            <td className="py-3 px-4 text-center"><span className="font-medium text-gray-900">{p.points ?? 0}</span></td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="flex flex-col items-center">
+                                <span className="font-medium text-gray-900">{p.stock}</span>
+                                <span className={`text-xs px-2 py-1 rounded-full font-medium ${p.stock < 50 ? 'bg-red-100 text-red-800' : p.stock < 200 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>{p.stock < 50 ? 'Low' : p.stock < 200 ? 'Medium' : 'High'}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-center"><span className={`px-2 py-1 rounded-full text-xs font-medium ${p.stock < 10 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{p.stock < 10 ? 'Out of Stock' : 'Available'}</span></td>
+                            <td className="py-3 px-4 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700" onClick={() => handleEditProduct(p)}>Edit</button>
+                                <button className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700" onClick={() => handleDeleteProduct(p._id)}>Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      </table>
+                    ) : (
+                      <div className="text-gray-600 p-4">No products found.</div>
+                    )}
+                  </div>
+                </div>
+                {/* Right side: Points per rupee configuration */}
+                <div className="bg-white shadow rounded-2xl p-4">
+                  <h3 className="font-bold text-lg mb-3">Loyalty Settings</h3>
+                  <form onSubmit={handleSavePointsPerRupee} className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium">How many points does 1 rupee represent?</label>
+                      <input
+                        type="text"
+                        value={pointsPerRupee}
+                        onChange={(e) => setPointsPerRupee(e.target.value)}
+                        placeholder="e.g., 0.10"
+                        inputMode="decimal"
+                        className="mt-1 w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">Save</button>
+                    <div className="text-sm mt-2">
+                      <span className="inline-block px-2 py-1 rounded-full bg-blue-100 text-blue-800">
+                        Current: {pointsPerRupee || 'Not set'} points per 1 rupee
+                      </span>
+                      {pointsSavedAt && (
+                        <span className="ml-2 text-gray-500">Last saved: {new Date(pointsSavedAt).toLocaleString()}</span>
+                      )}
+                    </div>
+                  </form>
+                </div>
+              </div>
             </>
           )}
 
@@ -905,74 +1451,250 @@ const ProductionDashboard = () => {
           {activeTab === "planning" && (
             <div className="space-y-6">
               <div className="bg-white shadow-lg rounded-2xl p-6">
-                <h3 className="text-xl font-bold mb-6">Production Schedule</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-200">
-                        <th className="text-left py-3 px-2 font-semibold text-gray-700">Product</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">Quantity</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">Start Date</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">End Date</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">Priority</th>
-                        <th className="text-center py-3 px-2 font-semibold text-gray-700">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {productionSchedule.map((item) => (
-                        <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="py-3 px-2 font-medium">{item.product}</td>
-                          <td className="py-3 px-2 text-center">{item.quantity}</td>
-                          <td className="py-3 px-2 text-center">{item.startDate}</td>
-                          <td className="py-3 px-2 text-center">{item.endDate}</td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              item.priority === "High" ? "bg-red-100 text-red-800" :
-                              item.priority === "Medium" ? "bg-yellow-100 text-yellow-800" :
-                              "bg-green-100 text-green-800"
-                            }`}>
-                              {item.priority}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              item.status === "In Progress" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
-                            }`}>
-                              {item.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">Production Schedule</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingPlan(null); setShowPlanForm((v) => !v); }} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-md">{showPlanForm ? 'Close Form' : 'Add Plan'}</button>
+                    <button onClick={() => { fetchProductionPlans(); fetchMachines(); }} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-md">Refresh</button>
+                  </div>
                 </div>
+                {showPlanForm && (
+                  <form onSubmit={submitPlan} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium">Product (optional)</label>
+                      <select value={planForm.productId} onChange={handlePlanProductSelect} className="w-full border rounded-lg p-2">
+                        <option value="">-- Select product --</option>
+                        {products.map((p) => (
+                          <option key={p._id} value={p._id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Product Name</label>
+                      <input name="productName" value={planForm.productName} onChange={handlePlanFormChange} className="w-full border rounded-lg p-2" placeholder="e.g., Recycled PET Bottles" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Quantity</label>
+                      <input
+                        name="quantity"
+                        value={planForm.quantity}
+                        onChange={handlePlanFormChange}
+                        onKeyDown={(e) => {
+                          const allowedCtrl = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Home','End'];
+                          if (allowedCtrl.includes(e.key)) return;
+                          if (!/^[0-9]$/.test(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={4}
+                        className="w-full border rounded-lg p-2"
+                        placeholder="e.g., 500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Priority</label>
+                      <select name="priority" value={planForm.priority} onChange={handlePlanFormChange} className="w-full border rounded-lg p-2">
+                        <option>Low</option>
+                        <option>Medium</option>
+                        <option>High</option>
+                        <option>Urgent</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Start Date</label>
+                      <input
+                        name="startDate"
+                        value={planForm.startDate}
+                        onChange={handlePlanFormChange}
+                        type="date"
+                        min={(() => { const d=new Date(); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; })()}
+                        className="w-full border rounded-lg p-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">End Date</label>
+                      <input
+                        name="endDate"
+                        value={planForm.endDate}
+                        onChange={handlePlanFormChange}
+                        type="date"
+                        min={planForm.startDate || (() => { const d=new Date(); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; })()}
+                        className="w-full border rounded-lg p-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Status</label>
+                      <select name="status" value={planForm.status} onChange={handlePlanFormChange} className="w-full border rounded-lg p-2">
+                        <option>Scheduled</option>
+                        <option>In Progress</option>
+                        <option>Completed</option>
+                        <option>Paused</option>
+                        <option>Cancelled</option>
+                      </select>
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium">Notes</label>
+                      <textarea name="notes" value={planForm.notes} onChange={handlePlanFormChange} className="w-full border rounded-lg p-2" rows="2" />
+                    </div>
+                    <div className="md:col-span-3 flex gap-3">
+                      <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingPlan ? 'Update Plan' : 'Create Plan'}</button>
+                      {editingPlan && (
+                        <button type="button" onClick={() => { setEditingPlan(null); setPlanForm({ productName: '', productId: '', quantity: '', startDate: '', endDate: '', priority: 'Medium', status: 'Scheduled', notes: '' }); setShowPlanForm(false); }} className="border px-4 py-2 rounded-lg">Cancel</button>
+                      )}
+                    </div>
+                  </form>
+                )}
+                {loadingPlans ? (
+                  <div className="py-8 text-center text-gray-500">Loading plans...</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left py-3 px-2 font-semibold text-gray-700">Product</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Quantity</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Start Date</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">End Date</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Priority</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Status</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {plans.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-6 text-center text-gray-500">No plans found.</td>
+                          </tr>
+                        ) : (
+                          plans.map((item) => (
+                            <tr key={item._id} className="border-b border-gray-100 hover:bg-gray-50">
+                              <td className="py-3 px-2 font-medium">{item.productName}</td>
+                              <td className="py-3 px-2 text-center">{item.quantity}</td>
+                              <td className="py-3 px-2 text-center">{item.startDate ? new Date(item.startDate).toLocaleDateString() : '-'}</td>
+                              <td className="py-3 px-2 text-center">{item.endDate ? new Date(item.endDate).toLocaleDateString() : '-'}</td>
+                              <td className="py-3 px-2 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  item.priority === "High" || item.priority === 'Urgent' ? "bg-red-100 text-red-800" :
+                                  item.priority === "Medium" ? "bg-yellow-100 text-yellow-800" :
+                                  "bg-green-100 text-green-800"
+                                }`}>
+                                  {item.priority}
+                                </span>
+                              </td>
+                              <td className="py-3 px-2 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  item.status === "In Progress" ? "bg-blue-100 text-blue-800" :
+                                  item.status === "Completed" ? "bg-green-100 text-green-800" :
+                                  item.status === "Cancelled" ? "bg-red-100 text-red-800" :
+                                  "bg-gray-100 text-gray-800"
+                                }`}>
+                                  {item.status}
+                                </span>
+                              </td>
+                              <td className="py-3 px-2 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  {item.status === 'In Progress' && (
+                                    <button onClick={() => completePlan(item)} className="px-3 py-1 rounded-md text-sm bg-emerald-600 text-white hover:bg-emerald-700">Complete</button>
+                                  )}
+                                  {item.status === 'Completed' && (
+                                    <button onClick={() => goToQuality(item)} className="px-3 py-1 rounded-md text-sm bg-purple-600 text-white hover:bg-purple-700">Quality Check</button>
+                                  )}
+                                  <button onClick={() => editPlan(item)} className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700">Edit</button>
+                                  <button onClick={() => deletePlan(item._id)} className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700">Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               <div className="bg-white shadow-lg rounded-2xl p-6">
-                <h3 className="text-xl font-bold mb-6">Machine Status</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {machineStatus.map((machine) => (
-                    <div key={machine.id} className="border rounded-lg p-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <h4 className="font-semibold">{machine.name}</h4>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          machine.status === "Running" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                        }`}>
-                          {machine.status}
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-sm text-gray-600">Efficiency:</span>
-                          <span className="text-sm font-medium">{machine.efficiency}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-gray-600">Last Maintenance:</span>
-                          <span className="text-sm">{machine.lastMaintenance}</span>
-                        </div>
-                      </div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">Machine Status</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingMachine(null); setShowMachineForm((v) => !v); }} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-md">{showMachineForm ? 'Close Form' : 'Add Machine'}</button>
+                    <button onClick={() => { fetchMachines(); }} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-md">Refresh</button>
+                  </div>
+                </div>
+                {showMachineForm && (
+                  <form onSubmit={submitMachine} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium">Name</label>
+                      <input name="name" value={machineForm.name} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" placeholder="e.g., Extruder #1" />
                     </div>
-                  ))}
+                    <div>
+                      <label className="block text-sm font-medium">Code</label>
+                      <input name="code" value={machineForm.code} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" placeholder="e.g., EX-001" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Status</label>
+                      <select name="status" value={machineForm.status} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2">
+                        <option>Idle</option>
+                        <option>Running</option>
+                        <option>Maintenance</option>
+                        <option>Offline</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Efficiency (%)</label>
+                      <input name="efficiency" value={machineForm.efficiency} onChange={handleMachineFormChange} type="number" min="0" max="100" className="w-full border rounded-lg p-2" placeholder="e.g., 95" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Last Maintenance</label>
+                      <input name="lastMaintenance" value={machineForm.lastMaintenance} onChange={handleMachineFormChange} type="date" className="w-full border rounded-lg p-2" />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium">Notes</label>
+                      <textarea name="notes" value={machineForm.notes} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" rows="2" />
+                    </div>
+                    <div className="md:col-span-3 flex gap-3">
+                      <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingMachine ? 'Update Machine' : 'Create Machine'}</button>
+                      {editingMachine && (
+                        <button type="button" onClick={() => { setEditingMachine(null); setMachineForm({ name: '', code: '', status: 'Idle', efficiency: '', lastMaintenance: '', notes: '' }); setShowMachineForm(false); }} className="border px-4 py-2 rounded-lg">Cancel</button>
+                      )}
+                    </div>
+                  </form>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {machines.length === 0 ? (
+                    <div className="col-span-full text-center text-gray-500">No machines found.</div>
+                  ) : (
+                    machines.map((machine) => (
+                      <div key={machine._id} className="border rounded-lg p-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="font-semibold">{machine.name}</h4>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            machine.status === "Running" ? "bg-green-100 text-green-800" :
+                            machine.status === "Maintenance" ? "bg-yellow-100 text-yellow-800" :
+                            machine.status === "Offline" ? "bg-red-100 text-red-800" :
+                            "bg-gray-100 text-gray-800"
+                          }`}>
+                            {machine.status}
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Efficiency:</span>
+                            <span className="text-sm font-medium">{machine.efficiency}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Last Maintenance:</span>
+                            <span className="text-sm">{machine.lastMaintenance ? new Date(machine.lastMaintenance).toLocaleDateString() : '-'}</span>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-end gap-2">
+                          <button onClick={() => editMachine(machine)} className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700">Edit</button>
+                          <button onClick={() => deleteMachine(machine._id)} className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700">Delete</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -1005,7 +1727,9 @@ const ProductionDashboard = () => {
                 <>
                   {/* Inventory Items Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {inventoryItems.map((item) => (
+                    {[...inventoryItems]
+                      .sort((a, b) => (a.itemCode || "").localeCompare(b.itemCode || "", undefined, { numeric: true, sensitivity: 'base' }))
+                      .map((item) => (
                       <div key={item._id} className="bg-white shadow-lg rounded-2xl p-6 hover:shadow-xl transition-shadow">
                         <div className="flex justify-between items-start mb-4">
                           <div>
@@ -1013,11 +1737,11 @@ const ProductionDashboard = () => {
                             <p className="text-sm text-gray-500">Code: {item.itemCode}</p>
                           </div>
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            item.stock < 100 ? 'bg-red-100 text-red-800' :
+                            item.stock < 10 ? 'bg-red-100 text-red-800' :
                             item.stock < 500 ? 'bg-yellow-100 text-yellow-800' :
                             'bg-green-100 text-green-800'
                           }`}>
-                            {item.stock < 100 ? 'Low Stock' :
+                            {item.stock < 10 ? 'Low Stock' :
                              item.stock < 500 ? 'Medium Stock' : 'High Stock'}
                           </span>
                         </div>
@@ -1032,12 +1756,8 @@ const ProductionDashboard = () => {
                             <span className="font-medium">{item.color}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Weight:</span>
-                            <span className="font-medium">{item.weight} kg</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Stock:</span>
-                            <span className="font-bold text-lg">{item.stock} units</span>
+                            <span className="text-gray-600">Stock (kg):</span>
+                            <span className="font-bold text-lg">{item.stock} kg</span>
                           </div>
                         </div>
 
@@ -1059,69 +1779,103 @@ const ProductionDashboard = () => {
                     </div>
                   )}
 
-                  {/* Accepted Materials Section */}
-                  {acceptedMaterials.length > 0 && (
-                    <div className="bg-white shadow-lg rounded-2xl p-6 mt-6">
-                      <h3 className="text-xl font-bold text-green-700 mb-4 flex items-center">
-                        <CheckCircle className="mr-2" size={24} />
-                        Approved Materials Ready for Production
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {acceptedMaterials.map((material) => (
-                          <div key={material._id} className="bg-green-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-shadow">
-                            <div className="flex justify-between items-start mb-3">
-                              <div>
-                                <h4 className="font-bold text-gray-900">{material.inventoryItemId?.name || 'Unknown Item'}</h4>
-                                <p className="text-sm text-gray-600">Request ID: {material.requestId}</p>
-                              </div>
-                              <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-semibold">
-                                Approved
-                              </span>
-                            </div>
-                            
-                            <div className="space-y-2 text-sm">
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Team:</span>
-                                <span className="font-medium">{material.team}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Quantity:</span>
-                                <span className="font-medium">{material.requestedQty} units</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Priority:</span>
-                                <span className={`font-medium ${
-                                  material.priority === 'High' ? 'text-red-600' :
-                                  material.priority === 'Medium' ? 'text-yellow-600' :
-                                  'text-green-600'
-                                }`}>
-                                  {material.priority}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Approved:</span>
-                                <span className="font-medium text-green-600">
-                                  {new Date(material.approvedDate).toLocaleDateString()} at{' '}
-                                  {new Date(material.approvedDate).toLocaleTimeString()}
-                                </span>
-                              </div>
-                              {material.approvedBy && (
-                                <div className="flex justify-between">
-                                  <span className="text-gray-600">Approved by:</span>
-                                  <span className="font-medium">{material.approvedBy}</span>
-                                </div>
-                              )}
-                              {material.notes && (
-                                <div className="mt-2 pt-2 border-t border-green-200">
-                                  <p className="text-xs text-gray-600"><strong>Notes:</strong> {material.notes}</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
+                  {/* Production Requests Table */}
+                  <div className="bg-white shadow-lg rounded-2xl p-6 mt-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-xl font-bold text-gray-900">Production Requests</h3>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          value={requestQuery}
+                          onChange={(e) => setRequestQuery(e.target.value)}
+                          placeholder="Search (ID, team, item, status)"
+                          className="border rounded-lg px-3 py-2 text-sm"
+                        />
+                        <select
+                          value={requestPageSize}
+                          onChange={(e) => setRequestPageSize(parseInt(e.target.value) || 10)}
+                          className="border rounded-lg px-2 py-2 text-sm"
+                        >
+                          <option value={10}>10 / page</option>
+                          <option value={25}>25 / page</option>
+                          <option value={50}>50 / page</option>
+                        </select>
                       </div>
                     </div>
-                  )}
+                    {filteredRequests.length === 0 ? (
+                      <div className="text-gray-600">No production requests found.</div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full">
+                          <thead>
+                            <tr className="bg-gray-50 text-left text-sm text-gray-700">
+                              <th className="py-3 px-4 font-semibold">Request ID</th>
+                              <th className="py-3 px-4 font-semibold">Team</th>
+                              <th className="py-3 px-4 font-semibold">Item</th>
+                              <th className="py-3 px-4 font-semibold">Quantity</th>
+                              <th className="py-3 px-4 font-semibold">Priority</th>
+                              <th className="py-3 px-4 font-semibold">Status</th>
+                              <th className="py-3 px-4 font-semibold">Request Time</th>
+                              <th className="py-3 px-4 font-semibold">Approved/Reject Timedate</th>
+                              <th className="py-3 px-4 font-semibold">Approved By</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pagedRequests.map((req) => (
+                              <tr key={req._id} className="border-t text-sm">
+                                <td className="py-3 px-4 text-gray-900">{req.requestId || (req._id?.slice(-8)) || '-'}</td>
+                                <td className="py-3 px-4">{req.team}</td>
+                                <td className="py-3 px-4">{req.inventoryItemId?.name || 'Unknown Item'}</td>
+                                <td className="py-3 px-4">{req.requestedQty}</td>
+                                <td className="py-3 px-4">{req.priority}</td>
+                                <td className="py-3 px-4">
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    req.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
+                                    req.status === 'Approved' ? 'bg-green-100 text-green-700' :
+                                    'bg-red-100 text-red-700'
+                                  }`}>
+                                    {req.status}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4">{(req.createdAt || req.createdDate) ? new Date(req.createdAt || req.createdDate).toLocaleString() : '-'}</td>
+                                <td className="py-3 px-4">{
+                                  req.status === 'Pending'
+                                    ? '-'
+                                    : ((req.approvedAt || req.approvedDate)
+                                        ? new Date(req.approvedAt || req.approvedDate).toLocaleString()
+                                        : '-')
+                                }</td>
+                                <td className="py-3 px-4">{req.approvedBy || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div className="flex items-center justify-between mt-4 text-sm text-gray-700">
+                          <div>
+                            Showing {filteredRequests.length === 0 ? 0 : (currentRequestPage - 1) * requestPageSize + 1}
+                            -{Math.min(currentRequestPage * requestPageSize, filteredRequests.length)} of {filteredRequests.length}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setRequestPage((p) => Math.max(1, p - 1))}
+                              disabled={currentRequestPage === 1}
+                              className={`px-3 py-1 rounded border ${currentRequestPage === 1 ? 'text-gray-400 border-gray-200' : 'hover:bg-gray-50'}`}
+                            >
+                              Prev
+                            </button>
+                            <span className="px-2">Page {currentRequestPage} / {totalRequestPages}</span>
+                            <button
+                              onClick={() => setRequestPage((p) => Math.min(totalRequestPages, p + 1))}
+                              disabled={currentRequestPage === totalRequestPages}
+                              className={`px-3 py-1 rounded border ${currentRequestPage === totalRequestPages ? 'text-gray-400 border-gray-200' : 'hover:bg-gray-50'}`}
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -1141,6 +1895,8 @@ const ProductionDashboard = () => {
                       name="team"
                       value={requestForm.team}
                       onChange={handleRequestFormChange}
+                      pattern="^[A-Za-z\s]*$"
+                      title="Only letters and spaces are allowed"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="e.g., Production Team A"
                       required
@@ -1152,12 +1908,18 @@ const ProductionDashboard = () => {
                       Requested Quantity (Available: {selectedItem.stock})
                     </label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d*"
                       name="requestedQty"
                       value={requestForm.requestedQty}
                       onChange={handleRequestFormChange}
-                      max={selectedItem.stock}
-                      min="1"
+                      onKeyDown={(e) => {
+                        const ctrl = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Home','End'];
+                        if (ctrl.includes(e.key)) return;
+                        if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+                      }}
+                      title={`Enter digits only (max ${selectedItem.stock})`}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Enter quantity"
                       required
@@ -1218,84 +1980,145 @@ const ProductionDashboard = () => {
           {/* Quality Control Tab */}
           {activeTab === "quality" && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-xl font-bold mb-6">Quality Metrics</h3>
-                  <div className="space-y-4">
-                    {qualityMetrics.map((metric, index) => (
-                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                        <div>
-                          <p className="font-medium">{metric.metric}</p>
-                          <p className="text-sm text-gray-600">Target: {metric.target}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold">{metric.value}</p>
-                          <span className={`text-xs px-2 py-1 rounded-full ${
-                            metric.status === "Excellent" ? "bg-green-100 text-green-800" : "bg-blue-100 text-blue-800"
-                          }`}>
-                            {metric.status}
-                          </span>
-                        </div>
+              <div className="bg-white shadow-lg rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">Quality Records</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingQuality(null); setShowQualityForm((v) => !v); }} className="text-sm bg-green-600 text-white px-3 py-1.5 rounded-md">{showQualityForm ? 'Close Form' : 'Add Record'}</button>
+                    <button onClick={() => { fetchQualityRecords(); }} className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-md">Refresh</button>
+                  </div>
+                </div>
+                {showQualityForm && (
+                  <form onSubmit={submitQuality} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium">Batch No</label>
+                      <input name="batchNo" value={qualityForm.batchNo} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., RIP-0001" pattern="^RIP-\d{4}$" title="Format: RIP-0001" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Product (optional)</label>
+                      <select value={qualityForm.productId} onChange={handleQualityProductSelect} className="w-full border rounded-lg p-2">
+                        <option value="">-- Select product --</option>
+                        {products.map((p) => (
+                          <option key={p._id} value={p._id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Product Name</label>
+                      <input name="productName" value={qualityForm.productName} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., Recycled PET Bottles" pattern="^[A-Za-z\s]*$" title="Only letters and spaces are allowed" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Status</label>
+                      <select name="status" value={qualityForm.status} onChange={handleQualityChange} className="w-full border rounded-lg p-2">
+                        <option>Passed</option>
+                        <option>Failed</option>
+                        <option>Rework</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Inspected Quantity</label>
+                      <input name="inspectedQuantity" value={qualityForm.inspectedQuantity} onChange={handleQualityChange} type="text" inputMode="numeric" pattern="\d{1,4}" maxLength={4} className="w-full border rounded-lg p-2" placeholder="e.g., 500" title="Enter up to 4 digits" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Defects (comma separated)</label>
+                      <input name="defects" value={qualityForm.defects} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., scratch, color mismatch" pattern="^[A-Za-z\s,]*$" title="Only letters, commas, and spaces are allowed" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Defect Count</label>
+                      <input name="defectCount" value={qualityForm.defectCount} onChange={handleQualityChange} type="text" inputMode="numeric" pattern="\d{0,3}" maxLength={3} className="w-full border rounded-lg p-2" title="Up to 3 digits" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Inspection Date</label>
+                      <input name="inspectionDate" value={qualityForm.inspectionDate} onChange={handleQualityChange} type="date" className="w-full border rounded-lg p-2" />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium mb-1">Checks</label>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="visual" checked={!!qualityForm.checks?.visual} onChange={handleQualityCheckToggle} /> Visual</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="dimensions" checked={!!qualityForm.checks?.dimensions} onChange={handleQualityCheckToggle} /> Dimensions</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="functional" checked={!!qualityForm.checks?.functional} onChange={handleQualityCheckToggle} /> Functional</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="packaging" checked={!!qualityForm.checks?.packaging} onChange={handleQualityCheckToggle} /> Packaging</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="safety" checked={!!qualityForm.checks?.safety} onChange={handleQualityCheckToggle} /> Safety</label>
                       </div>
-                    ))}
+                      <div className="mt-2 text-sm">
+                        <span className="mr-2 text-gray-600">Suggested:</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${((qualityForm.checks && (qualityForm.checks.visual===false || qualityForm.checks.dimensions===false || qualityForm.checks.functional===false || qualityForm.checks.packaging===false || qualityForm.checks.safety===false)) || (parseInt(qualityForm.defectCount||'0')>0)) ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                          {((qualityForm.checks && (qualityForm.checks.visual===false || qualityForm.checks.dimensions===false || qualityForm.checks.functional===false || qualityForm.checks.packaging===false || qualityForm.checks.safety===false)) || (parseInt(qualityForm.defectCount||'0')>0)) ? 'Rework' : 'Passed'}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium">Inspector</label>
+                      <input name="inspector" value={qualityForm.inspector} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., John Doe" pattern="^[A-Za-z\s]*$" title="Only letters and spaces are allowed" />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-sm font-medium">Notes</label>
+                      <textarea name="notes" value={qualityForm.notes} onChange={handleQualityChange} className="w-full border rounded-lg p-2" rows="2" />
+                    </div>
+                    <div className="md:col-span-3 flex gap-3">
+                      <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingQuality ? 'Update Record' : 'Create Record'}</button>
+                      {editingQuality && (
+                        <button type="button" onClick={() => { setEditingQuality(null); setShowQualityForm(false); setQualityForm({ batchNo: '', productId: '', productName: '', status: 'Passed', defects: '', defectCount: '', inspectionDate: '', inspector: '', notes: '' }); }} className="border px-4 py-2 rounded-lg">Cancel</button>
+                      )}
+                    </div>
+                  </form>
+                )}
+                {loadingQuality ? (
+                  <div className="py-8 text-center text-gray-500">Loading quality records...</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left py-3 px-2 font-semibold text-gray-700">Batch No</th>
+                          <th className="text-left py-3 px-2 font-semibold text-gray-700">Product</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Status</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Defects</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Inspected On</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Inspector</th>
+                          <th className="text-center py-3 px-2 font-semibold text-gray-700">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {qualityRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-6 text-center text-gray-500">No records found.</td>
+                          </tr>
+                        ) : (
+                          qualityRecords.map((r) => (
+                            <tr key={r._id} className="border-b border-gray-100 hover:bg-gray-50">
+                              <td className="py-3 px-2 font-medium">{r.batchNo}</td>
+                              <td className="py-3 px-2">{r.productName}</td>
+                              <td className="py-3 px-2 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  r.status === 'Passed' ? 'bg-green-100 text-green-800' :
+                                  r.status === 'Failed' ? 'bg-red-100 text-red-800' :
+                                  'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {r.status}
+                                </span>
+                              </td>
+                              <td className="py-3 px-2 text-center">{Array.isArray(r.defects) ? r.defects.join(', ') : r.defects}</td>
+                              <td className="py-3 px-2 text-center">{r.inspectionDate ? new Date(r.inspectionDate).toLocaleDateString() : '-'}</td>
+                              <td className="py-3 px-2 text-center">{r.inspector}</td>
+                              <td className="py-3 px-2 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button onClick={() => editQuality(r)} className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700">Edit</button>
+                                  <button onClick={() => deleteQuality(r._id)} className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700">Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-xl font-bold mb-6">Recent Quality Checks</h3>
-                  <div className="space-y-3">
-                    <div className="border-l-4 border-green-500 pl-4">
-                      <p className="font-medium">Batch #2024-045</p>
-                      <p className="text-sm text-gray-600">Passed all quality tests</p>
-                      <p className="text-xs text-gray-500">2 hours ago</p>
-                    </div>
-                    <div className="border-l-4 border-yellow-500 pl-4">
-                      <p className="font-medium">Batch #2024-044</p>
-                      <p className="text-sm text-gray-600">Minor defects detected</p>
-                      <p className="text-xs text-gray-500">4 hours ago</p>
-                    </div>
-                    <div className="border-l-4 border-green-500 pl-4">
-                      <p className="font-medium">Batch #2024-043</p>
-                      <p className="text-sm text-gray-600">Excellent quality rating</p>
-                      <p className="text-xs text-gray-500">6 hours ago</p>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* Analytics Tab */}
-          {activeTab === "analytics" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-lg font-bold mb-4">Production vs Sales</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={productionData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="produced" fill="#3b82f6" name="Produced" />
-                      <Bar dataKey="sold" fill="#22c55e" name="Sold" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h3 className="text-lg font-bold mb-4">Revenue by Product</h3>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={revenueData}>
-                      <XAxis dataKey="product" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="revenue" stroke="#16a34a" strokeWidth={3} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Analytics moved to separate page at /production/analytics */}
 
           {/* Reports Tab */}
           {activeTab === "reports" && (
