@@ -156,6 +156,28 @@ const ProductionDashboard = () => {
   // Quality form handlers
   const handleQualityChange = (e) => {
     const { name, value } = e.target;
+    // Field-level restrictions for Quality Records form
+    if (name === 'productName') {
+      // Allow only letters and spaces (no numbers or special characters)
+      const nameRegex = /^[A-Za-z\s]*$/;
+      if (!nameRegex.test(value)) return;
+    } else if (name === 'inspectedQuantity') {
+      // Digits only, maximum 4 characters
+      const qtyRegex = /^\d{0,4}$/;
+      if (!qtyRegex.test(value)) return;
+    } else if (name === 'defects') {
+      // Allow only letters, commas, and spaces (e.g., "scratch, color mismatch")
+      const defectsRegex = /^[A-Za-z\s,]*$/;
+      if (!defectsRegex.test(value)) return;
+    } else if (name === 'defectCount') {
+      // Digits only, up to 3 while typing
+      const countRegex = /^\d{0,3}$/;
+      if (!countRegex.test(value)) return;
+    } else if (name === 'inspector') {
+      // Letters and spaces only
+      const inspRegex = /^[A-Za-z\s]*$/;
+      if (!inspRegex.test(value)) return;
+    }
     setQualityForm((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -174,14 +196,47 @@ const ProductionDashboard = () => {
       ...prev,
       productId: id,
       productName: prod ? prod.name : prev.productName,
+      // Auto-derive Batch No from selected product's Product ID (RIP-....)
+      batchNo: prod?.productId ? String(prod.productId) : prev.batchNo,
     }));
   };
 
   const submitQuality = async (e) => {
     e.preventDefault();
     try {
+      // Submit-time validation for Quality Records
+      const nameOk = /^[A-Za-z\s]*$/.test(qualityForm.productName || '');
+      if (!nameOk) {
+        alert('Product Name can contain only letters and spaces.');
+        return;
+      }
+      const qtyOk = /^\d{1,4}$/.test((qualityForm.inspectedQuantity || '').toString());
+      if (qualityForm.inspectedQuantity && !qtyOk) {
+        alert('Inspected Quantity must be digits only, up to 4 digits.');
+        return;
+      }
+      const defectsOk = /^[A-Za-z\s,]*$/.test(qualityForm.defects || '');
+      if (!defectsOk) {
+        alert('Defects must contain only letters, commas, and spaces.');
+        return;
+      }
+      const defectCountOk = /^\d{0,3}$/.test((qualityForm.defectCount || '').toString());
+      if (!defectCountOk) {
+        alert('Defect Count must be digits only, up to 3 digits.');
+        return;
+      }
+      const inspectorOk = /^[A-Za-z\s]*$/.test(qualityForm.inspector || '');
+      if (!inspectorOk) {
+        alert('Inspector can contain only letters and spaces.');
+        return;
+      }
+
+      // Determine batch number from selected product's Product ID (e.g., RIP-0001)
+      const selectedProd = (products || []).find((p) => p._id === qualityForm.productId);
+      const batchNoVal = selectedProd?.productId ? String(selectedProd.productId) : qualityForm.batchNo.trim();
+
       const payload = {
-        batchNo: qualityForm.batchNo.trim(),
+        batchNo: batchNoVal,
         productId: qualityForm.productId || undefined,
         productName: qualityForm.productName?.trim() || undefined,
         status: qualityForm.status,
@@ -407,7 +462,9 @@ const ProductionDashboard = () => {
   const goToQuality = (plan) => {
     const prodId = plan.productId?._id || '';
     const prodName = plan.productName || '';
-    const batchNo = plan._id ? `PLAN-${String(plan._id).slice(-6).toUpperCase()}` : new Date().toISOString().slice(0,10);
+    // Prefer product's Product ID (RIP-....) for Batch No when available
+    const linkedProduct = (products || []).find((p) => p._id === prodId);
+    const batchNo = linkedProduct?.productId ? String(linkedProduct.productId) : (plan._id ? `PLAN-${String(plan._id).slice(-6).toUpperCase()}` : new Date().toISOString().slice(0,10));
     setActiveTab('quality');
     setShowQualityForm(true);
     setEditingQuality(null);
@@ -1905,7 +1962,7 @@ const ProductionDashboard = () => {
                   <form onSubmit={submitQuality} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div>
                       <label className="block text-sm font-medium">Batch No</label>
-                      <input name="batchNo" value={qualityForm.batchNo} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., 2025-001" />
+                      <input name="batchNo" value={qualityForm.batchNo} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., RIP-0001" pattern="^RIP-\d{4}$" title="Format: RIP-0001" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Product (optional)</label>
@@ -1918,7 +1975,7 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Product Name</label>
-                      <input name="productName" value={qualityForm.productName} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., Recycled PET Bottles" />
+                      <input name="productName" value={qualityForm.productName} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., Recycled PET Bottles" pattern="^[A-Za-z\s]*$" title="Only letters and spaces are allowed" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Status</label>
@@ -1930,15 +1987,15 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Inspected Quantity</label>
-                      <input name="inspectedQuantity" value={qualityForm.inspectedQuantity} onChange={handleQualityChange} type="number" min="0" className="w-full border rounded-lg p-2" placeholder="e.g., 500" />
+                      <input name="inspectedQuantity" value={qualityForm.inspectedQuantity} onChange={handleQualityChange} type="text" inputMode="numeric" pattern="\d{1,4}" maxLength={4} className="w-full border rounded-lg p-2" placeholder="e.g., 500" title="Enter up to 4 digits" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Defects (comma separated)</label>
-                      <input name="defects" value={qualityForm.defects} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., scratch, color mismatch" />
+                      <input name="defects" value={qualityForm.defects} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., scratch, color mismatch" pattern="^[A-Za-z\s,]*$" title="Only letters, commas, and spaces are allowed" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Defect Count</label>
-                      <input name="defectCount" value={qualityForm.defectCount} onChange={handleQualityChange} type="number" min="0" className="w-full border rounded-lg p-2" />
+                      <input name="defectCount" value={qualityForm.defectCount} onChange={handleQualityChange} type="text" inputMode="numeric" pattern="\d{0,3}" maxLength={3} className="w-full border rounded-lg p-2" title="Up to 3 digits" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Inspection Date</label>
@@ -1962,7 +2019,7 @@ const ProductionDashboard = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Inspector</label>
-                      <input name="inspector" value={qualityForm.inspector} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., John Doe" />
+                      <input name="inspector" value={qualityForm.inspector} onChange={handleQualityChange} className="w-full border rounded-lg p-2" placeholder="e.g., John Doe" pattern="^[A-Za-z\s]*$" title="Only letters and spaces are allowed" />
                     </div>
                     <div className="md:col-span-3">
                       <label className="block text-sm font-medium">Notes</label>

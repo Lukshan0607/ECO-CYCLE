@@ -94,8 +94,27 @@ const ProductionReportPage = () => {
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Print styles */}
+      <style>{`
+        @media print {
+          @page { size: A4; margin: 12mm; }
+          html, body, #root { background: white !important; }
+          /* Hide navigation, headers, and any explicit no-print */
+          aside, header, nav, .no-print { display: none !important; }
+          /* Expand content to full width */
+          .print-content { width: 100% !important; margin: 0 !important; padding: 0 0 !important; }
+          /* Remove gradients and shadows for clean print */
+          .bg-gradient-to-br, .bg-white { background: white !important; }
+          .shadow, .shadow-lg, .shadow-xl { box-shadow: none !important; }
+          /* Avoid page breaks in headers */
+          h1, h2, h3 { page-break-after: avoid; }
+          table { page-break-inside: auto; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+        }
+      `}</style>
+
       {/* Sidebar */}
-      <aside className="w-72 bg-white shadow-xl border-r border-gray-200">
+      <aside className="no-print w-72 bg-white shadow-xl border-r border-gray-200">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
@@ -142,8 +161,8 @@ const ProductionReportPage = () => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-auto">
-      <header className="bg-white border-b border-gray-200 p-6">
+      <div className="flex-1 overflow-auto print-content">
+      <header className="no-print bg-white border-b border-gray-200 p-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
             <FileText className="text-white" size={20} />
