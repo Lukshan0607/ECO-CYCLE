@@ -61,6 +61,13 @@ export default function CollectorsDashboard() {
   const [filterMaxG, setFilterMaxG] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+  // Applied filters (take effect only after clicking Apply)
+  const [appliedMinG, setAppliedMinG] = useState("");
+  const [appliedMaxG, setAppliedMaxG] = useState("");
+  const [appliedFrom, setAppliedFrom] = useState("");
+  const [appliedTo, setAppliedTo] = useState("");
+  // Today string for date inputs (YYYY-MM-DD)
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
   // Shared Active Bin Locations (from Transport -> Bin Locations)
   const [binLocations, setBinLocations] = useState([]);
@@ -81,6 +88,67 @@ export default function CollectorsDashboard() {
       setBinsError("Failed to load locations");
     } finally {
       setBinsLoading(false);
+    }
+  };
+
+  // Validate date range: if both provided, To must be >= From
+  const isDateRangeValid = useMemo(() => {
+    try {
+      if (!filterFrom || !filterTo) return true; // allow partial selection
+      const from = new Date(filterFrom);
+      const to = new Date(filterTo);
+      return to >= from;
+    } catch {
+      return false;
+    }
+  }, [filterFrom, filterTo]);
+
+  // Export 'Daily Collection in Current Month' to PDF (printable window)
+  const exportDailyCurrentMonthToPdf = () => {
+    try {
+      const rows = chartDailyCurrentMonth || [];
+      const title = `Daily Collection in ${new Date().toLocaleString(undefined, { month: 'long', year: 'numeric' })}`;
+      const rowsHtml = rows.map(r => (
+        `<tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${r.day}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${Number(r.qty).toFixed(3)}</td>
+        </tr>`
+      )).join('');
+      const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            body { font-family: Arial, Helvetica, sans-serif; color: #111827; }
+            h1 { font-size: 20px; margin: 0 0 8px 0; }
+            table { border-collapse: collapse; width: 100%; font-size: 12px; }
+            thead th { background: #f9fafb; border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+            @media print { @page { size: A4; margin: 12mm; } }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <table>
+            <thead>
+              <tr>
+                <th>Day</th>
+                <th>Total Weight (kg)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="2" style="padding:12px;text-align:center;color:#6b7280;">No data</td></tr>'}
+            </tbody>
+          </table>
+          <script>window.onload = function(){ try { setTimeout(function(){ window.print(); }, 100); } catch(e){} };</script>
+        </body>
+      </html>`;
+      const w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write(html);
+      try { w.document.close(); } catch {}
+    } catch (e) {
+      console.error('Export daily current month PDF failed', e);
     }
   };
 
@@ -109,8 +177,8 @@ export default function CollectorsDashboard() {
       const res = await axios.get("http://localhost:5000/api/collections", {
         params: {
           limit: 100,
-          dateFrom: filterFrom || undefined,
-          dateTo: filterTo || undefined,
+          dateFrom: appliedFrom || undefined,
+          dateTo: appliedTo || undefined,
         },
       });
       setCollections(res?.data?.collections || []);
@@ -121,15 +189,15 @@ export default function CollectorsDashboard() {
     }
   };
 
-  // Build the currently displayed rows according to filters used in the table
+  // Build the currently displayed rows according to APPLIED filters used in the table
   const getFilteredRows = () => {
     try {
       return collections
         .slice()
         .filter(c => {
           const g = (Number(c.quantity)||0) * 1000;
-          const minOk = filterMinG === "" ? true : g >= Number(filterMinG);
-          const maxOk = filterMaxG === "" ? true : g <= Number(filterMaxG);
+          const minOk = appliedMinG === "" ? true : g >= Number(appliedMinG);
+          const maxOk = appliedMaxG === "" ? true : g <= Number(appliedMaxG);
           return minOk && maxOk;
         })
         .sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt));
@@ -217,9 +285,10 @@ export default function CollectorsDashboard() {
     }
   };
 
+  // Initial load only; filtering happens on Apply
   useEffect(() => {
     fetchCollections();
-  }, [filterFrom, filterTo]);
+  }, []);
 
   useEffect(() => {
     fetchTransportRequests();
@@ -232,6 +301,99 @@ export default function CollectorsDashboard() {
     const pending = collections.filter(c => (c.status||'').toLowerCase().includes('pending')).reduce((s,c)=>s+(c.quantity||0),0);
     const delivered = collections.filter(c => (c.status||'').toLowerCase().includes('delivered')).reduce((s,c)=>s+(c.quantity||0),0);
     return { totalQty, pending, delivered };
+  }, [collections]);
+
+  // Export Collector Locations (active bins) to PDF
+  const exportLocationsToPdf = () => {
+    try {
+      const rows = (binLocations || []).map((loc, idx) => {
+        const id = loc.routeId || loc.id || `LOC-${idx+1}`;
+        const name = loc.location || loc.name || '-';
+        const city = loc.city || '';
+        const manager = loc.managerName || loc.manager || '';
+        const distance = typeof loc.distanceKm === 'number' ? `${loc.distanceKm} km` : (loc.distance?.total ? `${loc.distance.total} ${loc.distance.unit||'km'}` : '');
+        return { id, name, city, manager, distance };
+      });
+      const title = 'Collector Locations (Active)';
+      const rowsHtml = rows.map(r => (
+        `<tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${r.id}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${r.name}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${r.city}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${r.manager}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${r.distance}</td>
+        </tr>`
+      )).join('');
+      const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            body { font-family: Arial, Helvetica, sans-serif; color: #111827; }
+            h1 { font-size: 20px; margin: 0 0 8px 0; }
+            .muted { color: #6b7280; font-size: 12px; margin-bottom: 12px; }
+            table { border-collapse: collapse; width: 100%; font-size: 12px; }
+            thead th { background: #f9fafb; border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+            @media print { @page { size: A4; margin: 12mm; } }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <div class="muted">Exported: ${new Date().toLocaleString()}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Location</th>
+                <th>City</th>
+                <th>Manager</th>
+                <th>Distance</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="5" style="padding:12px;text-align:center;color:#6b7280;">No locations</td></tr>'}
+            </tbody>
+          </table>
+          <script>window.onload = function(){ try { setTimeout(function(){ window.print(); }, 100); } catch(e){} };</script>
+        </body>
+      </html>`;
+      const w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write(html);
+      try { w.document.close(); } catch {}
+    } catch (e) {
+      console.error('Export locations PDF failed', e);
+    }
+  };
+
+  // Today's transport requests count
+  const todaysRequestsCount = useMemo(() => {
+    try {
+      const start = new Date(); start.setHours(0,0,0,0);
+      const end = new Date(); end.setHours(23,59,59,999);
+      return (transportReqs || []).reduce((sum, r) => {
+        const d = r.createdAt ? new Date(r.createdAt) : null;
+        return (d && d >= start && d <= end) ? sum + 1 : sum;
+      }, 0);
+    } catch {
+      return 0;
+    }
+  }, [transportReqs]);
+
+  // Today's total bottle weight (kg)
+  const todaysTotalKg = useMemo(() => {
+    try {
+      const start = new Date(); start.setHours(0,0,0,0);
+      const end = new Date(); end.setHours(23,59,59,999);
+      return collections.reduce((sum, c) => {
+        const d = c.createdAt ? new Date(c.createdAt) : null;
+        if (d && d >= start && d <= end) return sum + (c.quantity || 0);
+        return sum;
+      }, 0);
+    } catch {
+      return 0;
+    }
   }, [collections]);
 
   // Compute total quantity since the last transport request (any status)
@@ -305,6 +467,68 @@ export default function CollectorsDashboard() {
     return Object.entries(map).map(([type, qty]) => ({ type, qty }));
   }, [collections]);
 
+  // Bar chart data: total weight by location (kg)
+  const chartByLocation = useMemo(() => {
+    const map = collections.reduce((acc, s) => {
+      const loc = s.location || 'Unknown';
+      acc[loc] = (acc[loc] || 0) + (s.quantity || 0);
+      return acc;
+    }, {});
+    // Sort by qty desc for nicer display
+    return Object.entries(map)
+      .map(([location, qty]) => ({ location, qty }))
+      .sort((a,b) => b.qty - a.qty);
+  }, [collections]);
+
+  // Export 'Collections by Location' to PDF (printable window)
+  const exportCollectionsByLocationToPdf = () => {
+    try {
+      const rows = chartByLocation || [];
+      const title = 'Collections by Location';
+      const rowsHtml = rows.map(r => (
+        `<tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${r.location}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${Number(r.qty).toFixed(3)}</td>
+        </tr>`
+      )).join('');
+      const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            body { font-family: Arial, Helvetica, sans-serif; color: #111827; }
+            h1 { font-size: 20px; margin: 0 0 8px 0; }
+            table { border-collapse: collapse; width: 100%; font-size: 12px; }
+            thead th { background: #f9fafb; border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+            @media print { @page { size: A4; margin: 12mm; } }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <table>
+            <thead>
+              <tr>
+                <th>Location</th>
+                <th>Total Weight (kg)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="2" style="padding:12px;text-align:center;color:#6b7280;">No data</td></tr>'}
+            </tbody>
+          </table>
+          <script>window.onload = function(){ try { setTimeout(function(){ window.print(); }, 100); } catch(e){} };</script>
+        </body>
+      </html>`;
+      const w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write(html);
+      try { w.document.close(); } catch {}
+    } catch (e) {
+      console.error('Export by location PDF failed', e);
+    }
+  };
+
   const chartStatus = useMemo(() => {
     const map = collections.reduce((acc, s) => {
       const key = s.status || 'Unknown';
@@ -324,6 +548,34 @@ export default function CollectorsDashboard() {
     return Object.entries(map)
       .sort((a,b) => new Date(a[0]) - new Date(b[0]))
       .map(([day, qty]) => ({ day, qty }));
+  }, [collections]);
+
+  // Current month's daily collection totals (kg), includes days with zero
+  const chartDailyCurrentMonth = useMemo(() => {
+    try {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth(); // 0-based
+      const start = new Date(year, month, 1, 0, 0, 0, 0);
+      const end = new Date(year, month + 1, 0, 23, 59, 59, 999); // last day of month
+      // aggregate within this month
+      const map = collections.reduce((acc, s) => {
+        const d = s.createdAt ? new Date(s.createdAt) : null;
+        if (!d || d < start || d > end) return acc;
+        const key = d.toISOString().split('T')[0];
+        acc[key] = (acc[key] || 0) + (s.quantity || 0);
+        return acc;
+      }, {});
+      // produce all days
+      const days = [];
+      for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+        const key = dt.toISOString().split('T')[0];
+        days.push({ day: key, qty: Number(map[key] || 0) });
+      }
+      return days;
+    } catch {
+      return [];
+    }
   }, [collections]);
 
   // Submit new collection: award points + create collection + add to collector stock
@@ -457,14 +709,12 @@ export default function CollectorsDashboard() {
   // Create transport request from selected stock row
   const requestTransport = async (stock) => {
     try {
-      const safeCollector = (selectedLocManager && selectedLocManager.trim()) || 'Collector Hub';
-      const safeLocation = (selectedLocation && selectedLocation.trim()) || (stock.location || '');
       await axios.post("http://localhost:5000/api/transport-requests", {
         collectionId: null,
-        collectorName: safeCollector,
+        collectorName: selectedLocManager || "",
         bottleType: stock.bottleType,
         quantity: stock.quantity,
-        location: safeLocation,
+        location: selectedLocation || stock.location || "",
         notes: `Requested via dashboard for ${stock.bottleType}`,
       });
       // Optionally push a lightweight local notification entry
@@ -477,8 +727,7 @@ export default function CollectorsDashboard() {
       // refresh requests list
       fetchTransportRequests();
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Failed to send transport request. Ensure backend is running.';
-      setToast(msg);
+      setToast("Failed to send transport request. Ensure backend is running.");
       setTimeout(() => setToast(""), 2500);
     }
   };
@@ -518,10 +767,6 @@ export default function CollectorsDashboard() {
           <MapPinIcon className="w-5 h-5" />
           <span className="font-medium">Collector Locations</span>
         </button>
-        <button onClick={() => setActiveTab("reports")} className={`w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 ${activeTab==='reports' ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg' : 'text-gray-700 hover:bg-gray-100'}`}>
-          <DocumentChartBarIcon className="w-5 h-5" />
-          <span className="font-medium">Reports</span>
-        </button>
         {/* Profile tab removed */}
         <LogoutButton />
       </nav>
@@ -543,75 +788,63 @@ export default function CollectorsDashboard() {
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-0 shadow-lg rounded-2xl p-6">
-          <p className="text-emerald-100 text-sm">Total Bottles</p>
-          <h2 className="text-3xl font-bold">{totals.totalQty}</h2>
+          <p className="text-emerald-100 text-sm">Total Bottle Weight (kg)</p>
+          <h2 className="text-3xl font-bold">{Number(totals.totalQty).toFixed(3)}</h2>
         </div>
         <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg rounded-2xl p-6">
-          <p className="text-blue-100 text-sm">Active Requests</p>
-          <h2 className="text-3xl font-bold">{requestsCount}</h2>
+          <p className="text-blue-100 text-sm">Today's Total Bottle Weight (kg)</p>
+          <h2 className="text-3xl font-bold">{Number(todaysTotalKg).toFixed(3)}</h2>
         </div>
         <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg rounded-2xl p-6">
-          <p className="text-orange-100 text-sm">Pending Transport</p>
-          <h2 className="text-3xl font-bold">{totals.pending}</h2>
+          <p className="text-orange-100 text-sm">Total Transport Requests</p>
+          <h2 className="text-3xl font-bold">{requestsCount}</h2>
         </div>
         <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-lg rounded-2xl p-6">
-          <p className="text-purple-100 text-sm">Delivered</p>
-          <h2 className="text-3xl font-bold">{totals.delivered}</h2>
+          <p className="text-purple-100 text-sm">Today's Total Transport Requests</p>
+          <h2 className="text-3xl font-bold">{todaysRequestsCount}</h2>
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Recent Notifications</h2>
-        <ul className="space-y-2">
-          {notifications.slice(0,5).map(n => (
-            <li key={n.id} className="flex items-center justify-between p-3 rounded-lg border">
-              <span className="text-sm text-gray-800">{n.text}</span>
-              <span className="text-xs text-gray-500">{new Date(n.time).toLocaleString()}</span>
-            </li>
-          ))}
-        </ul>
+      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 -mx-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-4">Collections by Location</h2>
+        <ResponsiveContainer width="100%" height={520}>
+          <BarChart data={chartByLocation} margin={{ top: 12, right: 20, bottom: 36, left: 16 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis dataKey="location" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#d1d5db' }} interval={0} angle={-35} textAnchor="end" height={110} tickMargin={14} allowDataOverflow/>
+            <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={{ stroke: '#d1d5db' }} />
+            <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }} formatter={(v)=>[Number(v).toFixed(3)+' kg','Weight']} />
+            <Bar dataKey="qty" name="Weight (kg)" radius={[4,4,0,0]} fill="#10b981" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Export by Location PDF button */}
+      <div className="mt-4 flex justify-center -mx-6">
+        <button
+          onClick={exportCollectionsByLocationToPdf}
+          className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 text-white shadow-sm"
+        >Export PDF</button>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900 mb-3">By Bottle Type</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={chartByType}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="type" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={{ stroke: '#d1d5db' }}/>
-              <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={{ stroke: '#d1d5db' }}/>
-              <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }}/>
-              <Bar dataKey="qty" radius={[4,4,0,0]} fill="#3b82f6" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900 mb-3">Status Distribution</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie data={chartStatus} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                {chartStatus.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900 mb-3">Daily Collections</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={chartDaily}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={{ stroke: '#d1d5db' }}/>
-              <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={{ stroke: '#d1d5db' }}/>
-              <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }}/>
-              <Line type="monotone" dataKey="qty" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 -mx-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-3">Daily Collection in {new Date().toLocaleString(undefined, { month: 'long', year: 'numeric' })}</h3>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={chartDailyCurrentMonth}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#d1d5db' }} angle={-25} textAnchor="end" interval={0} height={70} />
+            <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={{ stroke: '#d1d5db' }} />
+            <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }} formatter={(v)=>[Number(v).toFixed(3)+' kg','Weight']} />
+            <Bar dataKey="qty" name="Weight (kg)" radius={[4,4,0,0]} fill="#3b82f6" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      {/* Export Daily Current Month PDF button */}
+      <div className="mt-4 flex justify-center -mx-6">
+        <button
+          onClick={exportDailyCurrentMonthToPdf}
+          className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 text-white shadow-sm"
+        >Export PDF</button>
       </div>
     </div>
   );
@@ -621,7 +854,10 @@ export default function CollectorsDashboard() {
       <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900">Collector Locations</h2>
-          <button onClick={loadActiveBins} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-gray-50">Refresh</button>
+          <div className="flex items-center gap-2">
+            <button onClick={exportLocationsToPdf} className="text-sm px-3 py-1.5 rounded-lg bg-gray-600 text-white hover:bg-gray-700">Export PDF</button>
+            <button onClick={loadActiveBins} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-gray-50">Refresh</button>
+          </div>
         </div>
         {binsError && <div className="mb-3 text-sm text-red-600">{binsError}</div>}
         {binsLoading ? (
@@ -671,7 +907,7 @@ export default function CollectorsDashboard() {
         const id = r.requestId || (r._id?.slice(-6) || String(idx+1));
         const createdAt = r.createdAt ? new Date(r.createdAt).toLocaleString() : '-';
         const collector = r.collectorName || '-';
-        const qty = r.quantity ?? '-';
+        const qty = (r.quantity != null) ? Number(r.quantity).toFixed(3) : '-';
         const location = r.location || '-';
         const status = r.status || '-';
         return `<tr>
@@ -708,7 +944,7 @@ export default function CollectorsDashboard() {
                 <th>Weight (kg)</th>
                 <th>Location</th>
                 <th>Status</th>
-                <th>Created</th>
+                <th>Created Timestamp</th>
               </tr>
             </thead>
             <tbody>
@@ -771,6 +1007,58 @@ export default function CollectorsDashboard() {
       points: lastReceipt.awardedPoints,
       createdAt: lastReceipt.createdAt,
     };
+    const printReceipt = () => {
+      try {
+        const title = 'Collection Receipt';
+        const html = `<!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>${title}</title>
+            <style>
+              @page { size: A4; margin: 12mm; }
+              body { font-family: Arial, Helvetica, sans-serif; color: #111827; }
+              h1 { font-size: 18px; margin: 0 0 8px 0; }
+              .row { display:flex; justify-content:space-between; margin: 6px 0; font-size: 12px; }
+              .label { color:#6b7280; }
+              .value { }
+              .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+              img { border: 1px solid #e5e7eb; border-radius: 12px; padding: 6px; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>${title}</h1>
+              <div class="row"><span class="label">Receipt ID</span><span class="value">${lastReceipt.id}</span></div>
+              <div class="row"><span class="label">Timestamp</span><span class="value">${new Date(lastReceipt.createdAt).toISOString()}</span></div>
+              <div class="row"><span class="label">Collector</span><span class="value">${lastReceipt.collectorName}</span></div>
+              <div class="row"><span class="label">User Phone</span><span class="value">${lastReceipt.userPhone}</span></div>
+              <div class="row"><span class="label">Weight (g)</span><span class="value">${lastReceipt.quantity}</span></div>
+              <div class="row"><span class="label">Location</span><span class="value">${lastReceipt.location || '-'}</span></div>
+              <div class="row"><span class="label">Awarded Points</span><span class="value">${lastReceipt.awardedPoints}</span></div>
+              <div style="margin-top:12px; display:flex; justify-content:center;">
+                <img src="${buildQrUrl(qrPayload)}" onerror="this.onerror=null; this.src='${buildQrFallbackUrl(qrPayload)}'" alt="QR" />
+              </div>
+            </div>
+            <script>window.onload = function(){ try { window.print(); } catch(e){} };</script>
+          </body>
+        </html>`;
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+        const win = iframe.contentWindow;
+        const doc = win.document;
+        doc.open();
+        doc.write(html);
+        doc.close();
+        win.onafterprint = () => { try { document.body.removeChild(iframe); } catch {} };
+      } catch {}
+    };
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
         {/* Print styles to ensure only the receipt prints on one page */}
@@ -790,11 +1078,10 @@ export default function CollectorsDashboard() {
           <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-gray-500">Receipt ID</span><span className="font-mono">{lastReceipt.id}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-gray-500">Date</span><span>{new Date(lastReceipt.createdAt).toLocaleString()}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-gray-500">Timestamp</span><span>{new Date(lastReceipt.createdAt).toISOString()}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Collector</span><span>{lastReceipt.collectorName}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">User Phone</span><span>{lastReceipt.userPhone}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-gray-500">Bottle Type</span><span>{lastReceipt.bottleType}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-gray-500">Quantity</span><span>{lastReceipt.quantity}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-gray-500">Weight (g)</span><span>{lastReceipt.quantity}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Location</span><span>{lastReceipt.location || '-'}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Awarded Points</span><span>{lastReceipt.awardedPoints}</span></div>
             </div>
@@ -808,7 +1095,7 @@ export default function CollectorsDashboard() {
             </div>
           </div>
           <div className="px-6 pb-6 flex justify-end gap-3">
-            <button onClick={()=>window.print()} className="border px-4 py-2 rounded-lg">Print</button>
+            <button onClick={printReceipt} className="border px-4 py-2 rounded-lg">Print</button>
             <button onClick={()=>setShowReceipt(false)} className="bg-gray-900 text-white px-4 py-2 rounded-lg">Close</button>
           </div>
         </div>
@@ -828,54 +1115,7 @@ export default function CollectorsDashboard() {
       )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <form onSubmit={(e)=>e.preventDefault()} className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <label className="block text-sm font-medium">User Phone Number</label>
-          <div className="flex items-center border rounded-lg px-3 py-2 mt-1">
-            <PhoneIcon className="w-5 h-5 text-gray-400 mr-2" />
-            <input
-              ref={phoneRef}
-              className="w-full outline-none"
-              placeholder={editingId ? "Phone not required when editing" : "e.g., +94 71 123 4567"}
-              defaultValue=""
-              disabled={!!editingId}
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Weight (g)</label>
-          <input
-            ref={qtyRef}
-            type="text"
-            inputMode="decimal"
-            className="w-full border rounded-lg px-3 py-2 mt-1"
-            defaultValue=""
-            placeholder="e.g., 350.5"
-            onInput={(e)=>{
-              try {
-                let v = e.target.value;
-                // remove everything except digits and dots
-                v = v.replace(/[^0-9.]/g, '');
-                // keep only the first dot
-                const i = v.indexOf('.');
-                if (i !== -1) {
-                  v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '');
-                }
-                // limit to 1 decimal place
-                const parts = v.split('.');
-                if (parts.length > 1) {
-                  v = parts[0] + '.' + parts[1].slice(0, 1);
-                }
-                e.target.value = v;
-              } catch {}
-            }}
-            onPaste={(e)=>{
-              try {
-                const text = (e.clipboardData || window.clipboardData).getData('text');
-                if (/[^0-9.]/.test(text)) e.preventDefault();
-              } catch {}
-            }}
-          />
-        </div>
+        {/* Location first */}
         <div>
           <div className="flex items-center justify-between">
             <label className="block text-sm font-medium">Location</label>
@@ -910,6 +1150,7 @@ export default function CollectorsDashboard() {
           )}
           {binsError && <div className="text-xs text-red-600 mt-1">{binsError}</div>}
         </div>
+        {/* Collector Manager second */}
         <div>
           <label className="block text-sm font-medium">Collector Manager</label>
           <div className="flex items-center border rounded-lg px-3 py-2 mt-1 bg-gray-50">
@@ -921,6 +1162,66 @@ export default function CollectorsDashboard() {
               placeholder="Auto-filled based on location"
             />
           </div>
+        </div>
+        {/* Phone third */}
+        <div>
+          <label className="block text-sm font-medium">User Phone Number</label>
+          <div className="flex items-center border rounded-lg px-3 py-2 mt-1">
+            <PhoneIcon className="w-5 h-5 text-gray-400 mr-2" />
+            <input
+              ref={phoneRef}
+              className="w-full outline-none"
+              placeholder={editingId ? "Phone not required when editing" : "e.g., 071 123 4567"}
+              defaultValue=""
+              inputMode="numeric"
+              maxLength={10}
+              pattern="\\d{10}"
+              title="Enter 10 digits"
+              onInput={(e)=>{
+                try {
+                  let v = e.target.value || "";
+                  v = v.replace(/\D/g, "").slice(0, 10);
+                  e.target.value = v;
+                } catch {}
+              }}
+              onPaste={(e)=>{
+                try {
+                  e.preventDefault();
+                  const text = (e.clipboardData || window.clipboardData).getData('text') || "";
+                  const sanitized = text.replace(/\D/g, "").slice(0, 10);
+                  const input = e.currentTarget;
+                  input.value = sanitized;
+                } catch {}
+              }}
+              disabled={!!editingId}
+            />
+          </div>
+        </div>
+        {/* Weight fourth */}
+        <div>
+          <label className="block text-sm font-medium">Weight (g)</label>
+          <input
+            ref={qtyRef}
+            type="text"
+            inputMode="numeric"
+            className="w-full border rounded-lg px-3 py-2 mt-1"
+            defaultValue=""
+            placeholder="e.g., 350"
+            onInput={(e)=>{
+              try {
+                let v = e.target.value || '';
+                // allow digits only (no decimals)
+                v = v.replace(/\D/g, '');
+                e.target.value = v;
+              } catch {}
+            }}
+            onPaste={(e)=>{
+              try {
+                const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+                if (/\D/.test(text)) e.preventDefault();
+              } catch {}
+            }}
+          />
         </div>
       <div className="flex items-center gap-3 mt-6 md:col-span-2">
         <button
@@ -965,15 +1266,27 @@ export default function CollectorsDashboard() {
       <div className="mt-8">
         <h3 className="text-lg font-semibold text-gray-900 mb-3">Recent Collections</h3>
         {/* Filters */}
-        <div className="flex flex-col md:flex-row md:items-end gap-3 mb-4">
+      <div className="flex flex-col md:flex-row md:items-end gap-3 mb-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">Min Weight (g)</label>
             <input
-              type="number"
-              step="0.1"
+              type="text"
+              inputMode="numeric"
+              pattern="\\d*"
               min="0"
               value={filterMinG}
-              onChange={(e)=>setFilterMinG(e.target.value)}
+              onChange={(e)=>{
+                try {
+                  const v = (e.target.value || '').replace(/\D/g, '');
+                  setFilterMinG(v);
+                } catch { setFilterMinG(e.target.value); }
+              }}
+              onPaste={(e)=>{
+                try {
+                  const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+                  if (/\D/.test(text)) e.preventDefault();
+                } catch {}
+              }}
               className="border rounded-lg px-3 py-2 w-40"
               placeholder="e.g., 100"
             />
@@ -981,11 +1294,23 @@ export default function CollectorsDashboard() {
           <div>
             <label className="block text-sm font-medium text-gray-700">Max Weight (g)</label>
             <input
-              type="number"
-              step="0.1"
+              type="text"
+              inputMode="numeric"
+              pattern="\\d*"
               min="0"
               value={filterMaxG}
-              onChange={(e)=>setFilterMaxG(e.target.value)}
+              onChange={(e)=>{
+                try {
+                  const v = (e.target.value || '').replace(/\D/g, '');
+                  setFilterMaxG(v);
+                } catch { setFilterMaxG(e.target.value); }
+              }}
+              onPaste={(e)=>{
+                try {
+                  const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+                  if (/\D/.test(text)) e.preventDefault();
+                } catch {}
+              }}
               className="border rounded-lg px-3 py-2 w-40"
               placeholder="e.g., 1000"
             />
@@ -996,6 +1321,7 @@ export default function CollectorsDashboard() {
               type="date"
               value={filterFrom}
               onChange={(e)=>setFilterFrom(e.target.value)}
+              max={todayStr}
               className="border rounded-lg px-3 py-2"
             />
           </div>
@@ -1005,12 +1331,19 @@ export default function CollectorsDashboard() {
               type="date"
               value={filterTo}
               onChange={(e)=>setFilterTo(e.target.value)}
+              min={filterFrom || undefined}
+              max={todayStr}
               className="border rounded-lg px-3 py-2"
             />
           </div>
           <div className="flex gap-2">
-            <button onClick={fetchCollections} className="mt-6 md:mt-0 bg-gray-800 text-white px-4 py-2 rounded-lg">Apply</button>
-            <button onClick={()=>{ setFilterMinG(""); setFilterMaxG(""); setFilterFrom(""); setFilterTo(""); }} className="mt-6 md:mt-0 border px-4 py-2 rounded-lg">Reset</button>
+            <button
+              onClick={()=>{ setAppliedMinG(filterMinG); setAppliedMaxG(filterMaxG); setAppliedFrom(filterFrom); setAppliedTo(filterTo); fetchCollections(); }}
+              disabled={!(filterMinG !== '' && filterMaxG !== '' && Number(filterMaxG) > Number(filterMinG) && isDateRangeValid)}
+              title={!(filterMinG !== '' && filterMaxG !== '' && Number(filterMaxG) > Number(filterMinG)) ? 'Set Min and Max (Max > Min) first' : (!isDateRangeValid ? 'To date must be on/after From date' : '')}
+              className="mt-6 md:mt-0 bg-gray-800 text-white px-4 py-2 rounded-lg disabled:opacity-60"
+            >Apply</button>
+            <button onClick={()=>{ setFilterMinG(""); setFilterMaxG(""); setFilterFrom(""); setFilterTo(""); setAppliedMinG(""); setAppliedMaxG(""); setAppliedFrom(""); setAppliedTo(""); fetchCollections(); }} className="mt-6 md:mt-0 border px-4 py-2 rounded-lg">Reset</button>
           </div>
         </div>
         {/* Export PDF button below input fields */}
@@ -1056,7 +1389,7 @@ export default function CollectorsDashboard() {
                   <td className="px-4 py-2 text-sm text-gray-900">{c.collectionId || (c._id?.slice(-6) || idx + 1)}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.awardedToUserId?.name || '-'}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.collectorName || '-'}</td>
-                  <td className="px-4 py-2 text-sm text-gray-700">{((Number(c.quantity)||0) * 1000).toFixed(1)}</td>
+                  <td className="px-4 py-2 text-sm text-gray-700">{((Number(c.quantity)||0) * 1000).toFixed(0)}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.location || '-'}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{c.awardedPoints || 0}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{new Date(c.createdAt).toLocaleString()}</td>
@@ -1091,13 +1424,13 @@ export default function CollectorsDashboard() {
             </div>
             <div className="text-right">
               <div className="text-xs text-gray-500">Since last request</div>
-              <div className="text-3xl font-extrabold text-gray-900">{qtySinceLastRequest}</div>
+              <div className="text-3xl font-extrabold text-gray-900">{Number(qtySinceLastRequest).toFixed(3)}</div>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl bg-white border">
               <div className="text-sm text-gray-500">Current Weight</div>
-              <div className="mt-2 text-2xl font-bold text-gray-900">{qtySinceLastRequest} kg</div>
+              <div className="mt-2 text-2xl font-bold text-gray-900">{Number(qtySinceLastRequest).toFixed(3)} kg</div>
               <div className="text-xs text-gray-500 mt-1">Since last transport request</div>
             </div>
             <div className="p-4 rounded-xl bg-white border">
@@ -1118,14 +1451,12 @@ export default function CollectorsDashboard() {
                 title="Enabled when total since last request reaches 20 kg"
                 onClick={async ()=>{
                   try {
-                    const safeCollector = (selectedLocManager && selectedLocManager.trim()) || 'Collector Hub';
-                    const safeLocation = (selectedLocation && selectedLocation.trim()) || '';
                     await axios.post('http://localhost:5000/api/transport-requests', {
                       collectionId: null,
-                      collectorName: safeCollector,
+                      collectorName: selectedLocManager || '',
                       bottleType: 'Mixed',
                       quantity: qtySinceLastRequest,
-                      location: safeLocation,
+                      location: selectedLocation || '',
                       notes: 'Threshold reached (>=20 kg) since last request. Please collect.',
                       requestId: batchId,
                     });
@@ -1134,8 +1465,7 @@ export default function CollectorsDashboard() {
                     await fetchTransportRequests();
                     await fetchCollections();
                   } catch (e) {
-                    const msg = e?.response?.data?.message || e?.message || 'Failed to create transport request.';
-                    setToast(msg);
+                    setToast('Failed to create transport request.');
                     setTimeout(()=>setToast(''), 2500);
                   }
                 }}
@@ -1166,7 +1496,7 @@ export default function CollectorsDashboard() {
               <th className="py-3 px-4 font-semibold">Weight (kg)</th>
               <th className="py-3 px-4 font-semibold">Location</th>
               <th className="py-3 px-4 font-semibold">Status</th>
-              <th className="py-3 px-4 font-semibold">Created</th>
+              <th className="py-3 px-4 font-semibold">Created Timestamp</th>
               <th className="py-3 px-4 font-semibold">Actions</th>
             </tr>
           </thead>
@@ -1175,7 +1505,7 @@ export default function CollectorsDashboard() {
               <tr key={r._id || idx} className="border-t text-sm">
                 <td className="py-3 px-4 font-mono">{r.requestId || (r._id?.slice(-6) || idx+1)}</td>
                 <td className="py-3 px-4">{r.collectorName}</td>
-                <td className="py-3 px-4 font-semibold">{r.quantity}</td>
+                <td className="py-3 px-4 font-semibold">{(r.quantity != null) ? Number(r.quantity).toFixed(3) : '-'}</td>
                 <td className="py-3 px-4">{r.location || '-'}</td>
                 <td className="py-3 px-4"><span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'Delivered' ? 'bg-green-100 text-green-700' : r.status === 'Assigned' ? 'bg-blue-100 text-blue-700' : r.status === 'PickedUp' ? 'bg-purple-100 text-purple-700' : r.status === 'Cancelled' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{r.status}</span></td>
                 <td className="py-3 px-4">{r.createdAt ? new Date(r.createdAt).toLocaleString() : '-'}</td>
@@ -1229,38 +1559,7 @@ export default function CollectorsDashboard() {
     </div>
   );
 
-  const ReportsTab = () => {
-    const byType = collections.reduce((acc, x) => { acc[x.bottleType] = (acc[x.bottleType]||0) + (x.quantity||0); return acc; }, {});
-    const rows = Object.entries(byType).map(([k, v]) => ({ type: k, qty: v }));
-    return (
-      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Reports</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="p-4 border rounded-xl">
-            <h3 className="font-semibold mb-2">Totals</h3>
-            <p className="text-sm">Total bottles: <span className="font-semibold">{totals.totalQty}</span></p>
-            <p className="text-sm">Collections recorded: <span className="font-semibold">{collections.length}</span></p>
-            <p className="text-sm">Transport requests: <span className="font-semibold">{requestsCount}</span></p>
-          </div>
-          <div className="p-4 border rounded-xl">
-            <h3 className="font-semibold mb-2">By Bottle Type</h3>
-            <table className="w-full text-sm">
-              <thead><tr className="text-gray-600"><th className="text-left py-1">Type</th><th className="text-right py-1">Qty</th></tr></thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr key={r.type} className="border-t">
-                    <td className="py-1">{r.type}</td>
-                    <td className="py-1 text-right font-semibold">{r.qty}</td>
-                  </tr>
-                ))}
-                {rows.length === 0 && <tr><td className="py-2 text-gray-500" colSpan={2}>No data</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  
 
   const Content = () => {
     switch (activeTab) {
@@ -1269,7 +1568,6 @@ export default function CollectorsDashboard() {
       case "stock": return <MyStockTab/>;
       case "requests": return <TransportRequestsTab/>;
       case "locations": return <CollectorLocationsTab/>;
-      case "reports": return <ReportsTab/>;
       default: return <DashboardTab/>;
     }
   };
