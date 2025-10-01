@@ -119,11 +119,8 @@ exports.clearCart = async (req, res) => {
     // Get userId from URL params, query params, or body
     const userId = req.params.userId || req.query.userId || req.body.userId || 'guest';
     
-    console.log('Clearing cart for userId:', userId);
-    
+    // Clear cart items for the user
     const result = await CartItem.deleteMany({ userId });
-    
-    console.log('Delete result:', result);
     
     res.status(200).json({ 
       message: 'Cart cleared successfully',
