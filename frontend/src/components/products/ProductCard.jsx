@@ -104,7 +104,7 @@ function ProductCard({ product }) {
       setPayingWithPoints(false);
     }
   };
-
+//
   return (
     <div 
       className="bg-white rounded-lg overflow-hidden shadow-md transition-shadow duration-300 hover:shadow-xl"
