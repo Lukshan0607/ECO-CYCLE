@@ -9,7 +9,7 @@ import {
 import { 
   Shield, Users, UserCheck, Activity, Settings, Search, Filter, Download,
   Plus, Edit, Trash2, Eye, AlertTriangle, CheckCircle, Clock, XCircle,
-  Calendar, Mail, Phone, MapPin, Briefcase, Award
+  Calendar, Mail, Phone, MapPin, Briefcase, Award, X
 } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
@@ -122,6 +122,8 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   // User Management Functions
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleAddUser = () => {
     setEditingUser(null);
     setShowUserForm(true);
@@ -133,35 +135,83 @@ export default function AdminDashboard() {
   };
 
   const handleSubmitUser = async (userData) => {
+    setIsSubmitting(true);
     try {
       if (editingUser) {
         // Update existing user
-        await axios.put(`${API_URL}/users/${editingUser._id}`, userData);
+        const { _id } = editingUser;
+        await axios.put(
+          `${API_URL}/users/${_id}`,
+          { ...userData, _id },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          }
+        );
         toast.success('User updated successfully!');
       } else {
         // Add new user
-        await axios.post(`${API_URL}/users`, userData);
+        await axios.post(
+          `${API_URL}/auth/register`,
+          userData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          }
+        );
         toast.success('User created successfully!');
       }
+      
+      // Reset form and refresh user list
       setShowUserForm(false);
       setEditingUser(null);
-      fetchUsers(); // Refresh the user list
+      await fetchUsers();
+      
     } catch (error) {
       console.error('Error saving user:', error);
-      toast.error(error.response?.data?.message || 'Failed to save user');
+      const errorMessage = error.response?.data?.message || 'Failed to save user';
+      toast.error(
+        <div>
+          <p className="font-semibold">Error saving user:</p>
+          <p>{Array.isArray(errorMessage) ? errorMessage.join('\n') : errorMessage}</p>
+          {error.response?.data?.details && (
+            <ul className="mt-2 list-disc pl-5">
+              {Object.entries(error.response.data.details).map(([field, message]) => (
+                <li key={field} className="text-sm">
+                  <span className="font-medium">{field}:</span> {message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>,
+        { autoClose: 10000 }
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDeleteUser = async (userId) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      try {
-        await axios.delete(`${API_URL}/users/${userId}`);
-        toast.success('User deleted successfully!');
-        fetchUsers(); // Refresh the user list
-      } catch (error) {
-        console.error('Error deleting user:', error);
-        toast.error('Failed to delete user');
-      }
+    if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      await axios.delete(`${API_URL}/users/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      toast.success('User deleted successfully!');
+      await fetchUsers(); // Refresh the user list
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to delete user';
+      toast.error(`Error: ${errorMessage}`);
     }
   };
 
@@ -411,75 +461,110 @@ export default function AdminDashboard() {
     }
 
     return (
-      <div className="space-y-4">
-        <Card>
-          <CardContent className="p-6">
-            {selectedUser && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                  <div className="p-6">
-                    <div className="flex justify-between items-center mb-6">
-                      <h2 className="text-2xl font-bold text-gray-900">User Profile</h2>
-                      <Button
-                        onClick={() => setSelectedUser(null)}
-                        variant="outline"
-                        size="sm"
-                      >
-                        ×
-                      </Button>
+      <div className="space-y-6">
+        {/* User Form Modal */}
+        {showUserForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-lg w-full max-w-4xl my-8">
+              <UserManagementForm
+                user={editingUser}
+                isEditing={!!editingUser}
+                onSubmit={handleSubmitUser}
+                onCancel={() => {
+                  setShowUserForm(false);
+                  setEditingUser(null);
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* User Profile View Modal */}
+        {selectedUser && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">User Profile</h2>
+                  <button
+                    onClick={() => setSelectedUser(null)}
+                    className="text-gray-400 hover:text-gray-500"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1">
+                      <label className="block text-sm font-medium text-gray-700">Full Name</label>
+                      <p className="text-gray-900 text-lg">{selectedUser.name}</p>
                     </div>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Name</label>
-                          <p className="text-gray-900">{selectedUser.name}</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Email</label>
-                          <p className="text-gray-900">{selectedUser.email}</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Phone</label>
-                          <p className="text-gray-900">{selectedUser.phone || 'N/A'}</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Role</label>
-                          <p className="text-gray-900">{selectedUser.role}</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Status</label>
-                          <p className="text-gray-900">{selectedUser.status}</p>
-                        </div>
-                        {selectedUser.role === 'Customer' && (
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">Points</label>
-                            <p className="text-gray-900">{selectedUser.points || 0}</p>
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Address</label>
-                        <p className="text-gray-900">{selectedUser.address || 'N/A'}</p>
-                      </div>
-                      <div className="flex justify-end space-x-2 mt-4">
-                        <Button
-                          onClick={() => setSelectedUser(null)}
-                          variant="outline"
-                        >
-                          Close
-                        </Button>
-                        <Button
-                          onClick={() => handleEditUser(selectedUser)}
-                          variant="default"
-                        >
-                          Edit Profile
-                        </Button>
+                    <div className="space-y-1">
+                      <label className="block text-sm font-medium text-gray-700">Email</label>
+                      <p className="text-gray-900 text-lg">{selectedUser.email}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-sm font-medium text-gray-700">Phone</label>
+                      <p className="text-gray-900 text-lg">{selectedUser.phone || 'N/A'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-sm font-medium text-gray-700">Role</label>
+                      <div className="flex items-center">
+                        <span className="px-2 py-1 text-sm rounded-full bg-blue-100 text-blue-800">
+                          {selectedUser.role}
+                        </span>
                       </div>
                     </div>
+                    <div className="space-y-1">
+                      <label className="block text-sm font-medium text-gray-700">Status</label>
+                      <div className="flex items-center">
+                        <span className={`px-2 py-1 text-sm rounded-full ${
+                          selectedUser.status === 'Active' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {selectedUser.status}
+                        </span>
+                      </div>
+                    </div>
+                    {selectedUser.role === 'Customer' && (
+                      <div className="space-y-1">
+                        <label className="block text-sm font-medium text-gray-700">Points</label>
+                        <p className="text-gray-900 text-lg">{selectedUser.points || 0}</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                    <Button
+                      onClick={() => {
+                        setSelectedUser(null);
+                        handleEditUser(selectedUser);
+                      }}
+                      variant="outline"
+                      className="flex items-center"
+                    >
+                      <Edit className="w-4 h-4 mr-2" />
+                      Edit Profile
+                    </Button>
+                    <Button
+                      onClick={() => setSelectedUser(null)}
+                      variant="default"
+                    >
+                      Close
+                    </Button>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+          </div>
+        )}
+
+        {/* Main Content */}
+        <div className="mb-6"></div>
+
+        <Card>
+          <CardContent className="p-6">
             <UserManagementTable
               users={users}
               onEdit={handleEditUser}

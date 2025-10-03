@@ -240,6 +240,13 @@ const UserManagementTable = ({
         
         <div className="flex space-x-2">
           <Button
+            onClick={() => onEdit('new')}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <Plus size={16} className="mr-2" />
+            New User
+          </Button>
+          <Button
             onClick={() => onExport(filteredUsers)}
             variant="outline"
             className="border-gray-300"
@@ -482,15 +489,9 @@ const UserManagementTable = ({
                                 : 'text-green-600 hover:text-green-900 hover:bg-green-50'
                             }`}
                             title={user.status === 'Active' ? 'Deactivate' : 'Activate'}
+                            style={{ display: 'none' }}
                           >
                             {user.status === 'Active' ? <UserX size={16} /> : <UserCheck size={16} />}
-                          </button>
-                          <button
-                            onClick={() => onResetPassword(user._id)}
-                            className="text-purple-600 hover:text-purple-900 p-1 rounded-full hover:bg-purple-50"
-                            title="Reset Password"
-                          >
-                            <RotateCcw size={16} />
                           </button>
                           <button
                             onClick={() => onDelete(user._id)}
