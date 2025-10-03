@@ -247,6 +247,54 @@ const deleteOrder = async (req, res) => {
   }
 };
 
+// Get payment proof for an order
+const getPaymentProof = async (req, res) => {
+  try {
+    const order = await SalesOrder.findById(req.params.id);
+    if (!order || !order.paymentProof) {
+      return res.status(404).json({ message: 'Payment proof not found' });
+    }
+    res.json({
+      filePath: order.paymentProof.path,
+      mimeType: order.paymentProof.mimeType
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update payment status
+const updatePaymentStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const order = await SalesOrder.findByIdAndUpdate(
+      req.params.id,
+      { paymentStatus: status },
+      { new: true }
+    );
+    
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+    
+    res.json(order);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get orders with payment info for management
+const getOrdersForPaymentManagement = async (req, res) => {
+  try {
+    const orders = await SalesOrder.find({})
+      .select('orderId customerName totalAmount paymentStatus paymentProof status orderDate')
+      .sort({ orderDate: -1 });
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderById,
@@ -258,5 +306,8 @@ module.exports = {
   getAllProducts,
   createProduct,
   updateProduct,
-  deleteOrder
+  deleteOrder,
+  getPaymentProof,
+  updatePaymentStatus,
+  getOrdersForPaymentManagement
 };
