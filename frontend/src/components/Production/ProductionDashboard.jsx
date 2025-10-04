@@ -506,17 +506,105 @@ const ProductionDashboard = () => {
   // CRUD: Machines
   const handleMachineFormChange = (e) => {
     const { name, value } = e.target;
+    // Field-level typing restrictions
+    if (name === 'name') {
+      // Allow letters, numbers, spaces, - _ # ( ) up to 50 chars
+      const next = value.slice(0, 50);
+      const nameRegex = /^[A-Za-z0-9 \-_#()]*$/;
+      if (!nameRegex.test(next)) return;
+      setMachineForm((prev) => ({ ...prev, [name]: next }));
+      return;
+    }
+    if (name === 'code') {
+      // Uppercase letters, numbers, dash, underscore only, up to 10 chars
+      const next = (value || '').toUpperCase().slice(0, 10);
+      const codeRegex = /^[A-Z0-9\-_]*$/;
+      if (!codeRegex.test(next)) return;
+      setMachineForm((prev) => ({ ...prev, [name]: next }));
+      return;
+    }
+    if (name === 'efficiency') {
+      // Digits only while typing; allow empty; max 3 digits to allow 100
+      const effRegex = /^\d{0,3}$/;
+      if (!effRegex.test(String(value))) return;
+      setMachineForm((prev) => ({ ...prev, [name]: value }));
+      return;
+    }
+    if (name === 'lastMaintenance') {
+      // Prevent future date on change
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, '0');
+      const d = String(today.getDate()).padStart(2, '0');
+      const ymdToday = `${y}-${m}-${d}`;
+      if (value && value > ymdToday) return;
+      setMachineForm((prev) => ({ ...prev, [name]: value }));
+      return;
+    }
+    if (name === 'notes') {
+      const next = value.slice(0, 200);
+      setMachineForm((prev) => ({ ...prev, [name]: next }));
+      return;
+    }
     setMachineForm((prev) => ({ ...prev, [name]: value }));
   };
 
   const submitMachine = async (e) => {
     e.preventDefault();
     try {
+      // Validations per spec
+      const nameTrim = (machineForm.name || '').trim();
+      const codeTrim = (machineForm.code || '').trim().toUpperCase();
+      const nameRegex = /^[A-Za-z0-9 \-_#()]{3,50}$/;
+      const codeRegex = /^[A-Z0-9\-_]{3,10}$/;
+
+      if (!nameTrim || !nameRegex.test(nameTrim)) {
+        alert('Name is required (3–50 chars). Allowed: letters, numbers, spaces, - _ # ( )');
+        return;
+      }
+      if (!codeTrim || !codeRegex.test(codeTrim)) {
+        alert('Code is required (3–10 chars). Allowed: uppercase letters, numbers, dash, underscore.');
+        return;
+      }
+      // Uniqueness: code must be unique among machines (allow self when editing)
+      const duplicate = (machines || []).some(m => String(m.code).toUpperCase() === codeTrim && (!editingMachine || m._id !== editingMachine._id));
+      if (duplicate) {
+        alert('Machine Code must be unique. This code already exists.');
+        return;
+      }
+
+      const allowedStatuses = ['Idle','Running','Stopped','Maintenance'];
+      if (!allowedStatuses.includes(machineForm.status)) {
+        alert('Status is required. Choose one of: Idle, Running, Stopped, Maintenance.');
+        return;
+      }
+
+      // Efficiency required between 1 and 100
+      const effNum = parseInt(String(machineForm.efficiency), 10);
+      if (Number.isNaN(effNum) || effNum < 1 || effNum > 100) {
+        alert('Efficiency (%) is required and must be a number between 1 and 100.');
+        return;
+      }
+
+      // Last Maintenance required and not in the future
+      if (!machineForm.lastMaintenance) {
+        alert('Last Maintenance date is required.');
+        return;
+      }
+      const sel = new Date(machineForm.lastMaintenance);
+      const today = new Date();
+      const norm = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (norm(sel) > norm(today)) {
+        alert('Last Maintenance cannot be a future date.');
+        return;
+      }
+
+      // Notes: optional max 200 enforced by handler
       const payload = {
-        name: machineForm.name.trim(),
-        code: machineForm.code.trim(),
+        name: nameTrim,
+        code: codeTrim,
         status: machineForm.status,
-        efficiency: machineForm.efficiency ? parseInt(machineForm.efficiency) : 0,
+        efficiency: effNum,
         lastMaintenance: machineForm.lastMaintenance || undefined,
         notes: machineForm.notes?.trim() || ''
       };
@@ -879,6 +967,7 @@ const ProductionDashboard = () => {
   }, []);
 
   // Handle form input with validation
+  //Products Validations
   const handleChange = (e) => {
     const { name, value } = e.target;
     
@@ -890,11 +979,12 @@ const ProductionDashboard = () => {
         return; // Don't update if invalid
       }
     } else if (name === 'price') {
-      // Price: max 4 digits, no special characters or letters
-      const priceRegex = /^\d{0,4}(\.\d{0,2})?$/;
-      if (value !== '' && !priceRegex.test(value)) {
-        return; // Don't update if invalid
-      }
+      // Price: digits only, up to 4 digits, auto-format with thousands separators (e.g., 1,000)
+      const digitsOnly = String(value).replace(/[^0-9]/g, '');
+      const limited = digitsOnly.slice(0, 4);
+      const formatted = limited ? Number(limited).toLocaleString('en-US') : '';
+      setNewProduct({ ...newProduct, [name]: formatted });
+      return;
     } else if (name === 'stock') {
       // Stock Level: only digits, up to 4 characters
       const stockRegex = /^\d{0,4}$/;
@@ -974,9 +1064,10 @@ const ProductionDashboard = () => {
         return;
       }
 
+      const priceNumber = Number(String(newProduct.price || '').replace(/,/g, ''));
       const productData = {
         name: newProduct.name.trim(),
-        price: parseFloat(newProduct.price),
+        price: priceNumber,
         stock: parseInt(newProduct.stock) || 0,
         imageUrl: newProduct.imageUrl || '',
         description: newProduct.description?.trim() || '',
@@ -1135,7 +1226,7 @@ const ProductionDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-blue-100 text-sm font-medium">Total Value</p>
-                  <h2 className="text-3xl font-bold">LKR {overview.totalValue}</h2>
+                  <h2 className="text-3xl font-bold">LKR {Number(overview.totalValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h2>
                   <p className="text-blue-100 text-sm mt-1">Inventory worth</p>
                 </div>
                 <DollarSign size={40} className="text-blue-200" />
@@ -1288,8 +1379,16 @@ const ProductionDashboard = () => {
                       </div>
                       <div>
                         <label className="block text-sm font-medium">Item Price</label>
-                        <input type="text" name="price" value={newProduct.price} onChange={handleChange} pattern="^\d{1,4}(\.\d{1,2})?$" title="Maximum 4 digits, numbers only (e.g., 1234 or 1234.56)" className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Enter price (max 4 digits, e.g., 1234.56)" />
-                        {newProduct.price && !/^\d{0,4}(\.\d{0,2})?$/.test(newProduct.price) && (<p className="text-red-500 text-xs mt-1">Price must be maximum 4 digits with optional decimal (e.g., 1234.56)</p>)}
+                        <input
+                          type="text"
+                          name="price"
+                          value={newProduct.price}
+                          onChange={handleChange}
+                          inputMode="numeric"
+                          className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="e.g., 1,000"
+                          title="Digits only, auto-formatted with commas (max 4 digits: up to 9,999)"
+                        />
                       </div>
                       <div>
                         <label className="block text-sm font-medium">Stock Level</label>
@@ -1626,32 +1725,80 @@ const ProductionDashboard = () => {
                   <form onSubmit={submitMachine} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div>
                       <label className="block text-sm font-medium">Name</label>
-                      <input name="name" value={machineForm.name} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" placeholder="e.g., Extruder #1" />
+                      <input
+                        name="name"
+                        value={machineForm.name}
+                        onChange={handleMachineFormChange}
+                        className="w-full border rounded-lg p-2"
+                        placeholder="e.g., Extruder #1"
+                        required
+                        minLength={3}
+                        maxLength={50}
+                        pattern="[A-Za-z0-9 \-_#()]{3,50}"
+                        title="3–50 chars. Allowed: letters, numbers, spaces, - _ # ( )"
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Code</label>
-                      <input name="code" value={machineForm.code} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" placeholder="e.g., EX-001" />
+                      <input
+                        name="code"
+                        value={machineForm.code}
+                        onChange={handleMachineFormChange}
+                        className="w-full border rounded-lg p-2"
+                        placeholder="e.g., EX_001"
+                        required
+                        minLength={3}
+                        maxLength={10}
+                        pattern="[A-Z0-9\-_]{3,10}"
+                        title="3–10 chars. Uppercase letters, numbers, dash, underscore."
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Status</label>
-                      <select name="status" value={machineForm.status} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2">
+                      <select name="status" value={machineForm.status} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" required>
                         <option>Idle</option>
                         <option>Running</option>
+                        <option>Stopped</option>
                         <option>Maintenance</option>
-                        <option>Offline</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Efficiency (%)</label>
-                      <input name="efficiency" value={machineForm.efficiency} onChange={handleMachineFormChange} type="number" min="0" max="100" className="w-full border rounded-lg p-2" placeholder="e.g., 95" />
+                      <input
+                        name="efficiency"
+                        value={machineForm.efficiency}
+                        onChange={handleMachineFormChange}
+                        type="number"
+                        min="1"
+                        max="100"
+                        required
+                        className="w-full border rounded-lg p-2"
+                        placeholder="e.g., 95"
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium">Last Maintenance</label>
-                      <input name="lastMaintenance" value={machineForm.lastMaintenance} onChange={handleMachineFormChange} type="date" className="w-full border rounded-lg p-2" />
+                      <input
+                        name="lastMaintenance"
+                        value={machineForm.lastMaintenance}
+                        onChange={handleMachineFormChange}
+                        type="date"
+                        required
+                        max={new Date().toISOString().slice(0,10)}
+                        className="w-full border rounded-lg p-2"
+                      />
                     </div>
                     <div className="md:col-span-3">
                       <label className="block text-sm font-medium">Notes</label>
-                      <textarea name="notes" value={machineForm.notes} onChange={handleMachineFormChange} className="w-full border rounded-lg p-2" rows="2" />
+                      <textarea
+                        name="notes"
+                        value={machineForm.notes}
+                        onChange={handleMachineFormChange}
+                        className="w-full border rounded-lg p-2"
+                        rows="2"
+                        maxLength={200}
+                        placeholder="Optional (max 200 characters)"
+                      />
                     </div>
                     <div className="md:col-span-3 flex gap-3">
                       <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">{editingMachine ? 'Update Machine' : 'Create Machine'}</button>

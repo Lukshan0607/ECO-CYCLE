@@ -121,10 +121,14 @@ exports.summary = async (_req, res) => {
     ]);
     const requestedTotal = requestedAgg?.[0]?.total || 0;
     const available = Number(deliveredTotal) - Number(requestedTotal);
+    // Round to exactly 3 decimal places for consistent client display
+    const delivered3 = Number(Number(deliveredTotal).toFixed(3));
+    const requested3 = Number(Number(requestedTotal).toFixed(3));
+    const available3 = Number(Number(available).toFixed(3));
     return res.json({
-      deliveredTotalKg: Number(deliveredTotal),
-      requestedTotalKg: Number(requestedTotal),
-      availableKg: Number(available)
+      deliveredTotalKg: delivered3,
+      requestedTotalKg: requested3,
+      availableKg: available3
     });
   } catch (err) {
     console.error('Summary StockProductionRequest error:', err);

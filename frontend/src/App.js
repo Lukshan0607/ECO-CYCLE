@@ -7,6 +7,7 @@ import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import HomePage from "./pages/HomePage";
 import ProductsPage from "./pages/ProductsPage";
+import BinsPage from "./pages/BinsPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import AboutUs from "./pages/AboutUs";
@@ -46,6 +47,7 @@ function App() {
           <Route path="/cart" element={<CartPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/about" element={<AboutUs />} />
+          <Route path="/bins" element={<BinsPage />} />
           <Route path="/register" element={<Register />} />
           <Route path="/login" element={<Login />} />
           <Route path="/faq" element={<FAQ />} />
