@@ -7,15 +7,26 @@ import {
   PieChart, Pie, Cell
 } from "recharts";
 import { 
-  Shield, Users, UserCheck, Activity, Settings, Search, Filter, Download,
+  // General Icons
+  Shield, Users, Activity, Settings, Search, Filter, Download,
   Plus, Edit, Trash2, Eye, AlertTriangle, CheckCircle, Clock, XCircle,
-  Calendar, Mail, Phone, MapPin, Briefcase, Award, X
+  Calendar, Mail, Phone, MapPin, Briefcase, Award, X,
+  // Navigation Icons
+  ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ChevronUp,
+  // User Management Icons
+  UserCheck, UserX, User, 
+  // Other Icons
+  Star, Info, Sliders, RotateCcw
 } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import LogoutButton from "../common/LogoutButton";
 import UserManagementForm from "./UserManagementForm";
 import UserManagementTable from "./UserManagementTable";
+
+// Aliases for icons with naming conflicts
+const CalendarIcon = Calendar;
+const ShieldIcon = Shield;
 
 // Mock Data
 const auditLogs = [
@@ -495,44 +506,118 @@ export default function AdminDashboard() {
                 </div>
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-1">
-                      <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                      <p className="text-gray-900 text-lg">{selectedUser.name}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-sm font-medium text-gray-700">Email</label>
-                      <p className="text-gray-900 text-lg">{selectedUser.email}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-sm font-medium text-gray-700">Phone</label>
-                      <p className="text-gray-900 text-lg">{selectedUser.phone || 'N/A'}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-sm font-medium text-gray-700">Role</label>
-                      <div className="flex items-center">
-                        <span className="px-2 py-1 text-sm rounded-full bg-blue-100 text-blue-800">
-                          {selectedUser.role}
-                        </span>
+                    {/* Personal Information */}
+                    <div className="space-y-4 col-span-2 border-b pb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <User className="w-5 h-5 mr-2 text-blue-600" />
+                        Personal Information
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Full Name</label>
+                          <p className="text-gray-900">{selectedUser.name}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Email</label>
+                          <div className="flex items-center">
+                            <Mail className="w-4 h-4 text-gray-500 mr-2" />
+                            <a href={`mailto:${selectedUser.email}`} className="text-blue-600 hover:underline">
+                              {selectedUser.email}
+                            </a>
+                            {selectedUser.emailVerified && (
+                              <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full flex items-center">
+                                <CheckCircle className="w-3 h-3 mr-1" /> Verified
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Phone</label>
+                          <div className="flex items-center">
+                            <Phone className="w-4 h-4 text-gray-500 mr-2" />
+                            <span>{selectedUser.mobile || selectedUser.phone || 'N/A'}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Member Since</label>
+                          <div className="flex items-center">
+                            <Calendar className="w-4 h-4 text-gray-500 mr-2" />
+                            <span>{new Date(selectedUser.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <label className="block text-sm font-medium text-gray-700">Status</label>
-                      <div className="flex items-center">
-                        <span className={`px-2 py-1 text-sm rounded-full ${
-                          selectedUser.status === 'Active' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {selectedUser.status}
-                        </span>
+
+                    {/* Account Status */}
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <Shield className="w-5 h-5 mr-2 text-blue-600" />
+                        Account Status
+                      </h3>
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Status</label>
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                            selectedUser.status === 'Active' 
+                              ? 'bg-green-100 text-green-800' 
+                              : selectedUser.status === 'Suspended'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {selectedUser.status}
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Role</label>
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                            {selectedUser.role}
+                          </span>
+                        </div>
+                        {selectedUser.lastLogin && (
+                          <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">Last Login</label>
+                            <p className="text-sm text-gray-600">
+                              {new Date(selectedUser.lastLogin).toLocaleString()}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    {selectedUser.role === 'Customer' && (
-                      <div className="space-y-1">
-                        <label className="block text-sm font-medium text-gray-700">Points</label>
-                        <p className="text-gray-900 text-lg">{selectedUser.points || 0}</p>
+
+                    {/* Additional Information */}
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <Info className="w-5 h-5 mr-2 text-blue-600" />
+                        Additional Information
+                      </h3>
+                      <div className="space-y-3">
+                        {selectedUser.address && (
+                          <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">Address</label>
+                            <div className="flex items-start">
+                              <MapPin className="w-4 h-4 text-gray-500 mr-2 mt-0.5 flex-shrink-0" />
+                              <p className="text-gray-900 break-words">{selectedUser.address}</p>
+                            </div>
+                          </div>
+                        )}
+                        {selectedUser.nic && (
+                          <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">NIC</label>
+                            <p className="text-gray-900">{selectedUser.nic}</p>
+                          </div>
+                        )}
+                        {selectedUser.role === 'Customer' && (
+                          <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">Loyalty Points</label>
+                            <div className="flex items-center">
+                              <Star className="w-4 h-4 text-yellow-500 mr-2" />
+                              <span className="text-lg font-semibold">{selectedUser.points || 0}</span>
+                              <span className="ml-1 text-sm text-gray-500">points</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
                   
                   <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
