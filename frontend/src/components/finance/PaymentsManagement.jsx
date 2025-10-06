@@ -14,7 +14,12 @@ import {
   X,
   CreditCard,
   Info,
-  AlertCircle
+  AlertCircle,
+  File,
+  Download as DownloadIcon,
+  Image,
+  FileText,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
@@ -94,6 +99,7 @@ export default function PaymentsManagement() {
           orderDate: order.createdAt ? new Date(order.createdAt) : new Date(),
           status: order.status || 'pending',
           paymentStatus: getPaymentStatus(order),
+          paymentProof: order.paymentProof || null,
         }));
 
         setOrders(formattedOrders);
@@ -465,6 +471,359 @@ export default function PaymentsManagement() {
     );
   };
 
+  // File Preview Component
+  const FilePreview = ({ file }) => {
+    const [objectUrl, setObjectUrl] = React.useState(null);
+    const [isLoading, setIsLoading] = React.useState(true);
+    const [error, setError] = React.useState(null);
+    const [previewUrl, setPreviewUrl] = React.useState(null);
+    
+    // Helper function to check if object is file-like
+    const isFile = (obj) => {
+      return (
+        (typeof File !== 'undefined' && obj instanceof File) || 
+        (typeof Blob !== 'undefined' && obj instanceof Blob) ||
+        (typeof obj === 'object' && 
+         obj !== null && 
+         'size' in obj && 
+         'type' in obj)
+      );
+    };
+    
+    // Get file extension from URL or path
+    const getFileExtension = (url) => {
+      if (!url) return '';
+      const match = url.match(/\.([^./\?]+)(?:\?|$)/);
+      return match ? match[1].toLowerCase() : '';
+    };
+    
+    // Get MIME type from file extension
+    const getMimeType = (url) => {
+      const ext = getFileExtension(url);
+      const mimeTypes = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'webp': 'image/webp',
+        'pdf': 'application/pdf',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls': 'application/vnd.ms-excel',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'txt': 'text/plain',
+      };
+      return mimeTypes[ext] || 'application/octet-stream';
+    };
+    
+    // Check if the file is an image
+    const isImageFile = (url) => {
+      const mimeType = getMimeType(url);
+      return mimeType.startsWith('image/');
+    };
+    
+    // Check if the file is a PDF
+    const isPdfFile = (url) => {
+      return getMimeType(url) === 'application/pdf';
+    };
+    
+    // Format file size
+    const formatFileSize = (bytes) => {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+    
+    React.useEffect(() => {
+      // Reset states when file changes
+      setIsLoading(true);
+      setError(null);
+      setPreviewUrl(null);
+      
+      if (!file) {
+        setIsLoading(false);
+        setError('No file provided');
+        return;
+      }
+      
+      let url = null;
+      let newObjectUrl = null;
+      
+      const processFile = async () => {
+        try {
+          // Handle different file types
+          if (typeof file === 'string') {
+            // Handle string URLs
+            url = file.startsWith('http') || file.startsWith('blob:') 
+              ? file 
+              : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/${file.replace(/^[\\/]+/, '')}`;
+          } else if (file.url) {
+            // Handle object with url property
+            url = file.url;
+          } else if (file.path) {
+            // Handle object with path property
+            const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+            const cleanPath = String(file.path).replace(/^[\\/]+/, '');
+            url = `${baseUrl.replace(/\/+$/, '')}/${cleanPath}`;
+          } else if (isFile(file)) {
+            // Handle File or Blob objects
+            try {
+              newObjectUrl = URL.createObjectURL(file);
+              url = newObjectUrl;
+              setObjectUrl(prevUrl => {
+                if (prevUrl) URL.revokeObjectURL(prevUrl);
+                return newObjectUrl;
+              });
+            } catch (e) {
+              console.error('Error creating object URL:', e);
+              throw new Error('Unsupported file type');
+            }
+          } else {
+            throw new Error('Unsupported file format');
+          }
+          
+          // Set the preview URL
+          setPreviewUrl(url);
+          
+          // If it's a remote URL, we'll let the browser handle loading
+          if (url.startsWith('http')) {
+            // We'll use the browser's built-in loading for remote URLs
+            setIsLoading(false);
+          }
+          
+        } catch (err) {
+          console.error('Error processing file:', err);
+          setError(err.message || 'Failed to load preview');
+          setIsLoading(false);
+        }
+      };
+      
+      processFile();
+      
+      // Set loading timeout
+      const timer = setTimeout(() => {
+        if (isLoading) {
+          setError('Preview is taking longer than expected. The file might be large or the server might be slow.');
+          setIsLoading(false);
+        }
+      }, 5000);
+      
+      return () => {
+        clearTimeout(timer);
+        // Clean up object URL on unmount or file change
+        if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+    }, [file]); // Re-run when file changes
+
+    // Get file info
+    const getFileInfo = () => {
+      if (!file) return { 
+        name: 'payment-proof', 
+        type: '', 
+        isImage: false, 
+        isPDF: false,
+        extension: '',
+        size: file?.size ? file.size : 0,
+        formattedSize: file?.size ? formatFileSize(file.size) : 'N/A'
+      };
+      
+      const name = file.originalname || file.originalName || file.name || 'payment-proof';
+      const type = file.mimetype || file.type || getMimeType(file.path || file.url || '');
+      const url = previewUrl || file.url || '';
+      const extension = getFileExtension(url) || name.split('.').pop() || '';
+      
+      return {
+        name,
+        type,
+        extension: extension.toLowerCase(),
+        size: file.size || 0,
+        formattedSize: file.size ? formatFileSize(file.size) : 'N/A',
+        isImage: type.startsWith('image/') || isImageFile(url),
+        isPDF: type === 'application/pdf' || isPdfFile(url) || extension.toLowerCase() === 'pdf',
+        url
+      };
+    };
+    
+    const { 
+      name: fileName, 
+      type: fileType, 
+      isImage, 
+      isPDF, 
+      extension,
+      formattedSize,
+      url: fileUrl
+    } = getFileInfo();
+    
+    const handleLoad = () => {
+      setIsLoading(false);
+      setError(null);
+    };
+    
+    const handleError = (e) => {
+      console.error('Error loading file preview:', e);
+      setIsLoading(false);
+      setError('Failed to load preview. The file may be corrupted or in an unsupported format.');
+    };
+    
+    // Get file icon based on extension
+    const getFileIcon = () => {
+      if (isImage) return <Image className="h-8 w-8 text-blue-500" />;
+      if (isPDF) return <FileText className="h-8 w-8 text-red-500" />;
+      if (['doc', 'docx'].includes(extension)) return <FileText className="h-8 w-8 text-blue-600" />;
+      if (['xls', 'xlsx'].includes(extension)) return <FileSpreadsheet className="h-8 w-8 text-green-600" />;
+      return <File className="h-8 w-8 text-gray-500" />;
+    };
+    
+    // Determine the best way to display the file
+    const renderPreview = () => {
+      if (!previewUrl && !fileUrl) {
+        return (
+          <div className="text-center p-6 bg-gray-50 rounded-lg border border-gray-200">
+            <File className="h-12 w-12 mx-auto text-gray-400 mb-3" />
+            <p className="text-sm text-gray-600">No file available</p>
+          </div>
+        );
+      }
+
+      // Show loading state
+      if (isLoading) {
+        return (
+          <div className="flex flex-col items-center justify-center h-48 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500 mb-3"></div>
+            <p className="text-sm text-gray-500">Loading preview...</p>
+          </div>
+        );
+      }
+
+      // Show error state
+      if (error) {
+        return (
+          <div className="text-center p-6 bg-red-50 rounded-lg border border-red-100">
+            <AlertCircle className="h-10 w-10 mx-auto text-red-400 mb-2" />
+            <p className="text-red-600 font-medium">Preview Unavailable</p>
+            <p className="text-sm text-red-500 mt-1">{error}</p>
+            {(previewUrl || fileUrl) && (
+              <a 
+                href={previewUrl || fileUrl} 
+                download={fileName}
+                className="mt-3 inline-flex items-center text-sm text-blue-600 hover:text-blue-800"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <DownloadIcon className="h-4 w-4 mr-1" />
+                Download File
+              </a>
+            )}
+          </div>
+        );
+      }
+
+      // Show image preview
+      if (isImage) {
+        return (
+          <div className="relative h-64 bg-gray-50 rounded-lg border border-gray-200 overflow-hidden flex flex-col">
+            <div className="bg-gray-50 px-3 py-2 border-b border-gray-200 flex justify-between items-center">
+              <div className="flex items-center">
+                <Image className="h-4 w-4 text-blue-500 mr-2" />
+                <span className="text-xs font-medium text-gray-700 truncate max-w-xs">{fileName}</span>
+              </div>
+              <a 
+                href={previewUrl || fileUrl} 
+                download={fileName}
+                className="text-blue-600 hover:text-blue-800 text-xs flex items-center"
+                onClick={(e) => e.stopPropagation()}
+                title="Download"
+              >
+                <DownloadIcon className="h-3.5 w-3.5" />
+              </a>
+            </div>
+            <div className="flex-1 flex items-center justify-center bg-gray-50 p-2">
+              <img 
+                src={previewUrl || fileUrl} 
+                alt={`Preview of ${fileName}`}
+                className="max-w-full max-h-full object-contain"
+                onLoad={handleLoad}
+                onError={handleError}
+              />
+            </div>
+          </div>
+        );
+      }
+      
+      // Show PDF preview
+      if (isPDF) {
+        return (
+          <div className="h-96 bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col">
+            <div className="bg-gray-50 px-3 py-2 border-b border-gray-200 flex justify-between items-center">
+              <div className="flex items-center">
+                <FileText className="h-4 w-4 text-red-500 mr-2" />
+                <span className="text-xs font-medium text-gray-700 truncate max-w-xs">{fileName}</span>
+              </div>
+              <a 
+                href={previewUrl || fileUrl} 
+                download={fileName}
+                className="text-blue-600 hover:text-blue-800 text-xs flex items-center"
+                onClick={(e) => e.stopPropagation()}
+                title="Download"
+              >
+                <DownloadIcon className="h-3.5 w-3.5" />
+              </a>
+            </div>
+            <div className="flex-1 bg-gray-50">
+              <iframe 
+                src={`${previewUrl || fileUrl}#view=fitH&toolbar=0&navpanes=0`}
+                title={`PDF Preview: ${fileName}`}
+                className="w-full h-full border-0"
+                onLoad={handleLoad}
+                onError={handleError}
+                sandbox="allow-scripts allow-same-origin"
+              />
+            </div>
+          </div>
+        );
+      }
+      
+      // For other file types, show a download button with file info
+      return (
+        <div className="text-center p-6 bg-white border border-gray-200 rounded-lg">
+          <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-blue-50 mb-3">
+            {getFileIcon()}
+          </div>
+          <h4 className="text-sm font-medium text-gray-900 mb-1 truncate px-4">{fileName}</h4>
+          <div className="flex justify-center items-center text-xs text-gray-500 mb-4 space-x-2">
+            <span className="bg-gray-100 px-2 py-0.5 rounded">{extension.toUpperCase()}</span>
+            <span>•</span>
+            <span>{formattedSize}</span>
+          </div>
+          <a 
+            href={previewUrl || fileUrl} 
+            download={fileName}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DownloadIcon className="h-4 w-4 mr-2" />
+            Download File
+          </a>
+        </div>
+      );
+    };
+
+    return (
+      <div className="w-full">
+        {renderPreview()}
+      </div>
+    );
+  };
+
+  // Render file preview based on file type
+  const renderFilePreview = (file) => {
+    if (!file || !file.path) return null;
+    return <FilePreview file={file} />;
+  };
+
   // Order Details Modal
   const OrderDetailsModal = ({ order, onClose, onUpdateStatus }) => {
     if (!order) return null;
@@ -546,6 +905,27 @@ export default function PaymentsManagement() {
                         </div>
                       </div>
                     </div>
+                  </div>
+                  <div className="mt-5">
+                    <h4 className="text-sm font-medium text-gray-900">Order Items</h4>
+                    <div className="mt-2 space-y-2">
+                      {order.products?.map((item, index) => (
+                        <div key={index} className="flex justify-between text-sm">
+                          <span className="text-gray-600">{item.name || `Item ${index + 1}`} x {item.quantity || 1}</span>
+                          <span className="font-medium text-gray-900">{formatCurrency((item.unitPrice || 0) * (item.quantity || 1))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {order.paymentProof && (
+                    <div className="mt-6">
+                      <h4 className="text-sm font-medium text-gray-900 mb-2">Payment Proof</h4>
+                      <FilePreview file={order.paymentProof} />
+                    </div>
+                  )}
+                  <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-900">Total Amount</span>
+                    <span className="text-lg font-bold text-gray-900">{formatCurrency(order.totalAmount)}</span>
                   </div>
                   <div className="mt-5 sm:mt-6
                     sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
