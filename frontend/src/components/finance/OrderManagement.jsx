@@ -508,9 +508,12 @@ const OrderManagement = () => {
   // Calculate order summary from orders data
   const orderSummary = {
     total: orders.length,
-    completed: orders.filter(order => order.status === 'Completed').length,
-    pending: orders.filter(order => order.status === 'Pending').length,
-    failed: orders.filter(order => order.status === 'Failed' || order.status === 'Cancelled').length
+    completed: orders.filter(order => order.status && order.status.toLowerCase() === 'completed').length,
+    pending: orders.filter(order => order.status && order.status.toLowerCase() === 'pending').length,
+    failed: orders.filter(order => {
+      const status = order.status ? order.status.toLowerCase() : '';
+      return status === 'failed' || status === 'cancelled';
+    }).length
   };
 
   return (
@@ -648,10 +651,12 @@ const OrderManagement = () => {
                       </div>
                       <span 
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          order.status === 'Completed' 
+                          order.status && order.status.toLowerCase() === 'completed'
                             ? 'bg-green-100 text-green-800' 
-                            : order.status === 'Processing'
+                            : order.status && order.status.toLowerCase() === 'processing'
                             ? 'bg-blue-100 text-blue-800'
+                            : order.status && order.status.toLowerCase() === 'cancelled'
+                            ? 'bg-red-100 text-red-800'
                             : 'bg-yellow-100 text-yellow-800'
                         }`}
                       >

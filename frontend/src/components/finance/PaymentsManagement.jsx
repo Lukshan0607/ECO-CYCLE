@@ -10,8 +10,14 @@ import {
   DollarSign,
   User,
   Calendar,
-  ChevronDown
+  ChevronDown,
+  X,
+  CreditCard,
+  Info,
+  AlertCircle
 } from 'lucide-react';
+import { Dialog, Transition } from '@headlessui/react';
+import { Fragment } from 'react';
 import axios from 'axios';
 import { format } from 'date-fns';
 
@@ -54,23 +60,23 @@ export default function PaymentsManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [filters, setFilters] = useState({
     status: 'all',
     paymentStatus: 'all',
   });
-  
-  // State for update modals
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [currentOrder, setCurrentOrder] = useState(null);
-  const [updateData, setUpdateData] = useState({
-    status: '',
-    paymentStatus: '',
-    paymentMethod: '',
-    amountPaid: 0,
-    notes: ''
-  });
-  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Debug: Log order payment statuses
+  useEffect(() => {
+    if (orders.length > 0) {
+      console.log('Order payment statuses:', orders.map(o => ({
+        id: o._id,
+        paymentStatus: o.paymentStatus,
+        status: o.status
+      })));
+    }
+  }, [orders]);
 
   useEffect(() => {
     const fetchSalesOrders = async () => {
@@ -126,6 +132,89 @@ export default function PaymentsManagement() {
     fetchSalesOrders();
   }, []);
 
+  // Handle payment status updates
+  const handleUpdateStatus = async (orderId, status) => {
+    try {
+      setIsProcessingPayment(true);
+      setError(null);
+      
+      // Find the order to update
+      const orderToUpdate = orders.find(order => order._id === orderId);
+      if (!orderToUpdate) {
+        throw new Error('Order not found');
+      }
+
+      // Define the new statuses based on the action
+      const newPaymentStatus = status === 'paid' ? 'completed' : 'failed';
+      const newOrderStatus = status === 'paid' ? 'completed' : 'cancelled';
+
+      // Update payment status
+      await axios.put(
+        `${API_URL}/sales/orders/${orderId}/payment-status`,
+        { status: newPaymentStatus },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      );
+
+      // Update order status
+      await axios.put(
+        `${API_URL}/sales/orders/${orderId}/status`,
+        { status: newOrderStatus },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      );
+
+      // Update local state for immediate UI feedback
+      const updatedOrders = orders.map(order => 
+        order._id === orderId 
+          ? { 
+              ...order, 
+              paymentStatus: newPaymentStatus,
+              status: newOrderStatus
+            } 
+          : order
+      );
+
+      setOrders(updatedOrders);
+
+      // Update selected order if it's the one being viewed
+      if (selectedOrder && selectedOrder._id === orderId) {
+        setSelectedOrder(prev => ({
+          ...prev,
+          paymentStatus: newPaymentStatus,
+          status: newOrderStatus
+        }));
+      }
+
+      // Show success message
+      setError(null);
+      return true;
+    } catch (err) {
+      console.error('Error updating payment status:', err);
+      setError('Failed to update payment status. ' + (err.response?.data?.message || 'Please try again.'));
+      return false;
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  // Helper functions for payment actions
+  const markAsPaid = async (orderId) => {
+    return handleUpdateStatus(orderId, 'paid');
+  };
+
+  const markAsFailed = async (orderId) => {
+    return handleUpdateStatus(orderId, 'failed');
+  };
+
   const filteredOrders = orders.filter(order => {
     if (!order) return false;
     
@@ -169,100 +258,74 @@ export default function PaymentsManagement() {
     );
   };
 
-  // Handle order status update
-  const handleStatusUpdate = async (e) => {
-    e.preventDefault();
-    if (!currentOrder || !updateData.status) return;
-    
-    try {
-      setIsUpdating(true);
-      const response = await axios.put(
-        `${API_URL}/sales/orders/${currentOrder._id}/status`,
-        { status: updateData.status }
-      );
-      
-      // Update local state
-      setOrders(orders.map(order => 
-        order._id === currentOrder._id 
-          ? { ...order, status: updateData.status } 
-          : order
-      ));
-      
-      setShowUpdateModal(false);
-      setCurrentOrder(null);
-      setUpdateData({ status: '', paymentStatus: '', paymentMethod: '', amountPaid: 0, notes: '' });
-    } catch (err) {
-      console.error('Error updating order status:', err);
-      setError('Failed to update order status. Please try again.');
-    } finally {
-      setIsUpdating(false);
-    }
+  // Get status based on payment status
+  const getStatusFromPayment = (paymentStatus) => {
+    const statusMap = {
+      'completed': 'completed',
+      'paid': 'completed',
+      'partially_paid': 'processing',
+      'unpaid': 'pending',
+      'pending': 'pending',
+      'failed': 'failed',
+      'cancelled': 'cancelled',
+      'refunded': 'refunded'
+    };
+    return statusMap[paymentStatus?.toLowerCase()] || 'pending';
   };
 
-  // Handle payment update
-  const handlePaymentUpdate = async (e) => {
-    e.preventDefault();
-    if (!currentOrder) return;
+  // Get payment status badge
+  const getPaymentStatusBadge = (status) => {
+    const statusMap = {
+      'completed': {
+        text: 'Paid',
+        bg: 'bg-green-100 text-green-800',
+        dot: 'bg-green-400'
+      },
+      'paid': {
+        text: 'Paid',
+        bg: 'bg-green-100 text-green-800',
+        dot: 'bg-green-400'
+      },
+      'failed': {
+        text: 'Failed',
+        bg: 'bg-red-100 text-red-800',
+        dot: 'bg-red-400'
+      },
+      'pending': {
+        text: 'Pending',
+        bg: 'bg-yellow-100 text-yellow-800',
+        dot: 'bg-yellow-400'
+      },
+      'unpaid': {
+        text: 'Unpaid',
+        bg: 'bg-yellow-100 text-yellow-800',
+        dot: 'bg-yellow-400'
+      },
+      'cancelled': {
+        text: 'Cancelled',
+        bg: 'bg-gray-100 text-gray-800',
+        dot: 'bg-gray-400'
+      },
+      'refunded': {
+        text: 'Refunded',
+        bg: 'bg-blue-100 text-blue-800',
+        dot: 'bg-blue-400'
+      },
+      'processing': {
+        text: 'Processing',
+        bg: 'bg-blue-100 text-blue-800',
+        dot: 'bg-blue-400'
+      }
+    };
+
+    const statusInfo = statusMap[status?.toLowerCase()] || statusMap['pending'];
     
-    try {
-      setIsUpdating(true);
-      const paymentData = {
-        paymentStatus: updateData.paymentStatus,
-        paymentMethod: updateData.paymentMethod,
-        amountPaid: parseFloat(updateData.amountPaid),
-        notes: updateData.notes
-      };
-      
-      const response = await axios.put(
-        `${API_URL}/finance/payments/${currentOrder._id}`,
-        paymentData
-      );
-      
-      // Update local state
-      setOrders(orders.map(order => 
-        order._id === currentOrder._id 
-          ? { 
-              ...order, 
-              paymentStatus: paymentData.paymentStatus,
-              payment: {
-                ...(order.payment || {}),
-                ...paymentData
-              }
-            } 
-          : order
-      ));
-      
-      setShowPaymentModal(false);
-      setCurrentOrder(null);
-      setUpdateData({ status: '', paymentStatus: '', paymentMethod: '', amountPaid: 0, notes: '' });
-    } catch (err) {
-      console.error('Error updating payment:', err);
-      setError('Failed to update payment. Please try again.');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-  
-  // Open update modals
-  const openStatusUpdateModal = (order) => {
-    setCurrentOrder(order);
-    setUpdateData({
-      ...updateData,
-      status: order.status || ''
-    });
-    setShowUpdateModal(true);
-  };
-  
-  const openPaymentUpdateModal = (order) => {
-    setCurrentOrder(order);
-    setUpdateData({
-      ...updateData,
-      paymentStatus: order.paymentStatus || 'unpaid',
-      paymentMethod: order.payment?.method || '',
-      amountPaid: order.payment?.amountPaid || order.totalAmount || 0,
-      notes: order.payment?.notes || ''
-    });
-    setShowPaymentModal(true);
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.bg}`}>
+        <span className={`w-2 h-2 mr-1.5 rounded-full ${statusInfo.dot}`}></span>
+        {statusInfo.text}
+      </span>
+    );
   };
 
   // Calculate summary statistics
@@ -310,46 +373,49 @@ export default function PaymentsManagement() {
       };
     }
 
-    const paidOrders = orders.filter(order => order.paymentStatus?.toLowerCase() === 'paid');
+    const paidOrders = orders.filter(order => ['paid', 'completed'].includes(order.paymentStatus?.toLowerCase()));
     const pendingOrders = orders.filter(order => {
       const status = order.paymentStatus?.toLowerCase();
       return status === 'pending' || status === 'partially_paid' || status === 'unpaid';
     });
+    const failedOrders = orders.filter(order => order.paymentStatus?.toLowerCase() === 'failed');
     
-    // Ensure we're working with numbers
-    const totalAmount = parseFloat(orders.reduce((sum, order) => {
-      const amount = parseFloat(order.totalAmount) || 0;
-      return sum + amount;
-    }, 0).toFixed(2));
-
+    // Calculate paid amount (only from paid orders)
     const paidAmount = parseFloat(paidOrders.reduce((sum, order) => {
       const amount = parseFloat(order.totalAmount) || 0;
       return sum + amount;
     }, 0).toFixed(2));
 
+    // Calculate pending amount (from unpaid/partially paid orders)
     const pendingAmount = parseFloat(pendingOrders.reduce((sum, order) => {
       const amount = parseFloat(order.totalAmount) || 0;
       return sum + amount;
     }, 0).toFixed(2));
+    
+    // Calculate failed payments amount
+    const failedAmount = parseFloat(failedOrders.reduce((sum, order) => {
+      const amount = parseFloat(order.totalAmount) || 0;
+      return sum + amount;
+    }, 0).toFixed(2));
+    
+    // Total revenue is the same as paid amount
+    const totalRevenue = paidAmount;
 
     const totalOrders = orders.length;
     const paidOrdersCount = paidOrders.length;
     const pendingOrdersCount = pendingOrders.length;
     
-    const avgOrderValue = totalOrders > 0 ? parseFloat((totalAmount / totalOrders).toFixed(2)) : 0;
-    const paidPercentage = totalAmount > 0 ? Math.round((paidAmount / totalAmount) * 100) : 0;
-    const pendingPercentage = totalAmount > 0 ? Math.round((pendingAmount / totalAmount) * 100) : 0;
-
     return {
       totalOrders,
       paidOrders: paidOrdersCount,
       pendingOrders: pendingOrdersCount,
-      totalAmount,
-      paidAmount,
+      failedOrders: failedOrders.length,
+      totalRevenue,
+      failedAmount,
       pendingAmount,
-      avgOrderValue,
-      paidPercentage,
-      pendingPercentage
+      avgOrderValue: paidOrdersCount > 0 ? parseFloat((totalRevenue / paidOrdersCount).toFixed(2)) : 0,
+      pendingPercentage: (totalRevenue + pendingAmount) > 0 ? Math.round((pendingAmount / (totalRevenue + pendingAmount)) * 100) : 0,
+      failedPercentage: (totalRevenue + pendingAmount + failedAmount) > 0 ? Math.round((failedAmount / (totalRevenue + pendingAmount + failedAmount)) * 100) : 0
     };
   }, [orders, loading, error]);
 
@@ -399,156 +465,142 @@ export default function PaymentsManagement() {
     );
   };
 
-  // Status Update Modal
-  const StatusUpdateModal = () => (
-    <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
-      <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white z-50">
-        <div className="mt-3 text-center">
-          <h3 className="text-lg leading-6 font-medium text-gray-900">Update Order Status</h3>
-          <div className="mt-4">
-            <select
-              value={updateData.status}
-              onChange={(e) => setUpdateData({...updateData, status: e.target.value})}
-              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-            >
-              <option value="">Select status</option>
-              <option value="pending">Pending</option>
-              <option value="processing">Processing</option>
-              <option value="shipped">Shipped</option>
-              <option value="delivered">Delivered</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </div>
-          <div className="items-center px-4 py-3">
-            <button
-              onClick={handleStatusUpdate}
-              disabled={isUpdating}
-              className="px-4 py-2 bg-indigo-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50"
-            >
-              {isUpdating ? 'Updating...' : 'Update Status'}
-            </button>
-            <button
-              onClick={() => setShowUpdateModal(false)}
-              className="mt-3 px-4 py-2 bg-white border border-gray-300 text-gray-700 text-base font-medium rounded-md w-full shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  // Order Details Modal
+  const OrderDetailsModal = ({ order, onClose, onUpdateStatus }) => {
+    if (!order) return null;
 
-  // Payment Update Modal
-  const PaymentUpdateModal = () => (
-    <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
-      <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white z-50">
-        <div className="mt-3">
-          <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Update Payment</h3>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Payment Status</label>
-              <select
-                value={updateData.paymentStatus}
-                onChange={(e) => setUpdateData({...updateData, paymentStatus: e.target.value})}
-                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+    const handleStatusUpdate = async (status) => {
+      const success = await onUpdateStatus(order._id, status);
+      if (success) {
+        onClose();
+      }
+    };
+
+    return (
+      <Transition.Root show={!!order} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={onClose}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 z-10 overflow-y-auto">
+            <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                enterTo="opacity-100 translate-y-0 sm:scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 translate-y-0 sm:scale-100"
+                leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
               >
-                <option value="unpaid">Unpaid</option>
-                <option value="partially_paid">Partially Paid</option>
-                <option value="paid">Paid</option>
-                <option value="refunded">Refunded</option>
-                <option value="failed">Failed</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Payment Method</label>
-              <select
-                value={updateData.paymentMethod}
-                onChange={(e) => setUpdateData({...updateData, paymentMethod: e.target.value})}
-                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-              >
-                <option value="">Select method</option>
-                <option value="cash">Cash</option>
-                <option value="credit_card">Credit Card</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="mobile_payment">Mobile Payment</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Amount Paid</label>
-              <input
-                type="number"
-                value={updateData.amountPaid}
-                onChange={(e) => setUpdateData({...updateData, amountPaid: e.target.value})}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                placeholder="0.00"
-                step="0.01"
-                min="0"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Notes</label>
-              <textarea
-                value={updateData.notes}
-                onChange={(e) => setUpdateData({...updateData, notes: e.target.value})}
-                rows="3"
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                placeholder="Any additional notes..."
-              />
+                <Dialog.Panel className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl sm:p-6">
+                  <div className="absolute right-0 top-0 pr-4 pt-4">
+                    <button
+                      type="button"
+                      className="rounded-md bg-white text-gray-400 hover:text-gray-500 focus:outline-none"
+                      onClick={onClose}
+                    >
+                      <span className="sr-only">Close</span>
+                      <X className="h-6 w-6" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <div>
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+                      <CreditCard className="h-6 w-6 text-blue-600" aria-hidden="true" />
+                    </div>
+                    <div className="mt-3 text-center sm:mt-5">
+                      <Dialog.Title as="h3" className="text-base font-semibold leading-6 text-gray-900">
+                        Order #{order.orderId}
+                      </Dialog.Title>
+                      <div className="mt-2">
+                        <div className="text-sm text-gray-500">
+                          <div className="flex items-center justify-between py-2 border-b">
+                            <span className="font-medium">Customer:</span>
+                            <span>{order.customerName || 'N/A'}</span>
+                          </div>
+                          <div className="flex items-center justify-between py-2 border-b">
+                            <span className="font-medium">Order Date:</span>
+                            <span>{order.orderDate ? format(new Date(order.orderDate), 'PPpp') : 'N/A'}</span>
+                          </div>
+                          <div className="flex items-center justify-between py-2 border-b">
+                            <span className="font-medium">Status:</span>
+                            <span>{getStatusBadge(order.status)}</span>
+                          </div>
+                          <div className="flex items-center justify-between py-2 border-b">
+                            <span className="font-medium">Payment Status:</span>
+                            <span>{getStatusBadge(order.paymentStatus || 'unpaid')}</span>
+                          </div>
+                          <div className="flex items-center justify-between py-2 border-b">
+                            <span className="font-medium">Total Amount:</span>
+                            <span className="font-semibold">{formatCurrency(order.totalAmount)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-5 sm:mt-6
+                    sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
+                    {order.paymentStatus === 'pending' && (
+                      <>
+                        <button
+                          type="button"
+                          className="inline-flex w-full justify-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 sm:col-start-2"
+                          onClick={() => handleStatusUpdate('paid')}
+                          disabled={isProcessingPayment}
+                        >
+                          {isProcessingPayment ? 'Processing...' : 'Mark as Paid'}
+                        </button>
+                        <button
+                          type="button"
+                          className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:col-start-1 sm:mt-0"
+                          onClick={() => handleStatusUpdate('failed')}
+                          disabled={isProcessingPayment}
+                        >
+                          Mark as Failed
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </Dialog.Panel>
+              </Transition.Child>
             </div>
           </div>
-          
-          <div className="mt-5 sm:mt-6 space-y-3">
-            <button
-              onClick={handlePaymentUpdate}
-              disabled={isUpdating}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-            >
-              {isUpdating ? 'Updating...' : 'Update Payment'}
-            </button>
-            <button
-              onClick={() => setShowPaymentModal(false)}
-              className="w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+        </Dialog>
+      </Transition.Root>
+    );
+  };
 
   return (
     <div className="px-4 sm:px-6 lg:px-8 relative">
-      {/* Modals */}
-      {showUpdateModal && <StatusUpdateModal />}
-      {showPaymentModal && <PaymentUpdateModal />}
-      <div className="sm:flex sm:items-center mb-6">
-        <div className="sm:flex-auto">
-          <h1 className="text-2xl font-bold text-gray-900">Payment Management</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Overview of all payment transactions and financial metrics
-          </p>
-        </div>
-      </div>
-
+      {/* Order Details Modal */}
+      <OrderDetailsModal 
+        order={selectedOrder} 
+        onClose={() => setSelectedOrder(null)} 
+        onUpdateStatus={handleUpdateStatus}
+      />
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-6 mt-8 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="Total Revenue" 
-          value={formatCurrency(summary.totalAmount)} 
+          value={formatCurrency(summary.totalRevenue)} 
           icon={DollarSign}
-          change={`${summary.totalOrders} ${summary.totalOrders === 1 ? 'order' : 'orders'}`}
+          change={`${summary.paidOrders} ${summary.paidOrders === 1 ? 'paid order' : 'paid orders'}`}
         />
         <StatCard 
-          title="Paid Amount" 
-          value={formatCurrency(summary.paidAmount)}
-          change={`${summary.paidPercentage}% of total`}
-          icon={CheckCircle}
-          trend="up"
+          title="Failed Payments" 
+          value={formatCurrency(summary.failedAmount)}
+          change={`${summary.failedPercentage}% of total`}
+          icon={XCircle}
+          trend="down"
         />
         <StatCard 
           title="Pending Amount" 
@@ -616,9 +668,8 @@ export default function PaymentsManagement() {
             >
               <option value="all">All Payments</option>
               <option value="paid">Paid</option>
-              <option value="unpaid">Unpaid</option>
-              <option value="partially_paid">Partially Paid</option>
-              <option value="refunded">Refunded</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
             </select>
             <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
               <ChevronDown className="h-4 w-4 text-gray-400" />
@@ -724,32 +775,41 @@ export default function PaymentsManagement() {
                           </div>
                         </td>
                         <td className="whitespace-nowrap px-3 py-4 text-sm">
-                          {order.status ? getStatusBadge(order.status) : getStatusBadge('pending')}
+                          {getStatusBadge(order.status || 'pending')}
                         </td>
                         <td className="whitespace-nowrap px-3 py-4 text-sm">
-                          {order.paymentStatus ? getStatusBadge(order.paymentStatus) : getStatusBadge('unpaid')}
+                          {getPaymentStatusBadge(order.paymentStatus || 'unpaid')}
                         </td>
                         <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                          <div className="flex justify-end space-x-2">
                             <button
-                              type="button"
-                              onClick={() => openStatusUpdateModal(order)}
-                              className="text-blue-600 hover:text-blue-900 mr-3"
-                              title="Update Status"
+                              onClick={() => setSelectedOrder(order)}
+                              className="text-indigo-600 hover:text-indigo-900"
+                              title="View Details"
                             >
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
+                              <Eye className="h-5 w-5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openPaymentUpdateModal(order)}
-                              className="text-green-600 hover:text-green-900 mr-3"
-                              title="Update Payment"
-                            >
-                              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                              </svg>
-                            </button>
+                            {['pending', 'unpaid', 'partially_paid', 'failed'].includes(order.paymentStatus?.toLowerCase()) && (
+                              <>
+                                <button
+                                  onClick={() => markAsPaid(order._id)}
+                                  className="text-green-600 hover:text-green-900"
+                                  title="Mark as Paid"
+                                  disabled={isProcessingPayment}
+                                >
+                                  <CheckCircle className="h-5 w-5" />
+                                </button>
+                                <button
+                                  onClick={() => markAsFailed(order._id)}
+                                  className="text-red-600 hover:text-red-900"
+                                  title="Mark as Failed"
+                                  disabled={isProcessingPayment}
+                                >
+                                  <XCircle className="h-5 w-5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
