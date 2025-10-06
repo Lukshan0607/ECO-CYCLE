@@ -39,16 +39,15 @@ const OverviewCards = () => {
       const currentDate = new Date();
       const currentMonth = currentDate.getMonth() + 1; // 1-12
       const currentYear = currentDate.getFullYear();
+      const currentMonthFormatted = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
       
       // Fetch all necessary data in parallel
       const [salesResponse, expensesResponse, payrollsResponse] = await Promise.all([
         axios.get(`${API_URL}/sales/orders`),
         axios.get(`${API_URL}/expenses/summary`),
         axios.get(`${API_URL}/payroll`, {
-          params: {
-            month: currentMonth,
-            year: currentYear,
-            status: 'processed' // Only get processed payrolls
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
         })
       ]);
@@ -57,10 +56,10 @@ const OverviewCards = () => {
       const expensesData = expensesResponse.data?.data || { total: 0 };
       const payrolls = payrollsResponse.data?.data || [];
       
-      // Calculate total salary from payrolls
-      const totalSalaryExpenses = payrolls.reduce((total, payroll) => {
-        return total + (parseFloat(payroll.netSalary) || 0);
-      }, 0);
+      // Calculate monthly payroll (matching EmployeePayroll calculation)
+      const monthlyPayroll = payrolls
+        .filter(run => run.month?.startsWith(currentMonthFormatted))
+        .reduce((sum, run) => sum + (parseFloat(run.netPay) || 0), 0);
       
       // Calculate payment metrics from orders
       const metrics = orders.reduce((acc, order) => {
@@ -75,20 +74,19 @@ const OverviewCards = () => {
 
       const totalRevenue = metrics.paymentsReceived.amount;
       const otherExpenses = parseFloat(expensesData.total) || 0;
-      const totalExpenses = totalSalaryExpenses + otherExpenses;
+      const totalExpenses = monthlyPayroll + otherExpenses;
       const netProfit = totalRevenue - totalExpenses;
 
       setFinanceData({
         totalRevenue,
         paymentsReceived: metrics.paymentsReceived,
-        salaryExpenses: totalSalaryExpenses,
+        salaryExpenses: monthlyPayroll,
         totalExpenses,
         netProfit,
         profitTrend: netProfit >= 0 ? 'up' : 'down',
-        profitChange: (Math.random() * 15).toFixed(1) + '%',
-        // For now using random trend data, can be updated with actual comparison to previous month
-        salaryTrend: Math.random() > 0.5 ? 'up' : 'down',
-        salaryChange: (Math.random() * 10).toFixed(1) + '%'
+        profitChange: '0.0%', // Placeholder, can be calculated with previous month data
+        salaryTrend: 'up',    // Placeholder
+        salaryChange: '0.0%'  // Placeholder
       });
     } catch (err) {
       console.error('Error fetching sales data:', err);
