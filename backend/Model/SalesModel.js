@@ -80,7 +80,7 @@ const salesOrderSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['credit_card', 'bank_transfer', 'cash_on_delivery', 'other'],
+    enum: ['credit_card', 'bank_transfer', 'mobile_payment', 'cash_on_delivery', 'other'],
     default: 'credit_card'
   },
   paymentDate: {
