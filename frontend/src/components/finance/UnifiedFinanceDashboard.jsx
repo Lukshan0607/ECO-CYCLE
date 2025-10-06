@@ -25,6 +25,8 @@ const OrderManagement = lazy(() => import('./OrderManagement'));
 const ExpensesDashboard = lazy(() => import('./ExpensesDashboard'));
 const PaymentsManagement = lazy(() => import('./PaymentsManagement'));
 const Reports = lazy(() => import('./Reports'));
+const OrderStatusPieChart = lazy(() => import('./OrderStatusPieChart'));
+const PaymentStatusPieChart = lazy(() => import('./PaymentStatusPieChart'));
 
 // Data will be fetched from API
 
@@ -267,7 +269,14 @@ export default function UnifiedFinanceDashboard() {
   const renderOverview = () => (
     <div className="space-y-8">
       <OverviewCards />
-      <FinanceCharts />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <Suspense fallback={<div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-96 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>}>
+          <PaymentStatusPieChart />
+        </Suspense>
+        <FinanceCharts />
+      </div>
     </div>
   );
 
@@ -276,20 +285,11 @@ export default function UnifiedFinanceDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <ExpenseBreakdown expenses={allExpenses} />
 
-        <Card>
-          <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Profit Trend</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={analyticsData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="period" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="profit" stroke="#10B981" strokeWidth={3} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+        <Suspense fallback={<div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-96 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>}>
+          <OrderStatusPieChart />
+        </Suspense>
       </div>
     </div>
   );
