@@ -13,7 +13,6 @@ import {
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import LogoutButton from "../common/LogoutButton";
-import { exportToCSV, exportToExcel, exportToPDF } from '../../utils/exportUtils';
 import ExpenseBreakdown from './ExpenseBreakdown';
 
 // Lazy load components
@@ -24,7 +23,6 @@ const FinanceCharts = lazy(() => import('./FinanceCharts'));
 const OrderManagement = lazy(() => import('./OrderManagement'));
 const ExpensesDashboard = lazy(() => import('./ExpensesDashboard'));
 const PaymentsManagement = lazy(() => import('./PaymentsManagement'));
-const Reports = lazy(() => import('./Reports'));
 const OrderStatusPieChart = lazy(() => import('./OrderStatusPieChart'));
 const PaymentStatusPieChart = lazy(() => import('./PaymentStatusPieChart'));
 
@@ -32,9 +30,6 @@ const PaymentStatusPieChart = lazy(() => import('./PaymentStatusPieChart'));
 
 export default function UnifiedFinanceDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
-  const [exportFormat, setExportFormat] = useState('csv');
-  const [showExportDropdown, setShowExportDropdown] = useState(false);
-
   const [analyticsData, setAnalyticsData] = useState([]);
   const [financialData, setFinancialData] = useState({
     recentTransactions: [],
@@ -43,13 +38,6 @@ export default function UnifiedFinanceDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Calculate financial metrics for export
-  const calculateFinancialMetrics = (data) => {
-    const totalRevenue = data.reduce((sum, item) => sum + (parseFloat(item.revenue) || 0), 0);
-    const totalExpenses = data.reduce((sum, item) => sum + (parseFloat(item.expenses) || 0), 0);
-    const profit = totalRevenue - totalExpenses;
-    return { totalRevenue, totalExpenses, profit };
-  };
 
   // Fetch and process expenses data for analytics
   const fetchAnalyticsData = async () => {
@@ -127,95 +115,6 @@ export default function UnifiedFinanceDashboard() {
     }
   }, [activeTab]);
 
-  const handleExport = async (format) => {
-    setExportFormat(format);
-    setShowExportDropdown(false);
-    
-    try {
-      let dataToExport = [];
-      let columns = [];
-      let title = 'Report';
-      const formatToUse = format || exportFormat;
-
-      // Prepare data based on active tab
-      switch (activeTab) {
-        case 'overview':
-          (() => {
-            const { totalRevenue, totalExpenses, profit } = calculateFinancialMetrics(analyticsData);
-            dataToExport = [
-              { metric: 'Total Revenue', value: totalRevenue },
-              { metric: 'Total Expenses', value: totalExpenses },
-              { metric: 'Profit', value: profit },
-            ];
-            columns = [
-              { header: 'Metric', key: 'metric' },
-              { header: 'Value', key: 'value' },
-            ];
-            title = 'Financial_Metrics';
-          })();
-          break;
-        case 'expenses':
-          // Handle expenses export
-          title = 'Expenses_Report';
-          break;
-        case 'analytics':
-          if (isLoading) {
-            alert('Please wait while we prepare your data for export...');
-            return;
-          }
-          if (error) {
-            alert('Error loading analytics data: ' + error);
-            return;
-          }
-          dataToExport = [...analyticsData];
-          columns = [
-            { header: 'Period', key: 'period' },
-            { header: 'Revenue', key: 'revenue' },
-            { header: 'Expenses', key: 'expenses' },
-            { header: 'Profit', key: 'profit' },
-            { header: 'Category', key: 'category' }
-          ];
-          title = 'Financial_Analytics';
-          break;
-        case 'employee-management':
-          title = 'Employee_Management';
-          break;
-        case 'payroll':
-          title = 'Payroll_Report';
-          break;
-        default:
-          console.warn('No export handler for tab:', activeTab);
-          return;
-      }
-
-      if (dataToExport.length === 0) {
-        console.warn('No data to export for tab:', activeTab);
-        return;
-      }
-
-      // Call the appropriate export function
-      switch (formatToUse) {
-        case 'csv':
-          exportToCSV(dataToExport, title);
-          break;
-        case 'excel':
-          exportToExcel(dataToExport, title);
-          break;
-        case 'pdf':
-          exportToPDF(
-            dataToExport,
-            columns,
-            title.replace(/_/g, ' '),
-            title
-          );
-          break;
-        default:
-          exportToCSV(dataToExport, title);
-      }
-    } catch (error) {
-      console.error('Export failed:', error);
-    }
-  };
 
   // Get data from state
   const { allExpenses = [], recentTransactions = [] } = financialData;
@@ -228,8 +127,7 @@ export default function UnifiedFinanceDashboard() {
     { id: "analytics", name: "Financial Analytics", icon: <TrendingUp size={20} /> },
     { id: "employee-management", name: "Employee Management", icon: <UsersIcon size={20} /> },
     { id: "payroll", name: "Employee Payroll", icon: <Briefcase size={20} /> },
-    { id: "payments", name: "Payments Management", icon: <CreditCard size={20} /> },
-    { id: "reports", name: "Reports", icon: <FileText size={20} /> }, // Add Reports tab
+    { id: "payments", name: "Payments Management", icon: <CreditCard size={20} /> }
   ];
 
   // Render content based on active tab
@@ -259,8 +157,6 @@ export default function UnifiedFinanceDashboard() {
         return renderWithSuspense(EmployeePayroll);
       case 'payments':
         return renderWithSuspense(PaymentsManagement);
-      case 'reports':
-        return renderWithSuspense(Reports);
       default:
         return <div className="p-6">Select a tab to view content</div>;
     }
@@ -303,41 +199,7 @@ export default function UnifiedFinanceDashboard() {
           <div className="flex space-x-2">
             <Button variant="outline" size="sm">
               <Filter size={16} className="mr-2" />
-              Filter
             </Button>
-            <div className="relative group">
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={handleExport}
-                className="flex items-center"
-              >
-                <Download size={16} className="mr-2" />
-                Export
-              </Button>
-              <div className="absolute right-0 mt-1 w-40 bg-white rounded-md shadow-lg z-10 hidden group-hover:block">
-                <div className="py-1">
-                  <button 
-                    onClick={() => { setExportFormat('csv'); setTimeout(handleExport, 100); }}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Export as CSV
-                  </button>
-                  <button 
-                    onClick={() => { setExportFormat('excel'); setTimeout(handleExport, 100); }}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Export as Excel
-                  </button>
-                  <button 
-                    onClick={() => { setExportFormat('pdf'); setTimeout(handleExport, 100); }}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Export as PDF
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -488,79 +350,6 @@ export default function UnifiedFinanceDashboard() {
               </p>
             </div>
             <div className="flex space-x-3">
-              <div className="relative">
-                <Button
-                  variant="outline"
-                  className="flex items-center space-x-2"
-                  onClick={() => handleExport(exportFormat)}
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Export</span>
-                  <svg
-                    className={`w-4 h-4 ml-1 transition-transform ${showExportDropdown ? 'rotate-180' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowExportDropdown(!showExportDropdown);
-                    }}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </Button>
-                
-                {showExportDropdown && (
-                  <div className="absolute right-0 z-10 w-40 mt-1 bg-white rounded-md shadow-lg">
-                    <div className="py-1">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleExport('csv');
-                        }}
-                        className={`block w-full px-4 py-2 text-sm text-left ${
-                          exportFormat === 'csv' 
-                            ? 'bg-blue-50 text-blue-700' 
-                            : 'text-gray-700 hover:bg-gray-100'
-                        }`}
-                      >
-                        Export as CSV
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleExport('excel');
-                        }}
-                        className={`block w-full px-4 py-2 text-sm text-left ${
-                          exportFormat === 'excel' 
-                            ? 'bg-blue-50 text-blue-700' 
-                            : 'text-gray-700 hover:bg-gray-100'
-                        }`}
-                      >
-                        Export as Excel
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleExport('pdf');
-                        }}
-                        className={`block w-full px-4 py-2 text-sm text-left ${
-                          exportFormat === 'pdf' 
-                            ? 'bg-blue-50 text-blue-700' 
-                            : 'text-gray-700 hover:bg-gray-100'
-                        }`}
-                      >
-                        Export as PDF
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </div>
