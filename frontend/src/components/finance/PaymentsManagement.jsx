@@ -19,7 +19,8 @@ import {
   Download as DownloadIcon,
   Image,
   FileText,
-  FileSpreadsheet
+  FileSpreadsheet,
+  RefreshCw
 } from 'lucide-react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
@@ -71,6 +72,8 @@ export default function PaymentsManagement() {
     status: 'all',
     paymentStatus: 'all',
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   // Debug: Log order payment statuses
   useEffect(() => {
@@ -221,21 +224,44 @@ export default function PaymentsManagement() {
     return handleUpdateStatus(orderId, 'failed');
   };
 
-  const filteredOrders = orders.filter(order => {
-    if (!order) return false;
-    
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = 
-      (order.orderId?.toLowerCase().includes(searchLower) ||
-      order.customerName?.toLowerCase().includes(searchLower)) ||
-      false;
+  const filteredOrders = React.useMemo(() => {
+    return orders.filter(order => {
+      if (!order) return false;
       
-    const matchesStatus = filters.status === 'all' || order.status === filters.status;
-    const matchesPaymentStatus = filters.paymentStatus === 'all' || 
-      (order.paymentStatus ? order.paymentStatus === filters.paymentStatus : false);
-    
-    return matchesSearch && matchesStatus && matchesPaymentStatus;
-  });
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = 
+        (order.orderId?.toLowerCase().includes(searchLower) ||
+        order.customerName?.toLowerCase().includes(searchLower)) ||
+        false;
+        
+      const matchesStatus = filters.status === 'all' || order.status === filters.status;
+      const matchesPaymentStatus = filters.paymentStatus === 'all' || 
+        (order.paymentStatus ? order.paymentStatus === filters.paymentStatus : false);
+      
+      return matchesSearch && matchesStatus && matchesPaymentStatus;
+    });
+  }, [orders, searchTerm, filters.status, filters.paymentStatus]);
+
+  // Pagination logic
+  const totalItems = filteredOrders.length;
+  const totalPages = Math.ceil(totalItems / rowsPerPage);
+  const indexOfLastItem = currentPage * rowsPerPage;
+  const indexOfFirstItem = indexOfLastItem - rowsPerPage;
+  const currentItems = filteredOrders.slice(indexOfFirstItem, indexOfLastItem);
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    // Scroll to top of table
+    const tableElement = document.querySelector('.transactions-table-container');
+    if (tableElement) {
+      tableElement.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const handleRowsPerPageChange = (e) => {
+    setRowsPerPage(Number(e.target.value));
+    setCurrentPage(1); // Reset to first page
+  };
 
   const getStatusBadge = (status) => {
     if (!status) return null;
@@ -284,51 +310,59 @@ export default function PaymentsManagement() {
     const statusMap = {
       'completed': {
         text: 'Paid',
-        bg: 'bg-green-100 text-green-800',
-        dot: 'bg-green-400'
+        bg: 'bg-green-50 text-green-700 ring-1 ring-green-600/20',
+        dot: 'bg-green-500',
+        icon: <CheckCircle className="h-3.5 w-3.5 mr-1" />
       },
       'paid': {
         text: 'Paid',
-        bg: 'bg-green-100 text-green-800',
-        dot: 'bg-green-400'
+        bg: 'bg-green-50 text-green-700 ring-1 ring-green-600/20',
+        dot: 'bg-green-500',
+        icon: <CheckCircle className="h-3.5 w-3.5 mr-1" />
       },
       'failed': {
         text: 'Failed',
-        bg: 'bg-red-100 text-red-800',
-        dot: 'bg-red-400'
+        bg: 'bg-red-50 text-red-700 ring-1 ring-red-600/10',
+        dot: 'bg-red-500',
+        icon: <XCircle className="h-3.5 w-3.5 mr-1" />
       },
       'pending': {
         text: 'Pending',
-        bg: 'bg-yellow-100 text-yellow-800',
-        dot: 'bg-yellow-400'
+        bg: 'bg-yellow-50 text-yellow-700 ring-1 ring-yellow-600/20',
+        dot: 'bg-yellow-500',
+        icon: <Clock className="h-3.5 w-3.5 mr-1" />
       },
       'unpaid': {
         text: 'Unpaid',
-        bg: 'bg-yellow-100 text-yellow-800',
-        dot: 'bg-yellow-400'
+        bg: 'bg-amber-50 text-amber-700 ring-1 ring-amber-600/20',
+        dot: 'bg-amber-500',
+        icon: <Clock className="h-3.5 w-3.5 mr-1" />
       },
       'cancelled': {
         text: 'Cancelled',
-        bg: 'bg-gray-100 text-gray-800',
-        dot: 'bg-gray-400'
+        bg: 'bg-gray-50 text-gray-700 ring-1 ring-gray-600/20',
+        dot: 'bg-gray-500',
+        icon: <XCircle className="h-3.5 w-3.5 mr-1" />
       },
       'refunded': {
         text: 'Refunded',
-        bg: 'bg-blue-100 text-blue-800',
-        dot: 'bg-blue-400'
+        bg: 'bg-blue-50 text-blue-700 ring-1 ring-blue-600/20',
+        dot: 'bg-blue-500',
+        icon: <DollarSign className="h-3.5 w-3.5 mr-1" />
       },
       'processing': {
         text: 'Processing',
-        bg: 'bg-blue-100 text-blue-800',
-        dot: 'bg-blue-400'
+        bg: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/20',
+        dot: 'bg-indigo-500',
+        icon: <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
       }
     };
 
     const statusInfo = statusMap[status?.toLowerCase()] || statusMap['pending'];
     
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.bg}`}>
-        <span className={`w-2 h-2 mr-1.5 rounded-full ${statusInfo.dot}`}></span>
+      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.bg}`}>
+        {statusInfo.icon}
         {statusInfo.text}
       </span>
     );
@@ -998,8 +1032,26 @@ export default function PaymentsManagement() {
         />
       </div>
 
-      <div className="mt-12">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Recent Transactions</h2>
+      <div className="mt-12 flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Recent Transactions</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Showing {Math.min(indexOfFirstItem + 1, totalItems)}-{Math.min(indexOfLastItem, totalItems)} of {totalItems} transactions
+          </p>
+        </div>
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-gray-500">Rows per page:</span>
+          <select
+            value={rowsPerPage}
+            onChange={handleRowsPerPageChange}
+            className="text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
       </div>
 
       <div className="mt-2">
@@ -1058,7 +1110,7 @@ export default function PaymentsManagement() {
         </div>
       </div>
 
-      <div className="mt-8 flex flex-col">
+      <div className="mt-8 flex flex-col transactions-table-container">
         <div className="-my-2 -mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
           <div className="inline-block min-w-full py-2 align-middle md:px-6 lg:px-8">
             {error && (
@@ -1074,8 +1126,9 @@ export default function PaymentsManagement() {
               </div>
             )}
             <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
-              <table className="min-w-full divide-y divide-gray-300">
-                <thead className="bg-gray-50">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gradient-to-r from-blue-50 to-indigo-50">
                   <tr>
                     <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
                       Order ID
@@ -1103,7 +1156,7 @@ export default function PaymentsManagement() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
+                <tbody className="divide-y divide-gray-100 bg-white">
                   {loading ? (
                     <tr>
                       <td colSpan="8" className="px-3 py-8 text-sm text-gray-500 text-center">
@@ -1126,8 +1179,11 @@ export default function PaymentsManagement() {
                       </td>
                     </tr>
                   ) : (
-                    filteredOrders.map((order) => (
-                      <tr key={order._id} className="hover:bg-gray-50">
+                    currentItems.map((order) => (
+                      <tr 
+                        key={order._id} 
+                        className={`transition-colors duration-150 ${order.paymentStatus?.toLowerCase() === 'failed' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}`}
+                      >
                         <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-indigo-600 sm:pl-6">
                           {order.orderId}
                         </td>
@@ -1197,6 +1253,103 @@ export default function PaymentsManagement() {
                 </tbody>
               </table>
             </div>
+            
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6 rounded-b-lg">
+                <div className="flex-1 flex justify-between sm:hidden">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className={`relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md ${currentPage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className={`ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md ${currentPage === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    Next
+                  </button>
+                </div>
+                <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm text-gray-700">
+                      Showing <span className="font-medium">{Math.min(indexOfFirstItem + 1, totalItems)}</span> to{' '}
+                      <span className="font-medium">{Math.min(indexOfLastItem, totalItems)}</span> of{' '}
+                      <span className="font-medium">{totalItems}</span> results
+                    </p>
+                  </div>
+                  <div>
+                    <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                      <button
+                        onClick={() => handlePageChange(1)}
+                        disabled={currentPage === 1}
+                        className={`relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium ${currentPage === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        <span className="sr-only">First</span>
+                        &laquo;
+                      </button>
+                      <button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className={`relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium ${currentPage === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        <span className="sr-only">Previous</span>
+                        &lsaquo;
+                      </button>
+                      
+                      {/* Page numbers */}
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => handlePageChange(pageNum)}
+                            className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                              currentPage === pageNum
+                                ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
+                                : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      
+                      <button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className={`relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium ${currentPage === totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        <span className="sr-only">Next</span>
+                        &rsaquo;
+                      </button>
+                      <button
+                        onClick={() => handlePageChange(totalPages)}
+                        disabled={currentPage === totalPages}
+                        className={`relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium ${currentPage === totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        <span className="sr-only">Last</span>
+                        &raquo;
+                      </button>
+                    </nav>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
           </div>
         </div>
       </div>
