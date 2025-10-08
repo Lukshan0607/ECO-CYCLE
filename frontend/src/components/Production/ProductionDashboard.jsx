@@ -89,6 +89,7 @@ const ProductionDashboard = () => {
   });
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [highlightLowStock, setHighlightLowStock] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [products, setProducts] = useState([]);
 
@@ -1244,7 +1245,12 @@ const ProductionDashboard = () => {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg rounded-2xl p-6">
+            <div
+              className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg rounded-2xl p-6 cursor-pointer hover:shadow-xl transition-shadow"
+              onClick={() => { setActiveTab('products'); setHighlightLowStock(true); setTimeout(() => setHighlightLowStock(false), 6000); }}
+              title="View low stock products"
+              role="button"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-orange-100 text-sm font-medium">Low Stock Items</p>
@@ -1435,9 +1441,9 @@ const ProductionDashboard = () => {
                 </div>
               )}
 
-              {/* Two-column layout: left (products) and right (loyalty config) */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="md:col-span-2 bg-white shadow rounded-2xl p-4">
+              {/* Stacked layout: Products table then Loyalty Settings */}
+              <div className="space-y-6">
+                <div className="bg-white shadow rounded-2xl p-4">
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="font-bold text-lg">Products</h3>
                     <div className="relative">
@@ -1472,7 +1478,10 @@ const ProductionDashboard = () => {
                       </thead>
                       <tbody>
                         {filteredProducts.map((p, idx) => (
-                          <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                          <tr
+                            key={idx}
+                            className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${p.stock < 50 && highlightLowStock ? 'ring-2 ring-red-200 bg-red-50/40' : ''}`}
+                          >
                             <td className="py-3 px-4">
                               {p.imageUrl ? (
                                 <img src={p.imageUrl} alt={p.name} className="w-16 h-16 object-cover rounded-lg border" />
@@ -1516,7 +1525,7 @@ const ProductionDashboard = () => {
                     )}
                   </div>
                 </div>
-                {/* Right side: Points per rupee configuration */}
+                {/* Loyalty Settings (moved below products table) */}
                 <div className="bg-white shadow rounded-2xl p-4">
                   <h3 className="font-bold text-lg mb-3">Loyalty Settings</h3>
                   <form onSubmit={handleSavePointsPerRupee} className="space-y-3">
