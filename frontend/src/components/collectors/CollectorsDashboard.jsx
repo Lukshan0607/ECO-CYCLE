@@ -1,4 +1,4 @@
-﻿// src/components/collectors/CollectorsDashboard.jsx
+// src/components/collectors/CollectorsDashboard.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { jsPDF } from 'jspdf';
@@ -37,14 +37,37 @@ import {
 // Helpers
 const nowIso = () => new Date().toISOString();
 
+// Preload logo from public folder for PDF header
+const loadHeaderLogo = () => new Promise((resolve) => {
+  try {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.src = window.location.origin + '/ecocycle-logo.png';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+  } catch { resolve(null); }
+});
+
 // Standard PDF header for all reports (auto fits portrait/landscape)
-const addStandardPdfHeader = (doc, title, subtitle = '') => {
+// Optionally provide logoImg (HTMLImageElement) to render on the left
+const addStandardPdfHeader = (doc, title, subtitle = '', logoImg = null) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const centerX = pageWidth / 2;
 
-  // Header bar full width
-  doc.setFillColor(0, 100, 180);
+  // Header bar full width (brand teal #0c9387)
+  doc.setFillColor(12, 147, 135);
   doc.rect(0, 0, pageWidth, 30, 'F');
+
+  // Logo at left if available
+  if (logoImg) {
+    try {
+      const logoW = 32; // mm (increased slightly)
+      const logoH = (logoImg.height * logoW) / logoImg.width;
+      const x = 18; // move a bit towards the text
+      const y = 15 - (logoH / 2);
+      doc.addImage(logoImg, 'PNG', x, y, logoW, logoH);
+    } catch {}
+  }
 
   // Company text
   doc.setTextColor(255, 255, 255);
@@ -56,10 +79,12 @@ const addStandardPdfHeader = (doc, title, subtitle = '') => {
   doc.text('Tel: +94 11 234 5678 | Email: ecocycle923@gmail.com', centerX, 25, { align: 'center' });
   
   // Report title and date
-  doc.setTextColor(0, 0, 0);
+  doc.setTextColor(12, 147, 135); // #0c9387
   doc.setFontSize(14);
   doc.setFont(undefined, 'bold');
-  doc.text(title, 20, 45);
+  doc.text(title, centerX, 45, { align: 'center' });
+  // reset to black for the rest of the header text
+  doc.setTextColor(0, 0, 0);
   doc.setFontSize(10);
   doc.setFont(undefined, 'normal');
   doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 52);
@@ -143,7 +168,7 @@ export default function CollectorsDashboard() {
   }, [filterFrom, filterTo]);
 
   // Export 'Daily Collection in Current Month' to PDF
-  const exportDailyCurrentMonthToPdf = () => {
+  const exportDailyCurrentMonthToPdf = async () => {
     try {
       console.log('[PDF] exportDailyCurrentMonthToPdf clicked');
       const doc = new jsPDF({
@@ -151,12 +176,13 @@ export default function CollectorsDashboard() {
         unit: 'mm',
         format: 'a4'
       });
+      const logo = await loadHeaderLogo();
       
       const title = `Daily Collection in ${new Date().toLocaleString(undefined, { month: 'long', year: 'numeric' })}`;
       const rows = chartDailyCurrentMonth || [];
       
       // Add standard header
-      let yPos = addStandardPdfHeader(doc, title, `Generated on ${new Date().toLocaleString()}`);
+      let yPos = addStandardPdfHeader(doc, title, `Generated on ${new Date().toLocaleString()}`, logo);
       
       // Prepare table data
       const tableColumn = ['Day', 'Total Weight (kg)'];
@@ -263,17 +289,18 @@ export default function CollectorsDashboard() {
   };
 
   // Export the filtered table to a printable page (user can Save as PDF)
-  const exportFilteredToPdf = () => {
+  const exportFilteredToPdf = async () => {
     try {
       console.log('[PDF] exportFilteredToPdf clicked');
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const logo = await loadHeaderLogo();
       const title = 'Recent Collections Report';
       const rows = getFilteredRows();
       let subtitle = `Generated on ${new Date().toLocaleString()}\n`;
       subtitle += `Filters: MinG=${filterMinG||'-'} | MaxG=${filterMaxG||'-'} | From=${filterFrom||'-'} | To=${filterTo||'-'}`;
 
       // Header
-      const startY = addStandardPdfHeader(doc, title, subtitle);
+      const startY = addStandardPdfHeader(doc, title, subtitle, logo);
 
       // Table
       const head = [['ID','User Name','Collector Name','Weight (g)','Location','Awarded Points','Collected Stamp (Time & Date)']];
@@ -349,12 +376,13 @@ export default function CollectorsDashboard() {
   }, [collections]);
 
   // Export Collector Locations (active bins) to PDF
-  const exportLocationsToPdf = () => {
+  const exportLocationsToPdf = async () => {
     try {
       console.log('[PDF] exportLocationsToPdf clicked');
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const logo = await loadHeaderLogo();
       const title = 'Collector Locations (Active)';
-      const startY = addStandardPdfHeader(doc, title, `Exported: ${new Date().toLocaleString()}`);
+      const startY = addStandardPdfHeader(doc, title, `Exported: ${new Date().toLocaleString()}`, logo);
 
       const rows = (binLocations || []).map((loc, idx) => {
         const id = loc.routeId || loc.id || `LOC-${idx+1}`;
@@ -494,13 +522,14 @@ export default function CollectorsDashboard() {
   }, [collections]);
 
   // Export 'Collections by Location' to PDF (printable window)
-  const exportCollectionsByLocationToPdf = () => {
+  const exportCollectionsByLocationToPdf = async () => {
     try {
       console.log('[PDF] exportCollectionsByLocationToPdf clicked');
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const logo = await loadHeaderLogo();
       const title = 'Collections by Location';
       const rows = chartByLocation || [];
-      const startY = addStandardPdfHeader(doc, title, `Generated on ${new Date().toLocaleString()}`);
+      const startY = addStandardPdfHeader(doc, title, `Generated on ${new Date().toLocaleString()}`, logo);
 
       const body = rows.map(r => [r.location, Number(r.qty).toFixed(3)]);
       autoTable(doc, {
@@ -890,12 +919,13 @@ export default function CollectorsDashboard() {
   };
 
   // Export current Transport Requests table to printable page (Save as PDF)
-  const exportTransportRequestsToPdf = () => {
+  const exportTransportRequestsToPdf = async () => {
     try {
       console.log('[PDF] exportTransportRequestsToPdf clicked');
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const logo = await loadHeaderLogo();
       const title = 'Collector - Transport Requests';
-      const startY = addStandardPdfHeader(doc, title, `Generated on ${new Date().toLocaleString()}`);
+      const startY = addStandardPdfHeader(doc, title, `Generated on ${new Date().toLocaleString()}`, logo);
 
       const body = (transportReqs || []).slice().map((r, idx) => [
         r.requestId || (r._id?.slice(-6) || String(idx+1)),
