@@ -132,6 +132,10 @@ export default function CollectorsDashboard() {
   const [appliedTo, setAppliedTo] = useState("");
   // Today string for date inputs (YYYY-MM-DD)
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  // Transport Requests search term (for suggestions only)
+  const [reqSearchTerm, setReqSearchTerm] = useState("");
+  // Collector Locations search term (for suggestions only)
+  const [locSearchTerm, setLocSearchTerm] = useState("");
 
   // Shared Active Bin Locations (from Transport -> Bin Locations)
   const [binLocations, setBinLocations] = useState([]);
@@ -877,6 +881,72 @@ export default function CollectorsDashboard() {
             <button onClick={loadActiveBins} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-gray-50">Refresh</button>
           </div>
         </div>
+        {/* Search field with suggestions (does NOT filter the cards) */}
+        <div className="mb-4">
+          <div className="flex items-end gap-2 w-full">
+            <div className="w-full relative">
+              <label className="block text-sm font-medium text-gray-700">Search Locations</label>
+              <input
+                type="text"
+                value={locSearchTerm}
+                onChange={(e)=>setLocSearchTerm(e.target.value)}
+                placeholder="Start typing (ID, Location, City, Manager)"
+                className="border rounded-lg px-3 py-2 w-full"
+              />
+              {(() => {
+                const term = (locSearchTerm || '').trim();
+                if (!term) return null;
+                const lower = term.toLowerCase();
+                const starts = (v) => String(v||'').trim().toLowerCase().startsWith(lower);
+                const items = (binLocations || [])
+                  .slice()
+                  .filter(loc => {
+                    const id = loc.routeId || loc.id || '';
+                    const name = loc.location || loc.name || '';
+                    const city = loc.city || '';
+                    const manager = loc.managerName || loc.manager || '';
+                    return starts(id) || starts(name) || starts(city) || starts(manager);
+                  })
+                  .slice(0, 8);
+                const highlight = (value) => {
+                  const str = String(value||'');
+                  if (!str.toLowerCase().startsWith(lower)) return str;
+                  return (
+                    <>
+                      <mark className="bg-yellow-200">{str.slice(0, term.length)}</mark>
+                      {str.slice(term.length)}
+                    </>
+                  );
+                };
+                return (
+                  <div className="absolute z-10 mt-1 w-full bg-white border rounded-lg shadow max-h-64 overflow-auto">
+                    {items.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-gray-500">No matches</div>
+                    ) : (
+                      items.map((loc, idx) => {
+                        const id = loc.routeId || loc.id || '';
+                        const name = loc.location || loc.name || '';
+                        const city = loc.city || '';
+                        const manager = loc.managerName || loc.manager || '';
+                        return (
+                          <div key={id || idx} className="px-3 py-2 text-sm hover:bg-gray-50 cursor-default">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="font-mono text-gray-800">{highlight(id)}</span>
+                              <span className="text-gray-400">•</span>
+                              <span className="text-gray-700">{highlight(name)}</span>
+                              {city && (<><span className="text-gray-400">•</span><span className="text-gray-700">{highlight(city)}</span></>)}
+                              {manager && (<><span className="text-gray-400">•</span><span className="text-gray-700">{highlight(manager)}</span></>)}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
         {binsError && <div className="mb-3 text-sm text-red-600">{binsError}</div>}
         {binsLoading ? (
           <div className="text-gray-600">Loading active locations...</div>
@@ -1364,7 +1434,11 @@ export default function CollectorsDashboard() {
                     const user = c.awardedToUserId?.name || '';
                     const collector = c.collectorName || '';
                     const location = c.location || '';
-                    return starts(idStr) || starts(user) || starts(collector) || starts(location);
+                    const kg = (Number(c.quantity)||0).toFixed(3);
+                    const g = (((Number(c.quantity)||0) * 1000).toFixed(0));
+                    const pts = String(c.awardedPoints || 0);
+                    return starts(idStr) || starts(user) || starts(collector) || starts(location)
+                      || starts(kg) || starts(g) || starts(pts);
                   })
                   .slice(0, 8);
                 const highlight = (value) => {
@@ -1387,6 +1461,9 @@ export default function CollectorsDashboard() {
                         const user = c.awardedToUserId?.name || '';
                         const collector = c.collectorName || '';
                         const location = c.location || '';
+                        const kg = (Number(c.quantity)||0).toFixed(3) + ' kg';
+                        const g = (((Number(c.quantity)||0) * 1000).toFixed(0)) + ' g';
+                        const pts = String(c.awardedPoints || 0) + ' pts';
                         return (
                           <div key={c._id} className="px-3 py-2 text-sm hover:bg-gray-50 cursor-default">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1397,6 +1474,12 @@ export default function CollectorsDashboard() {
                               <span className="text-gray-700">{highlight(collector)}</span>
                               <span className="text-gray-400">•</span>
                               <span className="text-gray-700">{highlight(location)}</span>
+                              <span className="text-gray-400">•</span>
+                              <span className="text-gray-700">{highlight(kg)}</span>
+                              <span className="text-gray-400">/</span>
+                              <span className="text-gray-700">{highlight(g)}</span>
+                              <span className="text-gray-400">•</span>
+                              <span className="text-gray-700">{highlight(pts)}</span>
                             </div>
                           </div>
                         );
@@ -1548,6 +1631,80 @@ export default function CollectorsDashboard() {
           onClick={exportTransportRequestsToPdf}
           className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 text-white shadow-sm"
         >Export PDF</button>
+      </div>
+      {/* Search field with suggestions (does NOT filter the table) */}
+      <div className="mb-4">
+        <div className="flex items-end gap-2 w-full">
+          <div className="w-full relative">
+            <label className="block text-sm font-medium text-gray-700">Search Requests</label>
+            <input
+              type="text"
+              value={reqSearchTerm}
+              onChange={(e)=>setReqSearchTerm(e.target.value)}
+              placeholder="Start typing (Request ID, Collector, Location, Status)"
+              className="border rounded-lg px-3 py-2 w-full"
+            />
+            {(() => {
+              const term = (reqSearchTerm || '').trim();
+              if (!term) return null;
+              const lower = term.toLowerCase();
+              const starts = (v) => String(v||'').trim().toLowerCase().startsWith(lower);
+              const items = (transportReqs || [])
+                .slice()
+                .filter(r => {
+                  const idStr = r.requestId || (r._id?.slice(-6) || '');
+                  const collector = r.collectorName || '';
+                  const location = r.location || '';
+                  const status = r.status || '';
+                  const kg = (r.quantity != null) ? String(Number(r.quantity).toFixed(3)) : '';
+                  const g = (r.quantity != null) ? String(Math.round(Number(r.quantity)*1000)) : '';
+                  return starts(idStr) || starts(collector) || starts(location) || starts(status)
+                    || starts(kg) || starts(g);
+                })
+                .slice(0, 8);
+              const highlight = (value) => {
+                const str = String(value||'');
+                if (!str.toLowerCase().startsWith(lower)) return str;
+                return (
+                  <>
+                    <mark className="bg-yellow-200">{str.slice(0, term.length)}</mark>
+                    {str.slice(term.length)}
+                  </>
+                );
+              };
+              return (
+                <div className="absolute z-10 mt-1 w-full bg-white border rounded-lg shadow max-h-64 overflow-auto">
+                  {items.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-gray-500">No matches</div>
+                  ) : (
+                    items.map((r, idx) => {
+                      const idStr = r.requestId || (r._id?.slice(-6) || '');
+                      const collector = r.collectorName || '';
+                      const location = r.location || '';
+                      const status = r.status || '';
+                      const kg = (r.quantity != null) ? `${Number(r.quantity).toFixed(3)} kg` : '';
+                      const g = (r.quantity != null) ? `${Math.round(Number(r.quantity)*1000)} g` : '';
+                      return (
+                        <div key={r._id || idx} className="px-3 py-2 text-sm hover:bg-gray-50 cursor-default">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-mono text-gray-800">{highlight(idStr)}</span>
+                            <span className="text-gray-400">•</span>
+                            <span className="text-gray-700">{highlight(collector)}</span>
+                            <span className="text-gray-400">•</span>
+                            <span className="text-gray-700">{highlight(location)}</span>
+                            <span className="text-gray-400">•</span>
+                            <span className="text-gray-700">{highlight(status)}</span>
+                            {kg && (<><span className="text-gray-400">•</span><span className="text-gray-700">{highlight(kg)}</span><span className="text-gray-400">/</span><span className="text-gray-700">{highlight(g)}</span></>)}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full">
