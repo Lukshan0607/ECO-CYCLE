@@ -3,13 +3,25 @@ import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { 
   User as UserIcon, Mail, Phone, MapPin, Shield, Eye, EyeOff, 
-  Building, Users, Star, X
+  Building, Users, Star, X, IdCard, Lock, CheckCircle, AlertCircle
 } from 'lucide-react';
 
-// ---------- Memoized Subcomponents (defined outside) ----------
+// Status options for the status dropdown
+const statusOptions = [
+  'Active',
+  'Inactive',
+  'Suspended'
+];
+
+// Simple email validation
+const isValidEmail = (email) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
+// ---------- Memoized Form Field Components ----------
 const InputField = React.memo(function InputField({
   label, name, type = 'text', icon: Icon, required = false, options = null,
-  disabled = false, value, onChange, error, placeholder, min
+  disabled = false, value, onChange, onBlur, error, placeholder, min, inputMode = 'text'
 }) {
   return (
     <div className="space-y-2">
@@ -25,12 +37,13 @@ const InputField = React.memo(function InputField({
             name={name}
             value={value}
             onChange={onChange}
+            onBlur={onBlur}
             disabled={disabled}
             className={`w-full ${Icon ? 'pl-10' : 'pl-3'} pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
               error ? 'border-red-500' : ''
             } ${disabled ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-            autoComplete="off"
           >
+            <option value="">Select {label.toLowerCase()}</option>
             {options.map((option) => (
               <option key={option} value={option}>{option}</option>
             ))}
@@ -41,6 +54,7 @@ const InputField = React.memo(function InputField({
             name={name}
             value={value}
             onChange={onChange}
+            onBlur={onBlur}
             disabled={disabled}
             min={min}
             className={`w-full ${Icon ? 'pl-10' : 'pl-3'} pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
@@ -48,17 +62,17 @@ const InputField = React.memo(function InputField({
             } ${disabled ? 'bg-gray-100 cursor-not-allowed' : ''}`}
             placeholder={placeholder}
             autoComplete={type === 'email' ? 'email' : 'off'}
-            inputMode={type === 'number' ? 'numeric' : 'text'}
+            inputMode={inputMode}
           />
         )}
       </div>
-      {error && <p className="text-red-500 text-sm">{error}</p>}
+      {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
     </div>
   );
 });
 
 const PasswordField = React.memo(function PasswordField({
-  label, name, show, setShow, required = false, value, onChange, error, isEditing
+  label, name, show, setShow, required = false, value, onChange, onBlur, error, isEditing
 }) {
   return (
     <div className="space-y-2">
@@ -67,12 +81,13 @@ const PasswordField = React.memo(function PasswordField({
         {isEditing && <span className="text-gray-500 text-xs ml-2">(leave blank to keep current)</span>}
       </label>
       <div className="relative">
-        <Shield className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
         <input
           type={show ? 'text' : 'password'}
           name={name}
           value={value}
           onChange={onChange}
+          onBlur={onBlur}
           className={`w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
             error ? 'border-red-500' : ''
           }`}
@@ -87,7 +102,7 @@ const PasswordField = React.memo(function PasswordField({
           {show ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
       </div>
-      {error && <p className="text-red-500 text-sm">{error}</p>}
+      {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
     </div>
   );
 });
@@ -95,341 +110,347 @@ const PasswordField = React.memo(function PasswordField({
 // -------------------- Main Form --------------------
 const UserManagementForm = ({ user = null, onSubmit, onCancel, isEditing = false }) => {
   const [formData, setFormData] = useState({
-    fullName: '',
+    nic: '',
+    name: '',
     email: '',
-    phone: '',
-    address: '',
-    username: '',
     password: '',
     confirmPassword: '',
-    role: 'Customer',
-    status: 'Active',
-    points: 0
+    mobile: '',
+    address: '',
+    status: 'Active'
   });
-
+  
+  const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Populate form when editing
+  // Set form data when user prop changes (edit mode)
   useEffect(() => {
     if (isEditing && user) {
       setFormData({
-        fullName: user.name || '',
+        nic: user.nic || '',
+        name: user.name || '',
         email: user.email || '',
-        phone: user.phone || '',
-        address: user.address || '',
-        username: user.username || '',
         password: '',
         confirmPassword: '',
-        role: user.role || 'Customer',
-        status: user.status || 'Active',
-        points: typeof user.points === 'number' ? user.points : 0
+        mobile: user.mobile || user.phone || '',
+        address: user.address || '',
+        status: user.status || 'Active'
       });
     }
   }, [isEditing, user]);
 
-  const roles = ['Collector', 'Customer'];
-  const statusOptions = ['Active', 'Inactive'];
-
-  // Stable handler (prevents remounts/focus loss in some setups)
-  const handleInputChange = useCallback((e) => {
-    const { name, value, type } = e.target;
-
-    // Only convert numbers for number inputs; keep empty as '' to allow typing/clearing
-    let finalValue = value;
-    if (type === 'number') {
-      finalValue = value === '' ? '' : Number(value);
+  // Field validation
+  const validateField = (name, value) => {
+    let error = '';
+    
+    switch(name) {
+      case 'nic':
+        if (!value.trim()) {
+          error = 'NIC is required';
+        } else if (!/^[0-9]{9}[vVxX]?$|^[0-9]{12}$/.test(value)) {
+          error = 'Please enter a valid NIC number';
+        }
+        break;
+      case 'name':
+        if (!value.trim()) {
+          error = 'Name is required';
+        } else if (value.length < 2) {
+          error = 'Name must be at least 2 characters long';
+        }
+        break;
+      case 'email':
+        if (!value.trim()) {
+          error = 'Email is required';
+        } else if (!isValidEmail(value)) {
+          error = 'Please enter a valid email address';
+        }
+        break;
+      case 'mobile':
+        if (value && !/^[0-9]{10}$/.test(value)) {
+          error = 'Please enter a valid 10-digit mobile number';
+        }
+        break;
+      case 'password':
+        if (!isEditing && !value) {
+          error = 'Password is required';
+        } else if (value && value.length < 6) {
+          error = 'Password must be at least 6 characters long';
+        }
+        break;
+      case 'confirmPassword':
+        if (formData.password && value !== formData.password) {
+          error = 'Passwords do not match';
+        }
+        break;
     }
-
-    setFormData(prev => ({
-      ...prev,
-      [name]: finalValue
-    }));
-
+    
+    return error;
+  };
+  
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    let processedValue = value;
+    
+    // Format NIC to uppercase
+    if (name === 'nic') {
+      processedValue = value.toUpperCase();
+    }
+    // Format mobile number (only allow digits)
+    else if (name === 'mobile') {
+      processedValue = value.replace(/\D/g, '').slice(0, 10);
+    }
+    
+    // Update form data
+    setFormData(prev => ({ ...prev, [name]: processedValue }));
+    
+    // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
-  }, [errors]);
-
+  };
+  
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    const error = validateField(name, value);
+    setErrors(prev => ({ ...prev, [name]: error }));
+  };
+  
   const validateForm = () => {
     const newErrors = {};
-
-    if (!formData.fullName.trim()) newErrors.fullName = 'Full name is required';
-    if (!formData.email.trim()) newErrors.email = 'Email is required';
-    if (!formData.username.trim()) newErrors.username = 'Username is required';
-    if (!isEditing && !formData.password) newErrors.password = 'Password is required';
-    if (!isEditing && !formData.confirmPassword) newErrors.confirmPassword = 'Please confirm password';
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (formData.email && !emailRegex.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
-    }
-
-    if (formData.phone && !/^\+?[\d\s\-\(\)]+$/.test(formData.phone)) {
-      newErrors.phone = 'Please enter a valid phone number';
-    }
-
-    if (formData.password && formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-
-    if (formData.password && formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-
-    if (formData.username && formData.username.length < 3) {
-      newErrors.username = 'Username must be at least 3 characters';
-    }
-
-    if (formData.role === 'Customer' && Number(formData.points || 0) < 0) {
-      newErrors.points = 'Points cannot be negative';
-    }
-
+    let isValid = true;
+    
+    // Validate all fields
+    Object.keys(formData).forEach(field => {
+      // Skip password fields if in edit mode and both are empty
+      if (isEditing && (field === 'password' || field === 'confirmPassword') && 
+          !formData.password && !formData.confirmPassword) {
+        return;
+      }
+      
+      const error = validateField(field, formData[field]);
+      if (error) {
+        newErrors[field] = error;
+        isValid = false;
+      }
+    });
+    
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return isValid;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validateForm()) return;
-
-    setIsSubmitting(true);
+    
+    // Validate form
+    if (!validateForm()) {
+      return;
+    }
+    
+    // Prepare user data for submission
+    const userData = { 
+      ...formData
+    };
+    
+    // Remove confirmPassword from submission
+    delete userData.confirmPassword;
+    
+    // Only include password if it was changed
+    if (!userData.password) {
+      delete userData.password;
+    }
+    
     try {
-      const userData = {
-        id: isEditing ? user.id : Date.now(),
-        name: formData.fullName,
-        email: formData.email,
-        phone: formData.phone,
-        address: formData.address,
-        username: formData.username,
-        role: formData.role,
-        status: formData.status,
-        points: formData.role === 'Customer' ? Number(formData.points || 0) : 0,
-        createdDate: isEditing ? user.createdDate : new Date().toISOString().split('T')[0],
-        lastLogin: isEditing ? user.lastLogin : 'Never'
-      };
-      if (formData.password) userData.password = formData.password;
-
+      setIsSubmitting(true);
       await onSubmit(userData);
-
-      if (!isEditing) {
-        setFormData({
-          fullName: '',
-          email: '',
-          phone: '',
-          address: '',
-          username: '',
-          password: '',
-          confirmPassword: '',
-          role: 'Customer',
-          status: 'Active',
-          points: 0
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      // Handle API errors
+      if (error.response?.data?.errors) {
+        // Map backend validation errors to form errors
+        const apiErrors = {};
+        error.response.data.errors.forEach(err => {
+          const field = err.path;
+          apiErrors[field] = err.msg;
         });
+        setErrors(apiErrors);
       }
-    } catch (err) {
-      console.error('Error submitting form:', err);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleReset = () => {
-    if (isEditing && user) {
-      setFormData({
-        fullName: user.name || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        address: user.address || '',
-        username: user.username || '',
-        password: '',
-        confirmPassword: '',
-        role: user.role || 'Customer',
-        status: user.status || 'Active',
-        points: typeof user.points === 'number' ? user.points : 0
-      });
-    } else {
-      setFormData({
-        fullName: '',
-        email: '',
-        phone: '',
-        address: '',
-        username: '',
-        password: '',
-        confirmPassword: '',
-        role: 'Customer',
-        status: 'Active',
-        points: 0
-      });
-    }
-    setErrors({});
-  };
-
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">
-          {isEditing ? 'Edit User' : 'Add New User'}
-        </h2>
-        <Button
-          onClick={onCancel}
-          variant="outline"
-          size="sm"
-          className="flex items-center space-x-2"
-        >
-          <X size={16} />
-          <span>Close</span>
-        </Button>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Personal Information */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-2 mb-4">
-              <UserIcon className="text-blue-600" size={20} />
-              <h3 className="text-lg font-semibold text-gray-900">Personal Information</h3>
-            </div>
+    <Card className="w-full max-w-3xl mx-auto">
+      <CardContent className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">
+            {isEditing ? 'Edit User' : 'Add New User'}
+          </h2>
+          <button
+            onClick={onCancel}
+            className="text-gray-400 hover:text-gray-500"
+            aria-label="Close"
+          >
+            <X size={24} />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* NIC */}
+              <InputField
+                label="NIC Number"
+                name="nic"
+                type="text"
+                icon={IdCard}
+                value={formData.nic}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={errors.nic}
+                placeholder="Enter NIC number"
+                required
+              />
+              
+              {/* Name */}
               <InputField
                 label="Full Name"
-                name="fullName"
+                name="name"
+                type="text"
                 icon={UserIcon}
-                required
+                value={formData.name}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={errors.name}
                 placeholder="Enter full name"
-                value={formData.fullName}
-                onChange={handleInputChange}
-                error={errors.fullName}
+                required
               />
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Email */}
               <InputField
                 label="Email Address"
                 name="email"
                 type="email"
                 icon={Mail}
-                required
-                placeholder="user@example.com"
                 value={formData.email}
-                onChange={handleInputChange}
+                onChange={handleChange}
+                onBlur={handleBlur}
                 error={errors.email}
+                placeholder="Enter email address"
+                required
               />
+              
+              {/* Mobile */}
               <InputField
-                label="Phone Number"
-                name="phone"
+                label="Mobile Number"
+                name="mobile"
+                type="tel"
                 icon={Phone}
-                placeholder="+94 71 234 5678"
-                value={formData.phone}
-                onChange={handleInputChange}
-                error={errors.phone}
-              />
-              <InputField
-                label="Address"
-                name="address"
-                icon={MapPin}
-                placeholder="Enter full address"
-                value={formData.address}
-                onChange={handleInputChange}
-                error={errors.address}
+                value={formData.mobile}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={errors.mobile}
+                placeholder="Enter mobile number"
+                inputMode="numeric"
               />
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Account Information */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center space-x-2 mb-4">
-              <Shield className="text-green-600" size={20} />
-              <h3 className="text-lg font-semibold text-gray-900">Account Information</h3>
-            </div>
+            
+            {/* Address */}
+            <InputField
+              label="Address"
+              name="address"
+              type="text"
+              icon={MapPin}
+              value={formData.address}
+              onChange={handleChange}
+              onBlur={handleBlur}
+              error={errors.address}
+              placeholder="Enter full address"
+            />
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <InputField
-                label="Username"
-                name="username"
-                icon={UserIcon}
-                required
-                placeholder="Enter username"
-                value={formData.username}
-                onChange={handleInputChange}
-                error={errors.username}
-              />
-              <InputField
-                label="Role"
-                name="role"
-                icon={Building}
-                options={roles}
-                required
-                value={formData.role}
-                onChange={handleInputChange}
-                error={errors.role}
-              />
+              {/* Password */}
               <PasswordField
                 label="Password"
                 name="password"
                 show={showPassword}
                 setShow={setShowPassword}
-                required={!isEditing}
                 value={formData.password}
-                onChange={handleInputChange}
+                onChange={handleChange}
+                onBlur={handleBlur}
                 error={errors.password}
                 isEditing={isEditing}
+                required={!isEditing}
               />
+              
+              {/* Confirm Password */}
               <PasswordField
                 label="Confirm Password"
                 name="confirmPassword"
                 show={showConfirmPassword}
                 setShow={setShowConfirmPassword}
-                required={!isEditing}
                 value={formData.confirmPassword}
-                onChange={handleInputChange}
+                onChange={handleChange}
+                onBlur={handleBlur}
                 error={errors.confirmPassword}
                 isEditing={isEditing}
+                required={!isEditing}
               />
+            </div>
+            
+            {/* Status */}
+            <div className="grid grid-cols-1 gap-4">
               <InputField
                 label="Status"
                 name="status"
-                icon={Users}
+                icon={formData.status === 'Active' ? CheckCircle : AlertCircle}
+                value={formData.status}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={errors.status}
                 options={statusOptions}
                 required
-                value={formData.status}
-                onChange={handleInputChange}
-                error={errors.status}
               />
-              {formData.role === 'Customer' && (
-                <InputField
-                  label="Points"
-                  name="points"
-                  type="number"
-                  icon={Star}
-                  min="0"
-                  placeholder="0"
-                  value={formData.points}
-                  onChange={handleInputChange}
-                  error={errors.points}
-                />
-              )}
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Form Actions */}
-        <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-          <Button type="button" variant="outline" onClick={handleReset} className="px-6 py-2">
-            Reset
-          </Button>
-          <Button type="button" variant="outline" onClick={onCancel} className="px-6 py-2">
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50"
-          >
-            {isSubmitting ? 'Saving...' : (isEditing ? 'Update User' : 'Create User')}
-          </Button>
-        </div>
-      </form>
-    </div>
+          </div>
+          
+          <div className="flex justify-end space-x-4 pt-4 border-t border-gray-200">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCancel}
+              disabled={isSubmitting}
+              className="min-w-[100px]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="bg-blue-600 hover:bg-blue-700 text-white min-w-[150px]"
+            >
+              {isSubmitting ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {isEditing ? 'Updating...' : 'Creating...'}
+                </>
+              ) : isEditing ? (
+                'Update User'
+              ) : (
+                'Create User'
+              )}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 };
 

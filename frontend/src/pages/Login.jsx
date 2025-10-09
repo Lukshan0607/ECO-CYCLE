@@ -7,6 +7,7 @@ function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login, isAuthenticated } = useAuth();
+  const [gsiReady, setGsiReady] = useState(false);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -38,6 +39,82 @@ function Login() {
       }
     }
   }, [isAuthenticated, navigate, location]);
+
+  // Load Google Identity Services script once
+  useEffect(() => {
+    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    if (existing) {
+      if (window.google && window.google.accounts) setGsiReady(true);
+      else existing.addEventListener('load', () => setGsiReady(true));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => setGsiReady(true);
+    script.onerror = () => console.error('Failed to load Google Identity Services');
+    document.body.appendChild(script);
+  }, []);
+
+  // Google Sign-In via GIS (no firebase)
+  const handleGoogleSignIn = async () => {
+    setMessage({ type: '', text: '' });
+    if (!gsiReady || !window.google || !window.google.accounts?.oauth2) {
+      setMessage({ type: 'error', text: 'Google service not ready. Please try again in a moment.' });
+      return;
+    }
+
+    // Using your provided client ID
+    const clientId = '99443265233-25pbhlm0nu9aj8qnfqd9ciigbv786g33.apps.googleusercontent.com';
+
+    setLoading(true);
+    try {
+      const tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'openid email profile',
+        prompt: 'select_account',
+        callback: async (tokenResponse) => {
+          try {
+            const accessToken = tokenResponse?.access_token;
+            if (!accessToken) throw new Error('No access token');
+
+            // Fetch basic profile
+            const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (!resp.ok) throw new Error('Failed to fetch userinfo');
+            const profile = await resp.json();
+
+            const userData = {
+              id: profile.sub,
+              email: profile.email,
+              name: profile.name || profile.given_name || 'Google User',
+              photoURL: profile.picture || '',
+              role: 'user',
+            };
+
+            login(userData, accessToken);
+            setMessage({ type: 'success', text: 'Signed in with Google. Redirecting...' });
+            setTimeout(() => {
+              const from = location.state?.from?.pathname;
+              navigate(from || '/', { replace: true });
+            }, 600);
+          } catch (err) {
+            console.error('Google profile fetch failed:', err);
+            setMessage({ type: 'error', text: 'Google sign-in failed. Please try again.' });
+          } finally {
+            setLoading(false);
+          }
+        },
+      });
+      tokenClient.requestAccessToken();
+    } catch (err) {
+      console.error('Google sign-in init failed:', err);
+      setMessage({ type: 'error', text: 'Google sign-in failed to start.' });
+      setLoading(false);
+    }
+  };
 
   const validateField = (name, value) => {
     let error = "";
@@ -284,8 +361,10 @@ function Login() {
           {/* Social Login Buttons */}
           <div className="space-y-3">
             <button
-              onClick={() => setMessage({ type: "error", text: "Google login coming soon!" })}
-              className="w-full flex items-center justify-center px-6 py-3 border-2 border-gray-200 rounded-xl hover:bg-gray-50 transition-all duration-300 group"
+              onClick={handleGoogleSignIn}
+              disabled={!gsiReady || loading}
+              className="w-full flex items-center justify-center px-6 py-3 border-2 border-gray-200 rounded-xl hover:bg-gray-50 transition-all duration-300 group disabled:opacity-60 disabled:cursor-not-allowed"
+              title={!gsiReady ? 'Loading Google...' : ''}
             >
               <div className="bg-white p-1 rounded-full mr-3 group-hover:bg-gray-100 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-5 h-5">

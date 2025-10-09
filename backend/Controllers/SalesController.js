@@ -63,10 +63,9 @@ const createOrder = async (req, res) => {
       };
     });
 
-    // Generate order ID in a collision-resistant way (no counter needed)
-    const orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, '0')}`;
+    // Generate sequential order ID
+    const orderCount = await SalesOrder.countDocuments();
+    const orderId = `ORDC${String(orderCount + 1).padStart(6, '0')}`;
 
     const newOrder = new SalesOrder({
       orderId,
@@ -248,6 +247,93 @@ const deleteOrder = async (req, res) => {
   }
 };
 
+// Get payment proof for an order
+const getPaymentProof = async (req, res) => {
+  try {
+    const order = await SalesOrder.findById(req.params.id);
+    if (!order || !order.paymentProof) {
+      return res.status(404).json({ message: 'Payment proof not found' });
+    }
+    res.json({
+      filePath: order.paymentProof.path,
+      mimeType: order.paymentProof.mimeType
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update payment status
+const updatePaymentStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const order = await SalesOrder.findByIdAndUpdate(
+      req.params.id,
+      { paymentStatus: status },
+      { new: true }
+    );
+    
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+    
+    res.json(order);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get orders with payment info for management
+const getOrdersForPaymentManagement = async (req, res) => {
+  try {
+    const orders = await SalesOrder.find({})
+      .select('orderId customerName totalAmount paymentStatus paymentProof status orderDate')
+      .sort({ orderDate: -1 });
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update order payment info (method and/or proof file)
+const updateOrderPaymentInfo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paymentMethod, paymentStatus } = req.body || {};
+
+    const update = {};
+    if (paymentMethod) {
+      update.paymentMethod = paymentMethod; // expected: 'credit_card' | 'bank_transfer' | 'mobile_payment' | 'cash_on_delivery' | 'other'
+    }
+    if (paymentStatus) {
+      update.paymentStatus = paymentStatus; // optional
+    }
+
+    if (req.file) {
+      update.paymentProof = {
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        path: `/uploads/${req.file.filename}`,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        uploadedAt: new Date()
+      };
+      // mark date when proof uploaded
+      update.paymentDate = new Date();
+    }
+
+    const order = await SalesOrder.findByIdAndUpdate(id, { $set: update }, { new: true });
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    res.json(order);
+  } catch (error) {
+    console.error('Error updating order payment info:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderById,
@@ -259,5 +345,9 @@ module.exports = {
   getAllProducts,
   createProduct,
   updateProduct,
-  deleteOrder
+  deleteOrder,
+  getPaymentProof,
+  updatePaymentStatus,
+  getOrdersForPaymentManagement,
+  updateOrderPaymentInfo
 };

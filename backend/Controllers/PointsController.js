@@ -129,7 +129,7 @@ async function payProduct(req, res) {
     }
 
     const orderCount = await SalesOrder.countDocuments();
-    const orderIdStr = `ORD${String(orderCount + 1).padStart(6, '0')}`;
+    const orderIdStr = `ORDP${String(orderCount + 1).padStart(6, '0')}`;
     const order = await SalesOrder.create({
       orderId: orderIdStr,
       customerId: String(userId),

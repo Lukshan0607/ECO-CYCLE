@@ -516,16 +516,20 @@ const generatePayslip = async (req, res) => {
       
       startY += 15;
       
-      // Deductions Table
+      // Deductions Table - Only include employee's share of EPF and other employee deductions
       const deductions = [
         { description: 'EPF (Employee 8%)', amount: parseFloat(payroll.epfEmployee || 0).toFixed(2) },
-        { description: 'EPF (Employer 12%)', amount: parseFloat(payroll.epfEmployer || 0).toFixed(2) },
-        { description: 'ETF (Employer 3%)', amount: parseFloat(payroll.etfEmployer || 0).toFixed(2) },
         { description: 'PAYE Tax', amount: parseFloat(payroll.tax || 0).toFixed(2) },
         { description: 'Other Deductions', amount: parseFloat(payroll.deductions || 0).toFixed(2) }
       ];
       
-      // Draw deductions table
+      // Employer Contributions (for reference only, not included in employee deductions)
+      const employerContributions = [
+        { description: 'EPF (Employer 12%)', amount: parseFloat(payroll.epfEmployer || 0).toFixed(2) },
+        { description: 'ETF (Employer 3%)', amount: parseFloat(payroll.etfEmployer || 0).toFixed(2) }
+      ];
+      
+      // Draw employee deductions table
       doc
         .font(boldFont)
         .fontSize(normalSize)
@@ -535,6 +539,7 @@ const generatePayslip = async (req, res) => {
       startY += 20;
       let totalDeductions = 0;
       
+      // Only include employee's deductions in the total
       deductions.forEach(deduction => {
         if (parseFloat(deduction.amount) > 0) {
           doc
@@ -545,6 +550,31 @@ const generatePayslip = async (req, res) => {
           startY += 15;
         }
       });
+      
+      // Add employer contributions section (for reference, not included in deductions)
+      const employerContributionsY = startY + 10;
+      let hasEmployerContributions = employerContributions.some(c => parseFloat(c.amount) > 0);
+      
+      if (hasEmployerContributions) {
+        doc
+          .font(boldFont)
+          .fontSize(subHeaderSize)
+          .text('EMPLOYER CONTRIBUTIONS', 50, employerContributionsY);
+        
+        let employerY = employerContributionsY + 20;
+        employerContributions.forEach(contribution => {
+          if (parseFloat(contribution.amount) > 0) {
+            doc
+              .font(normalFont)
+              .text(contribution.description, 50, employerY)
+              .text(parseFloat(contribution.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 400, employerY, { align: 'right' });
+            employerY += 15;
+          }
+        });
+        
+        // Update startY for the next section
+        startY = employerY + 10;
+      }
       
       // Total Deductions
       doc
@@ -557,7 +587,7 @@ const generatePayslip = async (req, res) => {
       
       startY += 30;
       
-      // Net Pay Section
+      // Net Pay Section (Earnings - Employee Deductions only)
       const netPay = totalEarnings - totalDeductions;
       
       doc

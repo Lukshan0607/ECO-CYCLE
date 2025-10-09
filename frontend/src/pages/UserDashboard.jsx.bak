@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { 
   User, Award, ShoppingBag, Clock, Star, Gift, CreditCard, 
-  MapPin, Phone, Mail, Edit, Eye, Download, Save, X, Loader2, RefreshCw
+  MapPin, Phone, Mail, Edit, Eye, Download, Save, X, Loader2 
 } from "lucide-react";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -13,7 +13,43 @@ import LogoutButton from "../components/common/LogoutButton";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "react-hot-toast";
 
-// Chart colors
+const pointsHistory = [
+  { month: "Jan", earned: 120, redeemed: 50, balance: 70 },
+  { month: "Feb", earned: 150, redeemed: 80, balance: 140 },
+  { month: "Mar", earned: 200, redeemed: 60, balance: 280 },
+  { month: "Apr", earned: 180, redeemed: 100, balance: 360 },
+  { month: "May", earned: 220, redeemed: 90, balance: 490 },
+];
+
+const recentOrders = [
+  { id: "ORD001", date: "2025-08-28", items: 3, total: 250, status: "Delivered", points: 25 },
+  { id: "ORD002", date: "2025-08-25", items: 2, total: 180, status: "Shipped", points: 18 },
+  { id: "ORD003", date: "2025-08-20", items: 5, total: 420, status: "Delivered", points: 42 },
+  { id: "ORD004", date: "2025-08-15", items: 1, total: 95, status: "Delivered", points: 10 },
+  { id: "ORD005", date: "2025-08-10", items: 4, total: 320, status: "Delivered", points: 32 },
+];
+
+const pointsBreakdown = [
+  { name: "Purchases", value: 60, points: 294 },
+  { name: "Referrals", value: 25, points: 122 },
+  { name: "Reviews", value: 10, points: 49 },
+  { name: "Bonus", value: 5, points: 25 },
+];
+
+const rewardTiers = [
+  { name: "Bronze", minPoints: 0, maxPoints: 199, benefits: ["5% Discount", "Free Shipping on LKR 5,000+"] },
+  { name: "Silver", minPoints: 200, maxPoints: 499, benefits: ["10% Discount", "Free Shipping", "Priority Support"] },
+  { name: "Gold", minPoints: 500, maxPoints: 999, benefits: ["15% Discount", "Free Shipping", "Early Access", "Birthday Bonus"] },
+  { name: "Platinum", minPoints: 1000, maxPoints: null, benefits: ["20% Discount", "Free Shipping", "VIP Support", "Exclusive Products"] },
+];
+
+const availableRewards = [
+  { id: 1, name: "LKR 1,000 Off Coupon", points: 100, description: "Get LKR 1,000 off your next purchase", type: "discount" },
+  { id: 2, name: "Free Shipping", points: 50, description: "Free shipping on any order", type: "shipping" },
+  { id: 3, name: "LKR 2,500 Gift Card", points: 250, description: "Digital gift card for future purchases", type: "gift_card" },
+  { id: 4, name: "Premium Product", points: 500, description: "Exclusive premium product access", type: "product" },
+];
+
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -21,14 +57,10 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api
 export default function UserDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [isEditing, setIsEditing] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [isOrdersLoading, setIsOrdersLoading] = useState(false);
   const [error, setError] = useState(null);
   const [orders, setOrders] = useState([]);
-  const [pointsHistory, setPointsHistory] = useState([]);
-  const [pointsBreakdown, setPointsBreakdown] = useState([]);
-  const [rewardTiers, setRewardTiers] = useState([]);
-  const [availableRewards, setAvailableRewards] = useState([]);
   const { user, token, updateUser } = useAuth();
   
   const [userProfile, setUserProfile] = useState({
@@ -63,142 +95,28 @@ export default function UserDashboard() {
     return new Date(dateString).toLocaleDateString(undefined, options);
   };
 
-  // Fetch user's points history
-  const fetchPointsHistory = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/users/points/history`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch points history');
-      }
-      
-      const data = await response.json();
-      setPointsHistory(data);
-    } catch (error) {
-      console.error('Error fetching points history:', error);
-      toast.error('Failed to load points history');
-    }
-  };
-
-  // Fetch points breakdown
-  const fetchPointsBreakdown = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/users/points/breakdown`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch points breakdown');
-      }
-      
-      const data = await response.json();
-      setPointsBreakdown(data);
-    } catch (error) {
-      console.error('Error fetching points breakdown:', error);
-      toast.error('Failed to load points breakdown');
-    }
-  };
-
-  // Fetch available rewards
-  const fetchAvailableRewards = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/rewards`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch available rewards');
-      }
-      
-      const data = await response.json();
-      setAvailableRewards(data);
-    } catch (error) {
-      console.error('Error fetching rewards:', error);
-      toast.error('Failed to load available rewards');
-    }
-  };
-
-  // Fetch reward tiers
-  const fetchRewardTiers = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/rewards/tiers`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch reward tiers');
-      }
-      
-      const data = await response.json();
-      setRewardTiers(data);
-    } catch (error) {
-      console.error('Error fetching reward tiers:', error);
-      toast.error('Failed to load reward tiers');
-      // Set default tiers if API fails
-      setRewardTiers([
-        { name: "Bronze", minPoints: 0, maxPoints: 199, benefits: ["5% Discount", "Free Shipping on LKR 5,000+"] },
-        { name: "Silver", minPoints: 200, maxPoints: 499, benefits: ["10% Discount", "Free Shipping", "Priority Support"] },
-        { name: "Gold", minPoints: 500, maxPoints: 999, benefits: ["15% Discount", "Free Shipping", "Early Access", "Birthday Bonus"] },
-        { name: "Platinum", minPoints: 1000, maxPoints: null, benefits: ["20% Discount", "Free Shipping", "VIP Support", "Exclusive Products"] },
-      ]);
-    }
-  };
-
-  // Fetch user's orders from salesorders table
+  // Fetch user's orders
   const fetchUserOrders = async () => {
-    if (!user?._id || !token) {
-      console.error('Missing user ID or token');
-      setError('Authentication error. Please log in again.');
-      return;
-    }
+    if (!user?._id) return;
     
     try {
-      console.log('Fetching sales orders for user:', user._id);
       setIsOrdersLoading(true);
-      setError(null);
-      
-      // Using salesorders endpoint with customer ID filter
-      const response = await fetch(`${API_BASE_URL}/sales/orders?customerId=${user._id}`, {
-        method: 'GET',
+      const response = await fetch(`${API_BASE_URL}/sales/orders?userId=${user._id}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
         },
-        credentials: 'include'
       });
 
-      console.log('Orders API response status:', response.status);
-      
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Error response:', errorData);
-        throw new Error(errorData.message || `Failed to fetch orders: ${response.statusText}`);
+        throw new Error('Failed to fetch orders');
       }
 
       const data = await response.json();
-      console.log('Orders API response data:', data);
-      
-      // Handle both array and object responses
-      const ordersData = Array.isArray(data) ? data : (data.orders || data.data || []);
-      console.log('Processed orders data:', ordersData);
-      
-      setOrders(ordersData);
-      setError(null);
+      setOrders(data);
     } catch (err) {
-      console.error('Error in fetchUserOrders:', err);
-      setError(err.message || 'Failed to load orders. Please try again.');
-      toast.error(err.message || 'Failed to load orders');
+      console.error('Error fetching orders:', err);
+      toast.error('Failed to load orders');
     } finally {
       setIsOrdersLoading(false);
     }
@@ -206,69 +124,36 @@ export default function UserDashboard() {
 
   // Fetch user profile data
   const fetchUserProfile = async () => {
-    if (!token) {
-      console.error('No authentication token available');
-      setError('Please log in to view your profile');
-      return;
-    }
-
     try {
-      console.log('Fetching user profile...');
       setIsLoading(true);
-      setError(null);
-      
-      // Get user ID from the user object in state
-      const userId = user?._id || user?.id;
-      if (!userId) {
-        throw new Error('User ID not found. Please log in again.');
-      }
-      
-      const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
-        method: 'GET',
+      const response = await fetch(`${API_BASE_URL}/users/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        credentials: 'include'
+          'Content-Type': 'application/json'
+        }
       });
 
-      console.log('Profile API response status:', response.status);
-      
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Profile API error response:', errorData);
-        throw new Error(errorData.message || `Failed to fetch user profile: ${response.statusText}`);
+        throw new Error('Failed to fetch user profile');
       }
 
       const data = await response.json();
-      console.log('Profile API response data:', data);
-      
-      const userData = {
+      setUserProfile({
         ...data,
         currentTier: calculateTier(data.points || 0),
-        memberSince: data.createdAt || new Date().toISOString(),
-        totalPoints: data.points || 0,
-        totalOrders: data.totalOrders || 0,
-        totalSpent: data.totalSpent || 0
-      };
-      
-      setUserProfile(userData);
+        memberSince: data.createdAt || new Date().toISOString()
+      });
       
       // Update auth context with latest user data
       updateUser({
         ...user,
-        ...userData
+        ...data
       });
       
-      return userData;
-      
     } catch (err) {
-      console.error('Error in fetchUserProfile:', err);
-      const errorMessage = err.message || 'Failed to load user profile';
-      setError(errorMessage);
-      toast.error(errorMessage);
-      throw err; // Re-throw to allow error handling in the calling function
+      console.error('Error fetching user profile:', err);
+      setError(err.message);
+      toast.error('Failed to load user profile');
     } finally {
       setIsLoading(false);
     }
@@ -320,45 +205,13 @@ export default function UserDashboard() {
     }
   };
 
-  // Fetch all required data on component mount
+  // Fetch user data on component mount and when user changes
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        await Promise.all([
-          fetchUserProfile(),
-          fetchPointsHistory(),
-          fetchPointsBreakdown(),
-          fetchAvailableRewards(),
-          fetchRewardTiers()
-        ]);
-      } catch (error) {
-        console.error('Error loading dashboard data:', error);
-        toast.error('Failed to load dashboard data');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     if (token) {
-      loadData();
-    } else {
-      setIsLoading(false);
-    }
-  }, [token]);
-
-  // Fetch sales orders when orders tab is active or when user changes
-  useEffect(() => {
-    console.log('useEffect - activeTab or user changed', { activeTab, userId: user?._id, hasToken: !!token });
-    
-    if (activeTab === 'orders' && user?._id && token) {
-      console.log('Fetching sales orders...');
+      fetchUserProfile();
       fetchUserOrders();
-    } else if (activeTab === 'orders' && !token) {
-      console.error('Cannot fetch orders: No authentication token');
-      setError('Please log in to view your orders');
     }
-  }, [activeTab, user?._id, token]);
+  }, [token, user?._id]);
 
   const menuItems = [
     { name: "Dashboard Overview", key: "overview", icon: <User size={20} /> },
@@ -367,55 +220,93 @@ export default function UserDashboard() {
     { name: "Profile Settings", key: "profile", icon: <User size={20} /> },
   ];
 
+  // Format currency
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-LK', {
+      style: 'currency',
+      currency: 'LKR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount);
+  };
+
+  // Format order date
+  const formatOrderDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
   const getStatusColor = (status) => {
     if (!status) return 'bg-gray-100 text-gray-800';
     
     const statusLower = status.toLowerCase();
-    if (['completed', 'delivered', 'fulfilled'].includes(statusLower)) {
-      return 'bg-green-100 text-green-800';
-    } else if (['processing', 'packing', 'preparing'].includes(statusLower)) {
-      return 'bg-blue-100 text-blue-800';
-    } else if (['shipped', 'in_transit', 'out_for_delivery'].includes(statusLower)) {
-      return 'bg-purple-100 text-purple-800';
-    } else if (['cancelled', 'declined', 'refunded', 'returned', 'rejected', 'failed'].includes(statusLower)) {
-      return 'bg-red-100 text-red-800';
-    } else if (['pending', 'payment_pending', 'awaiting_payment'].includes(statusLower)) {
-      return 'bg-yellow-100 text-yellow-800';
-    } else {
-      return 'bg-gray-100 text-gray-800';
+    switch (statusLower) {
+      case 'delivered':
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'shipped':
+      case 'in_transit':
+        return 'bg-blue-100 text-blue-800';
+      case 'processing':
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'cancelled':
+      case 'rejected':
+      case 'failed':
+        return 'bg-red-100 text-red-800';
+      case 'refunded':
+        return 'bg-purple-100 text-purple-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
   const getCurrentTier = () => {
-    if (!rewardTiers?.length) return null;
-    
     return rewardTiers.find(tier => 
-      userProfile.totalPoints >= (tier?.minPoints || 0) && 
-      (tier?.maxPoints === null || tier?.maxPoints === undefined || userProfile.totalPoints <= tier.maxPoints)
-    ) || rewardTiers[rewardTiers.length - 1]; // Fallback to the highest tier if no match found
+      userProfile.totalPoints >= tier.minPoints && 
+      (tier.maxPoints === null || userProfile.totalPoints <= tier.maxPoints)
+    );
   };
 
   const getNextTier = () => {
     const currentTier = getCurrentTier();
-    if (!currentTier || !rewardTiers?.length) return null;
-    
-    const currentIndex = rewardTiers.findIndex(tier => tier?.name === currentTier?.name);
-    return currentIndex >= 0 && currentIndex < rewardTiers.length - 1 ? rewardTiers[currentIndex + 1] : null;
+    const currentIndex = rewardTiers.findIndex(tier => tier.name === currentTier.name);
+    return currentIndex < rewardTiers.length - 1 ? rewardTiers[currentIndex + 1] : null;
+  };
+
+  const handleViewOrder = async (orderId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/sales/orders/${orderId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch order details');
+      }
+
+      const order = await response.json();
+      // Here you can show a modal with order details
+      console.log('Order details:', order);
+      
+      // For now, just show an alert with order details
+      alert(`Order #${order.orderNumber}\nStatus: ${order.status}\nTotal: ${formatCurrency(order.totalAmount)}\nItems: ${order.items?.length || 0}`);
+      
+    } catch (err) {
+      console.error('Error fetching order details:', err);
+      toast.error('Failed to load order details');
+    }
   };
 
   const renderOverview = () => {
     const currentTier = getCurrentTier();
-    if (!currentTier) {
-      return (
-        <div className="flex items-center justify-center p-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-        </div>
-      );
-    }
-    
     const nextTier = getNextTier();
-    const progressToNext = nextTier && currentTier ? 
-      ((userProfile.totalPoints - currentTier.minPoints) / (nextTier.minPoints - currentTier.minPoints)) * 100 : 100;
+    const progressToNext = nextTier ? ((userProfile.totalPoints - currentTier.minPoints) / (nextTier.minPoints - currentTier.minPoints)) * 100 : 100;
 
     return (
       <>
@@ -553,7 +444,7 @@ export default function UserDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {orders.slice(0, 3).map(order => (
+                {recentOrders.slice(0, 3).map(order => (
                   <tr key={order.id} className="border-b hover:bg-gray-50">
                     <td className="p-3 font-medium">{order.id}</td>
                     <td className="p-3">{order.date}</td>
@@ -578,131 +469,91 @@ export default function UserDashboard() {
     );
   };
 
-  const renderOrders = () => {
-    console.log('Rendering sales orders:', { 
-      isLoading: isOrdersLoading, 
-      error, 
-      orderCount: orders.length,
-      hasUser: !!user?._id,
-      hasToken: !!token,
-      orders: orders // Log the actual orders data for debugging
-    });
-    if (isOrdersLoading) {
-      return (
-        <div className="flex justify-center items-center p-8">
+  const renderOrdersTab = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xl font-semibold">My Orders</h3>
+        <button 
+          onClick={fetchUserOrders}
+          disabled={isOrdersLoading}
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isOrdersLoading ? (
+            <>
+              <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />
+              Refreshing...
+            </>
+          ) : 'Refresh'}
+        </button>
+      </div>
+      
+      {isOrdersLoading && orders.length === 0 ? (
+        <div className="flex justify-center items-center py-12">
           <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
           <span className="ml-2">Loading your orders...</span>
         </div>
-      );
-    }
-
-    if (error) {
-      return (
-        <div className="text-center p-8">
-          <p className="text-red-500">{error}</p>
-          <Button 
-            variant="outline" 
-            className="mt-4"
-            onClick={fetchUserOrders}
-            disabled={isOrdersLoading}
-          >
-            {isOrdersLoading ? (
-              <Loader2 className="animate-spin h-4 w-4 mr-2" />
-            ) : (
-              'Try Again'
-            )}
-          </Button>
-        </div>
-      );
-    }
-
-    if (orders.length === 0) {
-      return (
-        <div className="text-center p-8">
+      ) : orders.length === 0 ? (
+        <div className="text-center py-12 bg-gray-50 rounded-lg">
           <ShoppingBag className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-lg font-medium text-gray-900">No orders yet</h3>
+          <h3 className="mt-2 text-sm font-medium text-gray-900">No orders found</h3>
           <p className="mt-1 text-sm text-gray-500">You haven't placed any orders yet.</p>
         </div>
-      );
-    }
-
-    return (
-      <Card className="p-4 shadow-lg rounded-2xl">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">Order History</h2>
-          <div className="flex space-x-2">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={fetchUserOrders}
-              disabled={isOrdersLoading}
-            >
-              {isOrdersLoading ? (
-                <Loader2 className="animate-spin h-4 w-4 mr-2" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh
-            </Button>
-            <Button variant="outline" size="sm">
-              <Download size={16} className="mr-2" />
-              Export
-            </Button>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-200">
-                <th className="p-3">Order ID</th>
-                <th className="p-3">Date</th>
-                <th className="p-3">Items</th>
-                <th className="p-3">Total Amount</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Points Earned</th>
-                <th className="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((order) => {
-                const orderDate = order.createdAt || order.orderDate;
-                const itemCount = order.items?.length || 0;
-                const totalAmount = order.totalAmount || order.total || 0;
-                const status = order.status || 'Pending';
-                const orderNumber = order.orderNumber || `ORD-${order._id?.substring(18, 24).toUpperCase() || 'N/A'}`;
-                const pointsEarned = Math.floor(totalAmount * 0.1); // 10% of total as points
-
-                return (
-                  <tr key={order._id} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-medium">{orderNumber}</td>
-                    <td className="p-3">{formatDate(orderDate)}</td>
-                    <td className="p-3">{itemCount} item{itemCount !== 1 ? 's' : ''}</td>
-                    <td className="p-3 font-bold">LKR {totalAmount.toFixed(2)}</td>
-                    <td className="p-3">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(status)}`}>
-                        {status}
+      ) : (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order #</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {orders.map((order) => (
+                  <tr key={order._id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                      #{order.orderNumber || order._id.substring(18, 24).toUpperCase()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatOrderDate(order.createdAt || order.orderDate)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {order.items?.length || 0} item{order.items?.length !== 1 ? 's' : ''}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {formatCurrency(order.totalAmount || 0)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(order.status)}`}>
+                        {order.status || 'Pending'}
                       </span>
                     </td>
-                    <td className="p-3 text-yellow-600 font-medium">+{pointsEarned} pts</td>
-                    <td className="p-3">
-                      <div className="flex space-x-2">
-                        <Button variant="outline" size="sm">
-                          <Eye size={16} />
-                        </Button>
-                        {status.toLowerCase() === 'delivered' && (
-                          <Button variant="outline" size="sm">Reorder</Button>
-                        )}
-                      </div>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button 
+                        onClick={() => handleViewOrder(order._id)}
+                        className="text-blue-600 hover:text-blue-900 mr-4"
+                      >
+                        View
+                      </button>
+                      {['processing', 'shipped'].includes(order.status?.toLowerCase()) && (
+                        <button className="text-green-600 hover:text-green-900">
+                          Track
+                        </button>
+                      )}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </Card>
-    );
-  };
+      )}
+    </div>
+  );
 
   const renderPoints = () => (
     <div className="space-y-6">
@@ -792,41 +643,15 @@ export default function UserDashboard() {
               size="sm"
               onClick={() => setIsEditing(true)}
               disabled={isLoading}
-            >
-              <Edit size={16} className="mr-2" />
-              Edit Profile
-            </Button>
-          ) : (
-            <div className="space-x-2">
               <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => setIsEditing(false)}
-                disabled={isLoading}
+                onClick={() => setIsEditing(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
               >
-                <X size={16} className="mr-2" />
-                Cancel
+                <Edit size={16} className="mr-2" />
+                Edit Profile
               </Button>
-              <Button 
-                variant="default" 
-                size="sm"
-                onClick={handleUpdateProfile}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} className="mr-2" />
-                    Save Changes
-                  </>
-                )}
-              </Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
         
         {error && (
@@ -948,27 +773,27 @@ export default function UserDashboard() {
                         disabled={isLoading}
                       />
                     </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code</label>
-                    <input
-                      type="text"
-                      value={userProfile.address?.postalCode || ''}
-                      onChange={(e) => setUserProfile({
-                        ...userProfile,
-                        address: {
-                          ...userProfile.address,
-                          postalCode: e.target.value
-                        }
-                      })}
-                      className="w-full p-2 border rounded-md"
-                      disabled={isLoading}
-                    />
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code</label>
+                      <input
+                        type="text"
+                        value={userProfile.address?.postalCode || ''}
+                        onChange={(e) => setUserProfile({
+                          ...userProfile,
+                          address: {
+                            ...userProfile.address,
+                            postalCode: e.target.value
+                          }
+                        })}
+                        className="w-full p-2 border rounded-md"
+                        disabled={isLoading}
+                      />
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-1">
+                <div className="space-y-2">
                   <p className="text-gray-900">
                     {userProfile.address?.street || 'No address provided'}
                   </p>
@@ -978,68 +803,51 @@ export default function UserDashboard() {
                     </p>
                   )}
                   {userProfile.address?.postalCode && (
-                    <p className="text-gray-900">{userProfile.address.postalCode}</p>
+                    <p className="text-gray-900">
+                      {userProfile.address.postalCode}
+                    </p>
                   )}
+                  <Button 
+                    onClick={() => setIsEditing(true)}
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                  >
+                    <Edit size={14} className="mr-1" /> Edit Address
+                  </Button>
                 </div>
               )}
-              
-              <div className="mt-6 pt-6 border-t">
-                <h3 className="text-lg font-semibold mb-4">Account Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <p className="text-sm text-gray-500">Member Since</p>
-                    <p className="font-medium">{formatDate(userProfile.memberSince)}</p>
+            </div>
+
+            {/* Security Settings */}
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h4 className="text-lg font-medium text-gray-900 mb-4">Security</h4>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center p-4 border rounded-lg">
+                  <div>
+                    <p className="font-medium">Change Password</p>
+                    <p className="text-sm text-gray-500">Update your password regularly to keep your account secure</p>
                   </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <p className="text-sm text-gray-500">Reward Points</p>
-                    <p className="font-medium">{userProfile.totalPoints} pts</p>
+                  <Button variant="outline" size="sm">Change</Button>
+                </div>
+                <div className="flex justify-between items-center p-4 border rounded-lg">
+                  <div>
+                    <p className="font-medium">Two-Factor Authentication</p>
+                    <p className="text-sm text-gray-500">Add extra security to your account</p>
                   </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <p className="text-sm text-gray-500">Member Tier</p>
-                    <p className="font-medium">{userProfile.currentTier || 'Bronze'}</p>
+                  <Button variant="outline" size="sm">Enable</Button>
+                </div>
+                <div className="flex justify-between items-center p-4 border rounded-lg">
+                  <div>
+                    <p className="font-medium">Privacy Settings</p>
+                    <p className="text-sm text-gray-500">Manage your privacy preferences</p>
                   </div>
+                  <Button variant="outline" size="sm">Manage</Button>
                 </div>
               </div>
             </div>
           </div>
-        </Card>
-        
-        {!isEditing && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Password</p>
-                <p className="text-sm text-gray-500">Last updated 3 months ago</p>
-              </div>
-              <Button variant="outline" size="sm">Change Password</Button>
-            </div>
-            
-            <div className="flex justify-between items-center p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Account Status</p>
-                <p className="text-sm text-gray-500">Active since {formatDate(userProfile.memberSince)}</p>
-              </div>
-              <Button variant="destructive" size="sm">Deactivate Account</Button>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="flex justify-between items-center p-4 border rounded-lg">
-                <div>
-                  <p className="font-medium">Two-Factor Authentication</p>
-                  <p className="text-sm text-gray-500">Add extra security to your account</p>
-                </div>
-                <Button variant="outline" size="sm">Enable</Button>
-              </div>
-              <div className="flex justify-between items-center p-4 border rounded-lg">
-                <div>
-                  <p className="font-medium">Privacy Settings</p>
-                  <p className="text-sm text-gray-500">Manage your privacy preferences</p>
-                </div>
-                <Button variant="outline" size="sm">Manage</Button>
-              </div>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
     );
   };
@@ -1047,7 +855,7 @@ export default function UserDashboard() {
   const renderContent = () => {
     switch (activeTab) {
       case "overview": return renderOverview();
-      case "orders": return renderOrders();
+      case "orders": return renderOrdersTab();
       case "points": return renderPoints();
       case "profile": return renderProfile();
       default: return renderOverview();
@@ -1055,7 +863,7 @@ export default function UserDashboard() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="flex h-screen bg-gray-50">
       {/* Enhanced Sidebar */}
       <aside className="w-72 bg-white shadow-xl border-r border-gray-200">
         <div className="p-6 border-b border-gray-200">
@@ -1085,7 +893,9 @@ export default function UserDashboard() {
               <span className="font-medium">{item.name}</span>
             </button>
           ))}
-          <LogoutButton />
+          <div className="pt-2">
+            <LogoutButton />
+          </div>
         </nav>
       </aside>
 

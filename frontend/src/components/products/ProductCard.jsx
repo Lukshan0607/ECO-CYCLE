@@ -12,14 +12,26 @@ function ProductCard({ product }) {
   const [payingWithPoints, setPayingWithPoints] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('pointsPerRupee');
-      if (saved !== null) setPointsPerRupee(saved);
-    } catch (e) {
-      // ignore
-    }
+    const loadPointsRate = async () => {
+      try {
+        // First try to get from localStorage for quick load
+        const saved = localStorage.getItem('pointsPerRupee');
+        if (saved !== null) setPointsPerRupee(saved);
+        
+        // Then fetch from backend to ensure we have the latest rate
+        const response = await axios.get('http://localhost:5000/api/points/settings');
+        const rate = response.data?.settings?.pointsPerRupee;
+        if (rate !== undefined) {
+          setPointsPerRupee(String(rate));
+          localStorage.setItem('pointsPerRupee', String(rate));
+        }
+      } catch (e) {
+        console.error('Error loading points rate:', e);
+      }
+    };
+    
+    loadPointsRate();
   }, []);
-  
 
   useEffect(() => {
     const loadBalance = async () => {
