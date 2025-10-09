@@ -1,19 +1,32 @@
 // src/components/admin/AdminDashboard.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { toast } from "react-toastify";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
 } from "recharts";
 import { 
-  Shield, Users, UserCheck, Activity, Settings, Search, Filter, Download,
+  // General Icons
+  Shield, Users, Activity, Settings, Search, Filter, Download,
   Plus, Edit, Trash2, Eye, AlertTriangle, CheckCircle, Clock, XCircle,
-  Calendar, Mail, Phone, MapPin, Briefcase, Award
+  Calendar, Mail, Phone, MapPin, Briefcase, Award, X,
+  // Navigation Icons
+  ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ChevronUp,
+  // User Management Icons
+  UserCheck, UserX, User, 
+  // Other Icons
+  Star, Info, Sliders, RotateCcw
 } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import LogoutButton from "../common/LogoutButton";
 import UserManagementForm from "./UserManagementForm";
 import UserManagementTable from "./UserManagementTable";
+
+// Aliases for icons with naming conflicts
+const CalendarIcon = Calendar;
+const ShieldIcon = Shield;
 
 // Mock Data
 const auditLogs = [
@@ -24,12 +37,12 @@ const auditLogs = [
   { id: 5, timestamp: "2025-09-01 14:10:15", user: "admin@company.com", action: "Staff Updated", resource: "Staff Management", status: "Success", ip: "192.168.1.101" },
 ];
 
-const users = [
-  { id: 1, name: "John Doe", email: "john.doe@company.com", role: "Finance Manager", status: "Active", lastLogin: "2025-09-01 14:30", department: "Finance" },
-  { id: 2, name: "Jane Smith", email: "jane.smith@company.com", role: "Inventory Manager", status: "Active", lastLogin: "2025-09-01 13:45", department: "Inventory" },
-  { id: 3, name: "Mike Wilson", email: "mike.wilson@company.com", role: "Sales Manager", status: "Inactive", lastLogin: "2025-08-30 16:20", department: "Sales" },
-  { id: 4, name: "Sarah Johnson", email: "sarah.johnson@company.com", role: "Production Manager", status: "Active", lastLogin: "2025-09-01 12:15", department: "Production" },
-  { id: 5, name: "David Brown", email: "david.brown@company.com", role: "Transport Manager", status: "Pending", lastLogin: "Never", department: "Transport" },
+const mockUsers = [
+  { _id: 1, name: "John Doe", email: "john.doe@company.com", role: "Finance Manager", status: "Active", lastLogin: "2025-09-01 14:30", department: "Finance" },
+  { _id: 2, name: "Jane Smith", email: "jane.smith@company.com", role: "Inventory Manager", status: "Active", lastLogin: "2025-09-01 13:45", department: "Inventory" },
+  { _id: 3, name: "Mike Wilson", email: "mike.wilson@company.com", role: "Sales Manager", status: "Inactive", lastLogin: "2025-08-30 16:20", department: "Sales" },
+  { _id: 4, name: "Sarah Johnson", email: "sarah.johnson@company.com", role: "Production Manager", status: "Active", lastLogin: "2025-09-01 12:15", department: "Production" },
+  { _id: 5, name: "David Brown", email: "david.brown@company.com", role: "Transport Manager", status: "Pending", lastLogin: "Never", department: "Transport" },
 ];
 
 const staff = [
@@ -65,15 +78,17 @@ const departmentData = [
   { name: "Admin", users: 8, color: "#6B7280" },
 ];
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState("users");
   const [selectedUser, setSelectedUser] = useState(null);
-  const [selectedStaff, setSelectedStaff] = useState(null);
-  const [showUserModal, setShowUserModal] = useState(false);
-  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  // Initialize with empty array, will be populated with mock data if API fails
+  const [users, setUsers] = useState([]);
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [users, setUsers] = useState([]);
 
   const tabs = [
     { id: "overview", name: "Admin Overview", icon: <Shield size={20} /> },
@@ -83,7 +98,43 @@ export default function AdminDashboard() {
     { id: "settings", name: "System Settings", icon: <Settings size={20} /> },
   ];
 
+  // Fetch users from backend
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      // Try to fetch from API first
+      const response = await axios.get(`${API_URL}/users`);
+      // Check if the response has a users array
+      if (response.data && Array.isArray(response.data.users)) {
+        setUsers(response.data.users);
+      } else if (Array.isArray(response.data)) {
+        // Fallback in case the API returns the array directly
+        setUsers(response.data);
+      } else {
+        console.error('Unexpected API response format:', response.data);
+        toast.error('Unexpected data format from server');
+        setUsers([]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch users, using mock data:', error);
+      // Fallback to mock data if API fails
+      setUsers(mockUsers);
+      toast.error('Failed to load users');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch users on component mount and when activeTab changes to 'users'
+  useEffect(() => {
+    if (activeTab === 'users') {
+      fetchUsers();
+    }
+  }, [activeTab]);
+
   // User Management Functions
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleAddUser = () => {
     setEditingUser(null);
     setShowUserForm(true);
@@ -95,68 +146,129 @@ export default function AdminDashboard() {
   };
 
   const handleSubmitUser = async (userData) => {
-    if (editingUser) {
-      // Update existing user
+    setIsSubmitting(true);
+    try {
+      if (editingUser) {
+        // Update existing user
+        const { _id } = editingUser;
+        await axios.put(
+          `${API_URL}/users/${_id}`,
+          { ...userData, _id },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          }
+        );
+        toast.success('User updated successfully!');
+      } else {
+        // Add new user
+        await axios.post(
+          `${API_URL}/auth/register`,
+          userData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          }
+        );
+        toast.success('User created successfully!');
+      }
+      
+      // Reset form and refresh user list
+      setShowUserForm(false);
+      setEditingUser(null);
+      await fetchUsers();
+      
+    } catch (error) {
+      console.error('Error saving user:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to save user';
+      toast.error(
+        <div>
+          <p className="font-semibold">Error saving user:</p>
+          <p>{Array.isArray(errorMessage) ? errorMessage.join('\n') : errorMessage}</p>
+          {error.response?.data?.details && (
+            <ul className="mt-2 list-disc pl-5">
+              {Object.entries(error.response.data.details).map(([field, message]) => (
+                <li key={field} className="text-sm">
+                  <span className="font-medium">{field}:</span> {message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>,
+        { autoClose: 10000 }
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      await axios.delete(`${API_URL}/users/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      toast.success('User deleted successfully!');
+      await fetchUsers(); // Refresh the user list
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to delete user';
+      toast.error(`Error: ${errorMessage}`);
+    }
+  };
+
+  const handleToggleUserStatus = async (userId, newStatus) => {
+    try {
+      await axios.patch(`${API_URL}/users/${userId}/status`, { status: newStatus });
       setUsers(prev => prev.map(user => 
-        user.id === editingUser.id ? { ...userData, id: editingUser.id } : user
+        user._id === userId ? { ...user, status: newStatus } : user
       ));
-      alert('User updated successfully!');
-    } else {
-      // Add new user
-      const newUser = {
-        ...userData,
-        id: Math.max(...users.map(u => u.id)) + 1,
-        createdDate: new Date().toISOString().split('T')[0],
-        lastLogin: 'Never'
-      };
-      setUsers(prev => [...prev, newUser]);
-      alert('User created successfully!');
-    }
-    setShowUserForm(false);
-    setEditingUser(null);
-  };
-
-  const handleDeleteUser = (userId) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      setUsers(prev => prev.filter(user => user.id !== userId));
-      alert('User deleted successfully!');
+      toast.success(`User ${newStatus.toLowerCase()} successfully!`);
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      toast.error('Failed to update user status');
     }
   };
 
-  const handleToggleUserStatus = (userId, newStatus) => {
-    setUsers(prev => prev.map(user => 
-      user.id === userId ? { ...user, status: newStatus } : user
-    ));
-    alert(`User ${newStatus.toLowerCase()} successfully!`);
-  };
-
-  const handleResetPassword = (userId) => {
+  const handleResetPassword = async (userId) => {
     if (window.confirm('Are you sure you want to reset this user\'s password?')) {
-      // In a real app, this would generate a new password and send it via email
-      alert('Password reset email sent to user!');
+      try {
+        await axios.post(`${API_URL}/auth/reset-password`, { userId });
+        toast.success('Password reset email sent to user!');
+      } catch (error) {
+        console.error('Error resetting password:', error);
+        toast.error('Failed to reset password');
+      }
     }
   };
 
   const handleViewProfile = (user) => {
     setSelectedUser(user);
-    setShowUserModal(true);
   };
 
   const handleExportUsers = (usersToExport) => {
-    // Simple CSV export
-    const headers = ['ID', 'Name', 'Email', 'Phone', 'Role', 'Status', 'Points', 'Created Date', 'Last Login'];
+    const headers = ['ID', 'Name', 'Email', 'NIC', 'Mobile', 'Address', 'Role', 'Status', 'Created At'];
     const csvContent = [
       headers.join(','),
       ...usersToExport.map(user => [
-        user.id,
+        user._id,
         `"${user.name}"`,
         user.email,
-        user.phone || '',
-        user.role,
-        user.status,
-        user.points || 0,
-        user.createdDate,
-        user.lastLogin
+        user.nic || 'N/A',
+        user.mobile || 'N/A',
+        `"${user.address || 'N/A'}"`,
+        user.role || 'user',
+        user.status || 'active',
+        new Date(user.createdAt).toLocaleString()
       ].join(','))
     ].join('\n');
 
@@ -324,104 +436,235 @@ export default function AdminDashboard() {
     </Card>
   );
 
-  const renderUserManagement = () => (
-    <div className="space-y-6">
-      {/* User Form Modal */}
-      {showUserForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
+  const renderUserManagement = () => {
+    if (loading) {
+      return (
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex justify-center items-center h-64">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="p-6">
+              <div className="text-center p-8 text-red-600">
+                {error}
+                <Button 
+                  onClick={fetchUsers} 
+                  className="mt-4 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* User Form Modal */}
+        {showUserForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-white rounded-lg w-full max-w-4xl my-8">
               <UserManagementForm
                 user={editingUser}
+                isEditing={!!editingUser}
                 onSubmit={handleSubmitUser}
                 onCancel={() => {
                   setShowUserForm(false);
                   setEditingUser(null);
                 }}
-                isEditing={!!editingUser}
               />
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* User Profile Modal */}
-      {showUserModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">User Profile</h2>
-                <Button
-                  onClick={() => setShowUserModal(false)}
-                  variant="outline"
-                  size="sm"
-                >
-                  ×
-                </Button>
-              </div>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Name</label>
-                    <p className="text-gray-900">{selectedUser.name}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Email</label>
-                    <p className="text-gray-900">{selectedUser.email}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Phone</label>
-                    <p className="text-gray-900">{selectedUser.phone || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Role</label>
-                    <p className="text-gray-900">{selectedUser.role}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Status</label>
-                    <p className="text-gray-900">{selectedUser.status}</p>
-                  </div>
-                  {selectedUser.role === 'Customer' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Points</label>
-                      <p className="text-gray-900">{selectedUser.points || 0}</p>
-                    </div>
-                  )}
+        {/* User Profile View Modal */}
+        {selectedUser && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">User Profile</h2>
+                  <button
+                    onClick={() => setSelectedUser(null)}
+                    className="text-gray-400 hover:text-gray-500"
+                  >
+                    <X size={24} />
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Address</label>
-                  <p className="text-gray-900">{selectedUser.address || 'N/A'}</p>
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Personal Information */}
+                    <div className="space-y-4 col-span-2 border-b pb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <User className="w-5 h-5 mr-2 text-blue-600" />
+                        Personal Information
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Full Name</label>
+                          <p className="text-gray-900">{selectedUser.name}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Email</label>
+                          <div className="flex items-center">
+                            <Mail className="w-4 h-4 text-gray-500 mr-2" />
+                            <a href={`mailto:${selectedUser.email}`} className="text-blue-600 hover:underline">
+                              {selectedUser.email}
+                            </a>
+                            {selectedUser.emailVerified && (
+                              <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full flex items-center">
+                                <CheckCircle className="w-3 h-3 mr-1" /> Verified
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Phone</label>
+                          <div className="flex items-center">
+                            <Phone className="w-4 h-4 text-gray-500 mr-2" />
+                            <span>{selectedUser.mobile || selectedUser.phone || 'N/A'}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Member Since</label>
+                          <div className="flex items-center">
+                            <Calendar className="w-4 h-4 text-gray-500 mr-2" />
+                            <span>{new Date(selectedUser.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Account Status */}
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <Shield className="w-5 h-5 mr-2 text-blue-600" />
+                        Account Status
+                      </h3>
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Status</label>
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                            selectedUser.status === 'Active' 
+                              ? 'bg-green-100 text-green-800' 
+                              : selectedUser.status === 'Suspended'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {selectedUser.status}
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-sm font-medium text-gray-700">Role</label>
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                            {selectedUser.role}
+                          </span>
+                        </div>
+                        {selectedUser.lastLogin && (
+                          <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">Last Login</label>
+                            <p className="text-sm text-gray-600">
+                              {new Date(selectedUser.lastLogin).toLocaleString()}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Additional Information */}
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <Info className="w-5 h-5 mr-2 text-blue-600" />
+                        Additional Information
+                      </h3>
+                      <div className="space-y-3">
+                        {selectedUser.address && (
+                          <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">Address</label>
+                            <div className="flex items-start">
+                              <MapPin className="w-4 h-4 text-gray-500 mr-2 mt-0.5 flex-shrink-0" />
+                              <p className="text-gray-900 break-words">{selectedUser.address}</p>
+                            </div>
+                          </div>
+                        )}
+                        {selectedUser.nic && (
+                          <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">NIC</label>
+                            <p className="text-gray-900">{selectedUser.nic}</p>
+                          </div>
+                        )}
+                        {selectedUser.role === 'Customer' && (
+                          <div className="space-y-1">
+                            <label className="block text-sm font-medium text-gray-700">Loyalty Points</label>
+                            <div className="flex items-center">
+                              <Star className="w-4 h-4 text-yellow-500 mr-2" />
+                              <span className="text-lg font-semibold">{selectedUser.points || 0}</span>
+                              <span className="ml-1 text-sm text-gray-500">points</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                    <Button
+                      onClick={() => {
+                        setSelectedUser(null);
+                        handleEditUser(selectedUser);
+                      }}
+                      variant="outline"
+                      className="flex items-center"
+                    >
+                      <Edit className="w-4 h-4 mr-2" />
+                      Edit Profile
+                    </Button>
+                    <Button
+                      onClick={() => setSelectedUser(null)}
+                      variant="default"
+                    >
+                      Close
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Add User Button */}
-      <div className="flex justify-between items-center">
-        <Button
-          onClick={handleAddUser}
-          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-        >
-          <Plus size={16} className="mr-2" />
-          Add User
-        </Button>
+        {/* Main Content */}
+        <div className="mb-6"></div>
+
+        <Card>
+          <CardContent className="p-6">
+            <UserManagementTable
+              users={users}
+              onEdit={handleEditUser}
+              onDelete={handleDeleteUser}
+              onToggleStatus={handleToggleUserStatus}
+              onResetPassword={handleResetPassword}
+              onViewProfile={handleViewProfile}
+              onExport={handleExportUsers}
+              loading={loading}
+            />
+          </CardContent>
+        </Card>
       </div>
-
-      {/* User Management Table */}
-      <UserManagementTable
-        users={users}
-        onEdit={handleEditUser}
-        onDelete={handleDeleteUser}
-        onToggleStatus={handleToggleUserStatus}
-        onResetPassword={handleResetPassword}
-        onViewProfile={handleViewProfile}
-        onExport={handleExportUsers}
-      />
-    </div>
-  );
+    );
+  };
 
   const renderStaffManagement = () => (
     <Card>

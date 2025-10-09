@@ -67,6 +67,29 @@ const salesOrderSchema = new mongoose.Schema({
     enum: ['Pending', 'Paid', 'Failed', 'Refunded'],
     default: 'Pending'
   },
+  paymentProof: {
+    filename: String,
+    originalName: String,
+    path: String,
+    mimeType: String,
+    size: Number,
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  paymentMethod: {
+    type: String,
+    enum: ['credit_card', 'bank_transfer', 'mobile_payment', 'cash_on_delivery', 'other'],
+    default: 'credit_card'
+  },
+  paymentDate: {
+    type: Date
+  },
+  processedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   notes: String
 }, {
   timestamps: true
