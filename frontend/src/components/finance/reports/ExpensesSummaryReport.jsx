@@ -10,9 +10,9 @@ import {
 } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { format } from 'date-fns';
-import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
 import axios from 'axios';
+import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -124,407 +124,320 @@ const ExpensesSummaryReport = ({ dateRange }) => {
     fetchExpenseData();
   }, [dateRange]);
 
-  const exportToPDF = () => {
-    const doc = new jsPDF();
-    
-    // Header
-    doc.setFontSize(16).setFont(undefined, 'bold');
-    doc.text('ECOCYCLE LANKA (PVT) LTD', 105, 20, { align: 'center' });
-    doc.setFontSize(10).setFont(undefined, 'normal');
-    doc.text('123 Green Tech Park, Colombo 05, Sri Lanka', 105, 28, { align: 'center' });
-    doc.text('Tel: +94 11 234 5678 | Email: ecocycle923@gmail.com | Web: www.ecocycle.lk', 105, 33, { align: 'center' });
-    
-    // Title
-    doc.setFontSize(14).setFont(undefined, 'bold');
-    doc.text('EXPENSES SUMMARY REPORT', 105, 45, { align: 'center' });
-    
-    // Date range
-    doc.setFontSize(10).setFont(undefined, 'normal');
-    doc.text(
-      `Period: ${format(dateRange.from, 'MMM d, yyyy')} to ${format(dateRange.to, 'MMM d, ')}`, 
-      14, 
-      55
-    );
-    
-    // Summary stats
-    doc.setFontSize(11).setFont(undefined, 'bold');
-    doc.text('Total Expenses:', 14, 70);
-    doc.text(`LKR ${(expensesData.totalExpenses || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 50, 70);
-
-    doc.text('Average Expense:', 100, 70);
-    doc.text(`LKR ${(expensesData.avgExpense || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 150, 70);
-
-    // Status summary
-    doc.text('Paid:', 14, 80);
-    doc.text(`LKR ${(expensesData.paidExpenses || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 50, 80);
-
-    doc.text('Pending:', 100, 80);
-    doc.text(`LKR ${(expensesData.pendingExpenses || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 150, 80);
-  
-    // Expenses by category table
-    doc.autoTable({
-      startY: 95,
-      head: [['Category', 'Amount (LKR)', 'Transactions', 'Status']],
-      body: (expensesData.expensesByCategory || []).map(expense => [
-        expense?.name || 'Uncategorized',
-        { 
-          content: (expense?.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 }),
-          styles: { halign: 'right' }
-        },
-        { 
-          content: (expense?.count || 0).toString(),
-          styles: { halign: 'right' }
-        },
-        { 
-          content: expense?.status ? Object.entries(expense.status)
-            .map(([status, count]) => `${status.charAt(0).toUpperCase() + status.slice(1)}: ${count}`)
-            .join(', ') : '',
-          styles: { fontSize: 8, cellPadding: 2 }
-        }
-      ]),
-      theme: 'grid',
-      headStyles: { fillColor: [59, 130, 246] },
-      columnStyles: { 
-        0: { cellWidth: 60 },
-        1: { cellWidth: 40, halign: 'right' },
-        2: { cellWidth: 30, halign: 'right' },
-        3: { cellWidth: 30, halign: 'center' }
-      },
-      margin: { top: 15 }
+  const loadImage = (url) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      img.src = window.location.origin + url;
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
     });
-    
-    // Add footer
-    const pageCount = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
+  };
+
+  const exportToPDF = async () => {
+    try {
+      // Show loading state
+      const toastId = toast.loading('Generating PDF report...');
+      
+      // Dynamically import required libraries
+      const { jsPDF } = await import('jspdf');
+      const autoTable = (await import('jspdf-autotable')).default;
+      
+      // Initialize PDF document
+      const doc = new jsPDF();
+      
+      // Colors
+      const colors = {
+        primary: [13, 148, 136], // Teal
+        secondary: [16, 86, 167], // Blue
+        success: [40, 167, 69], // Green
+        warning: [255, 193, 7], // Yellow
+        danger: [220, 53, 69], // Red
+        light: [248, 249, 250], // Light gray
+        dark: [33, 37, 41] // Dark gray
+      };
+      
+      // Add header with logo and company info
+      const logo = await loadImage('/ecocycle-logo.png');
+      if (logo) {
+        const logoWidth = 30;
+        const logoHeight = (logo.height * logoWidth) / logo.width;
+        doc.addImage(logo, 'PNG', 20, 15, logoWidth, logoHeight);
+      }
+      
+      // Company info
+      doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(...colors.dark);
+      doc.text('ECO CYCLE LANKA (PVT) LTD', 60, 25);
+      
+      doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(100);
+      doc.text('123 Green Tech Park, Colombo 05, Sri Lanka', 60, 30);
+      doc.text('Tel: +94 11 234 5678 | Email: ecocycle923@gmail.com', 60, 35);
+      
+      // Report title and date
+      doc.setFont('helvetica', 'bold').setFontSize(14).setTextColor(...colors.primary);
+      doc.text('EXPENSES SUMMARY REPORT', 105, 50, { align: 'center' });
+      
+      doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(100);
       doc.text(
-        `Page ${i} of ${pageCount} | Generated on ${new Date().toLocaleString()}`, 
-        doc.internal.pageSize.getWidth() / 2,
-        doc.internal.pageSize.getHeight() - 10,
+        `Report Period: ${format(dateRange.from, 'MMM d, yyyy')} - ${format(dateRange.to, 'MMM d, yyyy')}`, 
+        105, 
+        60,
         { align: 'center' }
       );
+      
+      // Summary cards
+      const summaryData = [
+        { 
+          title: 'TOTAL EXPENSES', 
+          value: expensesData.totalExpenses, 
+          color: colors.primary,
+          icon: 'dollar'
+        },
+        { 
+          title: 'PAID', 
+          value: expensesData.paidExpenses, 
+          color: colors.success,
+          icon: 'check'
+        },
+        { 
+          title: 'PENDING', 
+          value: expensesData.pendingExpenses, 
+          color: colors.warning,
+          icon: 'clock'
+        },
+        { 
+          title: 'FAILED', 
+          value: expensesData.failedExpenses, 
+          color: colors.danger,
+          icon: 'x'
+        }
+      ];
+      
+      // Draw summary cards
+      const cardWidth = 42;
+      const cardHeight = 25;
+      const startY = 75;
+      const gap = 10;
+      
+      summaryData.forEach((card, index) => {
+        const x = 15 + (index % 2) * (cardWidth + gap);
+        const y = startY + Math.floor(index / 2) * (cardHeight + gap);
+        
+        // Card background
+        doc.setFillColor(240, 240, 240);
+        doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'F');
+        
+        // Card border
+        doc.setDrawColor(...card.color);
+        doc.setLineWidth(0.5);
+        doc.roundedRect(x, y, cardWidth, cardHeight, 2, 2, 'S');
+        
+        // Card content
+        doc.setFont('helvetica', 'bold').setFontSize(8).setTextColor(100);
+        doc.text(card.title, x + 5, y + 8);
+        
+        doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(...card.color);
+        doc.text(
+          formatCurrency(card.value), 
+          x + 5, 
+          y + 16
+        );
+      });
+      
+      // Expenses by category table
+      const tableStartY = startY + 2 * (cardHeight + gap) + 10;
+      
+      doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(...colors.dark);
+      doc.text('EXPENSES BY CATEGORY', 15, tableStartY - 5);
+      
+      autoTable(doc, {
+        startY: tableStartY,
+        head: [['Category', 'Amount', 'Transactions', 'Status']],
+        body: expensesData.expensesByCategory.map(cat => [
+          cat.name || 'Uncategorized',
+          { 
+            content: formatCurrency(cat.amount).replace('LKR', '').trim(),
+            styles: { halign: 'right' }
+          },
+          cat.count.toString(),
+          { 
+            content: '',
+            styles: { 
+              cellWidth: 10,
+              fillColor: cat.status === 'active' ? colors.success : colors.warning,
+              textColor: [255, 255, 255],
+              cellPadding: 1
+            }
+          }
+        ]),
+        theme: 'grid',
+        headStyles: {
+          fillColor: colors.primary,
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 9,
+          cellPadding: 3,
+          lineColor: [200, 200, 200],
+          lineWidth: 0.1
+        },
+        columnStyles: {
+          0: { cellWidth: 'auto' },
+          1: { cellWidth: 30, halign: 'right' },
+          2: { cellWidth: 25, halign: 'center' },
+          3: { cellWidth: 10, halign: 'center' }
+        },
+        margin: { left: 15, right: 15 }
+      });
+      
+      // Recent transactions table
+      doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(...colors.dark);
+      doc.text('RECENT TRANSACTIONS', 15, doc.lastAutoTable.finalY + 15);
+      
+      autoTable(doc, {
+        startY: doc.lastAutoTable.finalY + 20,
+        head: [['Date', 'Description', 'Category', 'Amount', 'Status']],
+        body: expensesData.recentExpenses.map(expense => ({
+          date: format(new Date(expense.date), 'MMM d, yyyy'),
+          description: expense.description || 'No description',
+          category: expense.category || 'Uncategorized',
+          amount: { 
+            content: formatCurrency(expense.amount).replace('LKR', '').trim(),
+            styles: { halign: 'right' }
+          },
+          status: {
+            content: expense.status?.charAt(0).toUpperCase() + expense.status?.slice(1) || 'Unknown',
+            styles: {
+              fillColor: expense.status === 'paid' ? colors.success : 
+                        expense.status === 'pending' ? colors.warning : colors.danger,
+              textColor: [255, 255, 255],
+              cellPadding: 2,
+              fontSize: 8
+            }
+          }
+        })),
+        theme: 'grid',
+        headStyles: {
+          fillColor: colors.primary,
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 9,
+          cellPadding: 3,
+          lineColor: [200, 200, 200],
+          lineWidth: 0.1
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 'auto' },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 25, halign: 'right' },
+          4: { cellWidth: 25, halign: 'center' }
+        },
+        margin: { left: 15, right: 15 },
+        didDrawPage: function(data) {
+          // Footer
+          const pageCount = doc.internal.getNumberOfPages();
+          const pageWidth = doc.internal.pageSize.getWidth();
+          const pageHeight = doc.internal.pageSize.getHeight();
+          
+          // Add page number
+          doc.setFontSize(8);
+          doc.setTextColor(100);
+          doc.text(
+            `Page ${data.pageCount} of ${pageCount}`, 
+            pageWidth - 20, 
+            pageHeight - 10,
+            { align: 'right' }
+          );
+          
+          // Add generated timestamp
+          doc.text(
+            `Generated on: ${format(new Date(), 'MMM d, yyyy hh:mm a')}`, 
+            20, 
+            pageHeight - 10
+          );
+          
+          // Add company name
+          doc.setFont('helvetica', 'bold');
+          doc.text('ECO CYCLE LANKA (PVT) LTD', pageWidth / 2, pageHeight - 10, { align: 'center' });
+        }
+      });
+      
+      // Save the PDF
+      doc.save(`expenses-summary-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+      
+      // Dismiss loading toast
+      toast.dismiss();
+      toast.success('Expenses summary report generated successfully');
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast.error('Failed to generate PDF. Please try again.');
     }
-    
-    doc.save(`expenses-summary-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  // Format date helper
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  // Get status badge
-  const getStatusBadge = (status) => {
-    const statusMap = {
-      paid: { bg: 'bg-green-100', text: 'text-green-800', icon: CheckCircle },
-      pending: { bg: 'bg-yellow-100', text: 'text-yellow-800', icon: Clock },
-      failed: { bg: 'bg-red-100', text: 'text-red-800', icon: XCircle },
-      default: { bg: 'bg-gray-100', text: 'text-gray-800', icon: Clock }
-    };
-    
-    const statusInfo = statusMap[status?.toLowerCase()] || statusMap.default;
-    const StatusIcon = statusInfo.icon;
-    
-    return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.bg} ${statusInfo.text}`}>
-        <StatusIcon className="h-3 w-3 mr-1" />
-        {status?.charAt(0).toUpperCase() + status?.slice(1) || 'Unknown'}
-      </span>
-    );
-  };
-
-  // Calculate summary metrics for display
-  const { 
-    totalExpenses, 
-    paidExpenses, 
-    pendingExpenses, 
-    failedExpenses, 
-    expensesByCategory, 
-    recentExpenses,
-    trend
-  } = expensesData;
-
-  const highestExpenseCategory = expensesByCategory[0] || {};
-  const expenseChange = trend;
+  if (isLoading) return <div>Loading...</div>;
+  if (error) return <div>{error}</div>;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800">Expenses Summary</h2>
-          <p className="text-sm text-gray-500">Overview of financial expenditures and trends</p>
+    <div className="expenses-summary-report p-4">
+      {/* Cards */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="card p-4 bg-white shadow rounded">
+          <div className="flex items-center justify-between">
+            <DollarSign className="text-teal-500" />
+            <ArrowUpRight className="text-green-500" />
+          </div>
+          <div className="mt-4">
+            <p className="text-sm text-gray-500">Total Expenses</p>
+            <p className="text-lg font-bold">{formatCurrency(expensesData.totalExpenses)}</p>
+          </div>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={exportToPDF}
-          className="border-gray-300 hover:bg-gray-50"
-        >
-          <Download className="mr-2 h-4 w-4" />
-          Export PDF
+        <div className="card p-4 bg-white shadow rounded">
+          <div className="flex items-center justify-between">
+            <CheckCircle className="text-green-500" />
+            <ArrowUpRight className="text-green-500" />
+          </div>
+          <div className="mt-4">
+            <p className="text-sm text-gray-500">Paid</p>
+            <p className="text-lg font-bold">{formatCurrency(expensesData.paidExpenses)}</p>
+          </div>
+        </div>
+        <div className="card p-4 bg-white shadow rounded">
+          <div className="flex items-center justify-between">
+            <Clock className="text-orange-500" />
+            <ArrowDownRight className="text-orange-500" />
+          </div>
+          <div className="mt-4">
+            <p className="text-sm text-gray-500">Pending</p>
+            <p className="text-lg font-bold">{formatCurrency(expensesData.pendingExpenses)}</p>
+          </div>
+        </div>
+        <div className="card p-4 bg-white shadow rounded">
+          <div className="flex items-center justify-between">
+            <XCircle className="text-red-500" />
+            <ArrowDownRight className="text-red-500" />
+          </div>
+          <div className="mt-4">
+            <p className="text-sm text-gray-500">Failed</p>
+            <p className="text-lg font-bold">{formatCurrency(expensesData.failedExpenses)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* PDF Export */}
+      <div className="mb-6">
+        <Button onClick={exportToPDF} className="flex items-center gap-2">
+          <Download size={16} /> Export to PDF
         </Button>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <XCircle className="h-5 w-5 text-red-400" aria-hidden="true" />
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Expenses Card */}
-        <div className="bg-white rounded-lg border-l-4 border-blue-600 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Total Expenses</h3>
-              <div className="p-1.5 rounded-md bg-blue-50 text-blue-600">
-                <DollarSign className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">
-              {formatCurrency(expensesData.totalExpenses)}
-            </p>
-            <div className="mt-2">
-              <div className="flex items-center text-xs text-gray-500">
-                {expensesData.trend !== 0 && (
-                  <span className={`inline-flex items-center mr-1 ${expensesData.trend > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    {expensesData.trend > 0 ? (
-                      <ArrowUpRight className="h-3 w-3 mr-0.5" />
-                    ) : (
-                      <ArrowDownRight className="h-3 w-3 mr-0.5" />
-                    )}
-                    {Math.abs(expensesData.trend)}%
-                  </span>
-                )}
-                <span>vs last period</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Paid Expenses Card */}
-        <div className="bg-white rounded-lg border-l-4 border-green-600 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Paid</h3>
-              <div className="p-1.5 rounded-md bg-green-50 text-green-600">
-                <CheckCircle className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">
-              {formatCurrency(expensesData.paidExpenses)}
-            </p>
-            <div className="mt-2">
-              <div className="text-xs text-gray-500">
-                {expensesData.totalExpenses > 0 ? 
-                  `${((expensesData.paidExpenses / expensesData.totalExpenses) * 100).toFixed(1)}% of total` : 
-                  'No expenses'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Pending Expenses Card */}
-        <div className="bg-white rounded-lg border-l-4 border-amber-500 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Pending</h3>
-              <div className="p-1.5 rounded-md bg-amber-50 text-amber-500">
-                <Clock className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">
-              {formatCurrency(expensesData.pendingExpenses)}
-            </p>
-            <div className="mt-2">
-              <div className="text-xs text-gray-500">
-                {expensesData.totalExpenses > 0 ? 
-                  `${((expensesData.pendingExpenses / expensesData.totalExpenses) * 100).toFixed(1)}% of total` : 
-                  'No expenses'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Failed Expenses Card */}
-        <div className="bg-white rounded-lg border-l-4 border-red-500 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Failed</h3>
-              <div className="p-1.5 rounded-md bg-red-50 text-red-500">
-                <XCircle className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900">
-              {formatCurrency(expensesData.failedExpenses)}
-            </p>
-            <div className="mt-2">
-              <div className="text-xs text-gray-500">
-                {expensesData.totalExpenses > 0 ? 
-                  `${((expensesData.failedExpenses / expensesData.totalExpenses) * 100).toFixed(1)}% of total` : 
-                  'No expenses'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary Section */}
-      <div className="bg-white shadow-sm rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Expense Overview</h3>
-          <p className="text-sm text-gray-500 mt-1">Period: {format(dateRange.from, 'MMM d, yyyy')} - {format(dateRange.to, 'MMM d, yyyy')}</p>
-        </div>
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Expense Distribution</h4>
-              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-green-600"
-                  style={{ width: `${(expensesData.paidExpenses / expensesData.totalExpenses * 100) || 0}%` }}
-                ></div>
-              </div>
-              <div className="mt-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Paid</span>
-                  <span className="font-medium">{formatCurrency(expensesData.paidExpenses)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Pending</span>
-                  <span className="font-medium">{formatCurrency(expensesData.pendingExpenses)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Failed</span>
-                  <span className="font-medium">{formatCurrency(expensesData.failedExpenses)}</span>
-                </div>
-              </div>
-            </div>
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Key Metrics</h4>
-              <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-600">Avg. Expense</span>
-                    <span className="font-medium">
-                      {expensesData.recentExpenses.length > 0 
-                        ? formatCurrency(expensesData.recentExpenses.reduce((sum, e) => sum + e.amount, 0) / expensesData.recentExpenses.length)
-                        : formatCurrency(0)}
-                    </span>
-                  </div>
-                  <div className="h-1 bg-gray-100 rounded-full">
-                    <div className="h-1 bg-blue-600 rounded-full" style={{ width: '60%' }}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-600">Expense Trend</span>
-                    <span className={`font-medium ${expensesData.trend > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {expensesData.trend > 0 ? '+' : ''}{expensesData.trend}%
-                    </span>
-                  </div>
-                  <div className="h-1 bg-gray-100 rounded-full">
-                    <div 
-                      className={`h-1 rounded-full ${expensesData.trend > 0 ? 'bg-red-600' : 'bg-green-600'}`} 
-                      style={{ width: `${Math.min(Math.abs(expensesData.trend), 100)}%` }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Transactions */}
-      <div className="bg-white shadow-sm rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Recent Transactions</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Description
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {expensesData.recentExpenses.length > 0 ? (
-                expensesData.recentExpenses.map((expense) => (
-                  <tr key={expense.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(expense.date)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {expense.description}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {expense.category}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      {formatCurrency(expense.amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(expense.status)}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="5" className="px-6 py-4 text-center text-sm text-gray-500">
-                    No recent transactions found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-gray-500">
-              Showing {expensesData.recentExpenses.length} most recent transactions
-            </p>
-            <p className="text-sm text-gray-500">
-              Last updated: {format(new Date(), 'MMM d, yyyy h:mm a')}
-            </p>
-          </div>
-        </div>
-      </div>
+      {/* Charts / Tables can go here if needed */}
     </div>
   );
 };
