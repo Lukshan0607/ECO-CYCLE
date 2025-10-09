@@ -29,9 +29,6 @@ export default function InventoryDashboard() {
   const [requestCount, setRequestCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const [profilePic, setProfilePic] = useState(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-
   const menuItems = [
     { name: "Inventory Overview", key: "overview", icon: <CubeIcon className="w-5 h-5" /> },
     { name: "Stock Management", key: "stock", icon: <ChartBarIcon className="w-5 h-5" /> },
@@ -92,10 +89,7 @@ export default function InventoryDashboard() {
 
 
 
-  const handleProfileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) setProfilePic(URL.createObjectURL(file));
-  };
+  // removed profile icon and upload handler
 
   const totalWeight = inventory.reduce((sum, i) => sum + i.weight, 0);
 
@@ -215,52 +209,15 @@ export default function InventoryDashboard() {
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
-        {/* Enhanced Header */}
+        {/* Enhanced Header (profile icon removed) */}
         <header className="bg-white border-b border-gray-200 p-6">
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Inventory Dashboard</h1>
               <p className="text-gray-600 mt-1">Track and manage recyclable materials</p>
             </div>
-            <div className="flex items-center space-x-4">
-              <div className="relative">
-                <img
-                  src={profilePic || "https://via.placeholder.com/40"}
-                  alt="Profile"
-                  className="w-10 h-10 rounded-full border cursor-pointer hover:ring-2 hover:ring-green-500"
-                  onClick={() => setDropdownOpen(!dropdownOpen)}
-                />
-                {dropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border rounded-lg shadow-lg z-10">
-                    <label
-                      htmlFor="upload-profile"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
-                    >
-                      Upload Picture
-                    </label>
-                    <input
-                      type="file"
-                      id="upload-profile"
-                      className="hidden"
-                      accept="image/*"
-                      onChange={handleProfileUpload}
-                    />
-                    <Link
-                      to="/inventory/profile"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    >
-                      View Profile
-                    </Link>
-                    <button
-                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
-                      onClick={() => alert("Logged out")}
-                    >
-                      Logout
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
+            {/* right side intentionally left empty to remove profile icon */}
+            <div />
           </div>
         </header>
 

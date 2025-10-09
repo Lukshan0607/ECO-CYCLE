@@ -98,9 +98,12 @@ export default function InventoryReports() {
     const win = window.open("", "_blank", "width=1200,height=900");
     if (!win) return;
     win.document.open();
-    win.document.write(`<!DOCTYPE html><html><head><title>Inventory Reports - Full Report</title>
+    const logoUrl = '/ecocycle-logo.png?v=' + Date.now();
+    win.document.write(`<!DOCTYPE html><html><head><title>Inventory Summary Report</title>
       <style>
-        body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding: 24px; }
+        @page { size: A4; margin: 0; }
+        html, body { margin: 0; padding: 0; }
+        body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         h1 { font-size: 20px; margin-bottom: 8px; }
         h2 { font-size: 16px; margin: 12px 0; }
         table { width: 100%; border-collapse: collapse; }
@@ -119,12 +122,60 @@ export default function InventoryReports() {
         .summary-card .value { font-size: 18px; font-weight: 700; }
         /* Hide interactive controls in print */
         .print-hide { display: none !important; }
+        /* Full-bleed brand header */
+        .brand-header { background: #0ea5a6; color: #fff; border-radius: 0; overflow: hidden; margin: 0; width: 100vw; border-bottom: 4px solid #f59e0b; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
+        .brand-top { display: grid; grid-template-columns: 180px 1fr 180px; align-items: center; padding: 18px 22px; }
+        .brand-logo { width: 168px; height: 168px; background: #0ea5a6; border-radius: 50%; display:flex; align-items:center; justify-content:center; }
+        .brand-logo img { width: 150px; height: 150px; object-fit: contain; background: transparent; border-radius: 50%; }
+        .brand-info { line-height: 1.5; text-align: center; }
+        .brand-title { font-size: 22px; font-weight: 600; letter-spacing: 0.4px; }
+        .brand-sub { font-size: 14px; opacity: 0.98; }
+        .report-title { text-align: center; font-size: 24px; color: #0f766e; font-weight: 900; margin: 16px 0 8px; }
+        .title-underline { width: 240px; height: 2px; background: #f59e0b; margin: 8px auto 16px; border-radius: 3px; }
+        .content { padding: 24px; }
+        /* --- Tidy full report layout --- */
+        .content section { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 20px; page-break-inside: avoid; break-inside: avoid; }
+        /* Put each top-level section on a new page for clarity */
+        .content section + section { page-break-before: always; }
+        /* Normalize inner card appearance */
+        .content .rounded-2xl, .content .rounded-xl, .content .shadow, .content .shadow-sm { border-radius: 12px !important; box-shadow: none !important; }
+        .content .border, .content .border-gray-200 { border-color: #e5e7eb !important; }
+        .content .border-b { border-bottom: 1px solid #e5e7eb !important; margin-bottom: 8px; }
+        .content .p-4 { padding: 12px !important; }
+        .content .overflow-x-auto { overflow: visible !important; }
+        .content h2 { font-size: 18px !important; margin: 0 0 6px !important; }
+        .content table { margin-top: 10px; }
+        /* Make grids simpler in print */
+        .content .summary-grid, .content .summary-grid-4 { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
+        .content .print-grid { grid-template-columns: 1fr 1fr !important; gap: 12px !important; }
+        /* Avoid rows splitting across pages */
+        table, tr, td, th { page-break-inside: avoid; break-inside: avoid; }
       </style>
     </head><body>
-      <h1>Inventory Reports - Full Report</h1>
-      <div class="meta">Generated at: ${nowString()}</div>
-      <div>${content}</div>
-      <script>setTimeout(() => { window.print(); setTimeout(() => window.close(), 500); }, 250);</script>
+      <div class="brand-header">
+        <div class="brand-top">
+          <div class="brand-logo"><img src="${logoUrl}" alt="EcoCycle Logo" crossorigin="anonymous" /></div>
+          <div class="brand-info">
+            <div class="brand-title">ECOCYCLE LANKA (PVT) LTD</div>
+            <div class="brand-sub">123 Green Tech Park, Colombo 05, Sri Lanka</div>
+            <div class="brand-sub" style="white-space: nowrap">Tel: +94 11 234 5678 | Email: ecocycle923@gmail.com</div>
+          </div>
+          <div class="brand-spacer"></div>
+        </div>
+      </div>
+      <div class="content">
+        <div class="report-title">Inventory Summary Report</div>
+        <div class="title-underline"></div>
+        <!-- meta removed to avoid duplicate timestamps -->
+        <div>${content}</div>
+      </div>
+      <script>
+        (function(){
+          const imgs = Array.from(document.images || []);
+          Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(r => { img.onload = img.onerror = r; })))
+            .then(() => setTimeout(() => { window.print(); setTimeout(() => window.close(), 500); }, 100));
+        })();
+      </script>
     </body></html>`);
     win.document.close();
   };
@@ -139,9 +190,12 @@ export default function InventoryReports() {
     const win = window.open("", "_blank", "width=1024,height=768");
     if (!win) return;
     win.document.open();
+    const logoUrl = '/ecocycle-logo.png?v=' + Date.now();
     win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
       <style>
-        body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji'; padding: 24px; }
+        @page { size: A4; margin: 0; }
+        html, body { margin: 0; padding: 0; }
+        body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji'; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         h1 { font-size: 20px; margin-bottom: 8px; }
         h2 { font-size: 16px; margin: 12px 0; }
         table { width: 100%; border-collapse: collapse; }
@@ -159,12 +213,43 @@ export default function InventoryReports() {
         .summary-card .value { font-size: 18px; font-weight: 700; }
         /* Hide interactive controls in print */
         .print-hide { display: none !important; }
+        /* Full-bleed brand header */
+        .brand-header { background: #0ea5a6; color: #fff; border-radius: 0; overflow: hidden; margin: 0; width: 100vw; border-bottom: 4px solid #f59e0b; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); }
+        .brand-top { display: grid; grid-template-columns: 180px 1fr 180px; align-items: center; padding: 18px 22px; }
+        .brand-logo { width: 168px; height: 168px; background: #0ea5a6; border-radius: 50%; display:flex; align-items:center; justify-content:center; }
+        .brand-logo img { width: 200px; height: 200px; object-fit: contain; background: transparent; border-radius: 50%; }
+        .brand-info { line-height: 1.5; text-align: center; }
+        .brand-title { font-size: 25px; font-weight: 600; letter-spacing: 0.4px; }
+        .brand-sub { font-size: 14px; opacity: 0.98; }
+        .report-title { text-align: center; font-size: 24px; color: #0f766e; font-weight: 900; margin: 16px 0 8px; }
+        .title-underline { width: 240px; height: 2px; background: #f59e0b; margin: 8px auto 35px; border-radius: 3px; }
+        .content { padding: 24px; }
       </style>
     </head><body>
-      <h1>${title}</h1>
-      <div class="meta">Generated at: ${nowString()}</div>
-      <div>${content}</div>
-      <script>setTimeout(() => { window.print(); setTimeout(() => window.close(), 500); }, 200);</script>
+      <div class="brand-header">
+        <div class="brand-top">
+          <div class="brand-logo"><img src="${logoUrl}" alt="EcoCycle Logo" crossorigin="anonymous" /></div>
+          <div class="brand-info">
+            <div class="brand-title">ECOCYCLE LANKA (PVT) LTD</div>
+            <div class="brand-sub">123 Green Tech Park, Colombo 05, Sri Lanka</div>
+            <div class="brand-sub" style="white-space: nowrap">Tel: +94 11 234 5678 | Email: ecocycle923@gmail.com</div>
+          </div>
+          <div class="brand-spacer"></div>
+        </div>
+      </div>
+      <div class="content">
+        <div class="report-title">${title}</div>
+        <div class="title-underline"></div>
+        <!-- meta removed to avoid duplicate timestamps -->
+        <div>${content}</div>
+      </div>
+      <script>
+        (function(){
+          const imgs = Array.from(document.images || []);
+          Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(r => { img.onload = img.onerror = r; })))
+            .then(() => setTimeout(() => { window.print(); setTimeout(() => window.close(), 500); }, 100));
+        })();
+      </script>
     </body></html>`);
     win.document.close();
   };
@@ -244,7 +329,7 @@ export default function InventoryReports() {
                 <h2 className="text-lg font-bold">Raw Materials Report</h2>
                 <p className="text-sm text-gray-500">Inventory materials with current stock</p>
               </div>
-              <button onClick={() => printSection(refMaterials, 'Raw Materials Report')} className="print-hide px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Download PDF</button>
+              <button onClick={() => printSection(refMaterials, 'Inventory Raw Materials Report')} className="print-hide px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Download PDF</button>
             </div>
             <div ref={refMaterials} className="p-4 overflow-x-auto">
               <div className="text-sm text-gray-500 mb-3">Generated at: {nowString()}</div>
@@ -339,7 +424,7 @@ export default function InventoryReports() {
                 <h2 className="text-lg font-bold">Stock Summary & Requests</h2>
                 <p className="text-sm text-gray-500">Available, delivered, requested totals and request list</p>
               </div>
-              <button onClick={() => printSection(refStock, 'Stock Summary & Requests')} className="print-hide px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Download PDF</button>
+              <button onClick={() => printSection(refStock, 'Inventory Stock Summary & Requests')} className="print-hide px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Download PDF</button>
             </div>
             <div ref={refStock} className="p-4 overflow-x-auto">
               <div className="text-sm text-gray-500 mb-3">Generated at: {nowString()}</div>
@@ -388,7 +473,7 @@ export default function InventoryReports() {
                 <h2 className="text-lg font-bold">Production Report</h2>
                 <p className="text-sm text-gray-500">Production requests summary and details</p>
               </div>
-              <button onClick={() => printSection(refProduction, 'Production Report')} className="print-hide px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Download PDF</button>
+              <button onClick={() => printSection(refProduction, 'Inventory Production Report')} className="print-hide px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Download PDF</button>
             </div>
             <div ref={refProduction} className="p-4">
               <div className="text-sm text-gray-500 mb-3">Generated at: {nowString()}</div>
@@ -438,7 +523,7 @@ export default function InventoryReports() {
                 <h2 className="text-lg font-bold">Delivery Records (Delivered)</h2>
                 <p className="text-sm text-gray-500">Transport requests marked as Delivered</p>
               </div>
-              <button onClick={() => printSection(refDeliveries, 'Delivery Records (Delivered)')} className="print-hide px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Download PDF</button>
+              <button onClick={() => printSection(refDeliveries, 'Inventory Delivery Records (Delivered)')} className="print-hide px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700">Download PDF</button>
             </div>
             <div ref={refDeliveries} className="p-4">
               <div className="text-sm text-gray-500 mb-3">Generated at: {nowString()}</div>
