@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import LogoutButton from "../common/LogoutButton";
-import { CubeIcon, ClipboardDocumentListIcon, ChartBarIcon, ArrowTrendingUpIcon, DocumentChartBarIcon } from "@heroicons/react/24/outline";
+import { CubeIcon, ClipboardDocumentListIcon, ChartBarIcon, ArrowTrendingUpIcon, DocumentChartBarIcon, Squares2X2Icon } from "@heroicons/react/24/outline";
 
 export default function InventoryStockManagement() {
   const [loading, setLoading] = useState(true);
@@ -243,7 +243,7 @@ export default function InventoryStockManagement() {
             to="/inventory/materials"
             className="w-full flex items-center space-x-3 p-3 rounded-xl transition-all duration-200 text-gray-700 hover:bg-gray-100"
           >
-            <ArrowTrendingUpIcon className="w-5 h-5" />
+            <Squares2X2Icon className="w-5 h-5" />
             <span className="font-medium">Raw Materials</span>
           </Link>
           <Link
