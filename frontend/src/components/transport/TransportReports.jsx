@@ -99,7 +99,7 @@ export default function TransportReports() {
           text-align: center;
           margin: 0 -20px 16px -20px;
           padding: 16px 20px;
-          background-color: #1e40af; /* blue banner */
+          background-color: #0c9387; /* brand green */
           color: #ffffff; /* white text */
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
@@ -164,9 +164,15 @@ export default function TransportReports() {
 
     const companyInfo = `
       <div class="header">
-        <h1>ECOCYCLE LANKA (PVT) LTD</h1>
-        <div class="line">123 Green Tech Park, Colombo 05, Sri Lanka</div>
-        <div class="line">Tel: +94 11 234 5678 | Email: ecocycle923@gmail.com</div>
+        <div style="display:grid;grid-template-columns:152px 1fr 72px;align-items:center;gap:4px;">
+          <img src="${window.location.origin}/ecocycle-logo.png" alt="EcoCycle Logo" style="display:block;height:136px;width:136px;object-fit:contain;justify-self:start;" />
+          <div style="text-align:center;">
+            <h1>ECOCYCLE LANKA (PVT) LTD</h1>
+            <div class="line">123 Green Tech Park, Colombo 05, Sri Lanka</div>
+            <div class="line">Tel: +94 11 234 5678 | Email: ecocycle923@gmail.com</div>
+          </div>
+          <div style="width:72px;height:72px;justify-self:end;"></div>
+        </div>
       </div>
       <div class="report-title">${title}</div>`;
 
@@ -340,3 +346,4 @@ export default function TransportReports() {
     </div>
   );
 }
+
