@@ -1058,71 +1058,49 @@ export default function CollectorsDashboard() {
     }
   };
 
+  // Download a PDF receipt (no QR) with the same standard header as reports
+  const downloadReceiptPdf = async () => {
+    try {
+      if (!lastReceipt) return;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const logo = await loadHeaderLogo();
+      const title = 'Collection Receipt';
+      const subtitle = `Receipt ID: ${lastReceipt.id}  |  Generated: ${new Date().toLocaleString()}`;
+      let y = addStandardPdfHeader(doc, title, subtitle, logo);
+
+      // Key-value details
+      const leftX = 20;
+      const labelW = 45;
+      const lineH = 8;
+      const rows = [
+        ['Timestamp', new Date(lastReceipt.createdAt).toLocaleString()],
+        ['Collector', lastReceipt.collectorName],
+        ['User Phone', lastReceipt.userPhone],
+        ['Weight (g)', lastReceipt.quantity],
+        ['Location', lastReceipt.location || '-'],
+        ['Awarded Points', lastReceipt.awardedPoints],
+      ];
+      rows.forEach(([label, value], i) => {
+        const yPos = y + i * lineH;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(55, 65, 81);
+        doc.text(String(label), leftX, yPos);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(17, 24, 39);
+        doc.text(String(value ?? '-'), leftX + labelW, yPos);
+      });
+
+      const fileId = lastReceipt.id || 'collection_receipt';
+      doc.save(`receipt_${fileId}.pdf`);
+    } catch (e) {
+      console.error('Failed to download receipt PDF', e);
+    }
+  };
+
   const ReceiptModal = () => {
     if (!showReceipt || !lastReceipt) return null;
-    const qrPayload = {
-      type: 'collection_receipt',
-      id: lastReceipt.id,
-      collector: lastReceipt.collectorName,
-      phone: lastReceipt.userPhone,
-      bottleType: lastReceipt.bottleType,
-      quantity: lastReceipt.quantity,
-      location: lastReceipt.location,
-      points: lastReceipt.awardedPoints,
-      createdAt: lastReceipt.createdAt,
-    };
-    const printReceipt = () => {
-      try {
-        const title = 'Collection Receipt';
-        const html = `<!doctype html>
-        <html>
-          <head>
-            <meta charset="utf-8" />
-            <title>${title}</title>
-            <style>
-              @page { size: A4; margin: 12mm; }
-              body { font-family: Arial, Helvetica, sans-serif; color: #111827; }
-              h1 { font-size: 18px; margin: 0 0 8px 0; }
-              .row { display:flex; justify-content:space-between; margin: 6px 0; font-size: 12px; }
-              .label { color:#6b7280; }
-              .value { }
-              .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
-              img { border: 1px solid #e5e7eb; border-radius: 12px; padding: 6px; }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <h1>${title}</h1>
-              <div class="row"><span class="label">Receipt ID</span><span class="value">${lastReceipt.id}</span></div>
-              <div class="row"><span class="label">Timestamp</span><span class="value">${new Date(lastReceipt.createdAt).toISOString()}</span></div>
-              <div class="row"><span class="label">Collector</span><span class="value">${lastReceipt.collectorName}</span></div>
-              <div class="row"><span class="label">User Phone</span><span class="value">${lastReceipt.userPhone}</span></div>
-              <div class="row"><span class="label">Weight (g)</span><span class="value">${lastReceipt.quantity}</span></div>
-              <div class="row"><span class="label">Location</span><span class="value">${lastReceipt.location || '-'}</span></div>
-              <div class="row"><span class="label">Awarded Points</span><span class="value">${lastReceipt.awardedPoints}</span></div>
-              <div style="margin-top:12px; display:flex; justify-content:center;">
-                <img src="${buildQrUrl(qrPayload)}" onerror="this.onerror=null; this.src='${buildQrFallbackUrl(qrPayload)}'" alt="QR" />
-              </div>
-            </div>
-            <script>window.onload = function(){ try { window.print(); } catch(e){} };</script>
-          </body>
-        </html>`;
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = '0';
-        document.body.appendChild(iframe);
-        const win = iframe.contentWindow;
-        const doc = win.document;
-        doc.open();
-        doc.write(html);
-        doc.close();
-        win.onafterprint = () => { try { document.body.removeChild(iframe); } catch {} };
-      } catch {}
-    };
+    // Legacy print/QR is removed per requirement; using jsPDF download instead.
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
         {/* Print styles to ensure only the receipt prints on one page */}
@@ -1137,10 +1115,12 @@ export default function CollectorsDashboard() {
         <div className="bg-white w-[680px] max-w-[95vw] rounded-2xl shadow-xl overflow-hidden receipt-print">
           <div className="px-5 py-4 border-b flex items-center justify-between">
             <h3 className="text-lg font-semibold">Collection Receipt</h3>
-            <button onClick={()=>setShowReceipt(false)} className="text-gray-500 hover:text-gray-700">âœ•</button>
+            <button onClick={()=>setShowReceipt(false)} className="text-gray-500 hover:text-gray-700" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
           </div>
-          <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="md:col-span-2 space-y-2">
+          <div className="p-6 grid grid-cols-1 gap-6">
+            <div className="space-y-2">
               <div className="flex justify-between text-sm"><span className="text-gray-500">Receipt ID</span><span className="font-mono">{lastReceipt.id}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Timestamp</span><span>{new Date(lastReceipt.createdAt).toISOString()}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Collector</span><span>{lastReceipt.collectorName}</span></div>
@@ -1149,17 +1129,9 @@ export default function CollectorsDashboard() {
               <div className="flex justify-between text-sm"><span className="text-gray-500">Location</span><span>{lastReceipt.location || '-'}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Awarded Points</span><span>{lastReceipt.awardedPoints}</span></div>
             </div>
-            <div className="flex items-center justify-center">
-              <img
-                alt="QR Code"
-                className="border rounded-xl p-2"
-                src={buildQrUrl(qrPayload)}
-                onError={(e)=>{ try { if (!e.currentTarget.dataset.fallback){ e.currentTarget.dataset.fallback='1'; e.currentTarget.src = buildQrFallbackUrl(qrPayload); } } catch {} }}
-              />
-            </div>
           </div>
           <div className="px-6 pb-6 flex justify-end gap-3">
-            <button onClick={printReceipt} className="border px-4 py-2 rounded-lg">Print</button>
+            <button onClick={downloadReceiptPdf} className="border px-4 py-2 rounded-lg">Download PDF</button>
             <button onClick={()=>setShowReceipt(false)} className="bg-gray-900 text-white px-4 py-2 rounded-lg">Close</button>
           </div>
         </div>
@@ -1171,6 +1143,11 @@ export default function CollectorsDashboard() {
     <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 max-w-5xl">
       <ReceiptModal />
       {toast && <div className="mb-4 p-3 rounded-lg bg-green-50 text-green-700 border border-green-200">{toast}</div>}
+      {qtySinceLastRequest >= 20 && (
+        <div className="mb-3 p-3 rounded-lg border border-red-300 bg-red-50 text-red-700 text-sm">
+          Stock is full (≥ 20 kg). Please request transport.
+        </div>
+      )}
       <h2 className="text-xl font-bold text-gray-900 mb-2">Record New Collection</h2>
       {editingId && (
         <div className="mb-4 p-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-sm">
@@ -1202,7 +1179,8 @@ export default function CollectorsDashboard() {
               {binLocations.map((loc, idx) => {
                 const name = loc.location || loc.name || '';
                 const city = loc.city || '';
-                const label = city ? `${name} Â· ${city}` : name;
+                // Use a proper bullet separator to avoid mojibake like 'Â·'
+                const label = city ? `${name} • ${city}` : name;
                 return (
                   <option key={(loc.routeId||loc.id||idx)+name} value={name}>{label}</option>
                 );
@@ -1312,7 +1290,7 @@ export default function CollectorsDashboard() {
         <button type="button" onClick={() => {
           if (!lastReceipt) { setToast("Please save the collection first to generate a receipt."); return; }
           setShowReceipt(true);
-        }} className="flex items-center gap-2 border px-4 py-2 rounded-lg"><QrCodeIcon className="w-5 h-5"/>Generate Receipt/QR</button>
+        }} className="flex items-center gap-2 border px-4 py-2 rounded-lg"><QrCodeIcon className="w-5 h-5"/>Generate Receipt</button>
       </div>
       </form>
 
@@ -1556,6 +1534,11 @@ export default function CollectorsDashboard() {
   const MyStockTab = () => (
     <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
       <h2 className="text-xl font-bold text-gray-900 mb-4">My Stock</h2>
+      {qtySinceLastRequest >= 20 && (
+        <div className="mb-4 p-3 rounded-lg border border-red-300 bg-red-50 text-red-700 text-sm">
+          Stock is full (≥ 20 kg). Please request transport.
+        </div>
+      )}
       {currentBatchCollections.length === 0 ? (
         <div className="p-6 border rounded-2xl bg-gray-50 text-gray-700">
           No current stock. New collections will appear here until you send a request.
