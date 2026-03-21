@@ -10,15 +10,9 @@ import {
   TrendingUp,
   FileText,
   Search,
-  Plus,
   AlertTriangle,
-  Users,
-  Clock,
   CheckCircle,
-  XCircle,
-  BarChart3,
   ShoppingCart,
-  LogOut,
   PackagePlus,
   DollarSign,
 } from "lucide-react";
@@ -94,6 +88,8 @@ const ProductionDashboard = () => {
   const [products, setProducts] = useState([]);
 
   const [editingProduct, setEditingProduct] = useState(null);
+  const [restockingProduct, setRestockingProduct] = useState(null);
+  const [restockQuantity, setRestockQuantity] = useState('');
   const [newProduct, setNewProduct] = useState({
     name: "",
     price: "",
@@ -668,35 +664,36 @@ const ProductionDashboard = () => {
   };
 
   // Generate unique Product ID starting from RIP-0001 and incrementing
-  const generateUniqueProductId = () => {
-    const ids = (products || [])
-      .map(p => String(p.productId || ''))
-      .map(id => {
-        const m = id.match(/^RIP-(\d{4})$/);
-        return m ? parseInt(m[1], 10) : null;
-      })
-      .filter(n => n !== null);
+  // Commented out as it's not currently used
+  // const generateUniqueProductId = () => {
+  //   const ids = (products || [])
+  //     .map(p => String(p.productId || ''))
+  //     .map(id => {
+  //       const m = id.match(/^RIP-(\d{4})$/);
+  //       return m ? parseInt(m[1], 10) : null;
+  //     })
+  //     .filter(n => n !== null);
 
-    const existingSet = new Set(ids);
-    let next = 1;
-    if (ids.length > 0) {
-      const max = Math.max(...ids);
-      next = max + 1;
-    }
+  //   const existingSet = new Set(ids);
+  //   let next = 1;
+  //   if (ids.length > 0) {
+  //     const max = Math.max(...ids);
+  //     next = max + 1;
+  //   }
 
-    // If exceeded 9999, find first available gap from 1..9999
-    if (next > 9999) {
-      next = 1;
-      while (next <= 9999 && existingSet.has(next)) next++;
-      if (next > 9999) {
-        // As a last resort, fallback to a timestamp-based suffix (still numeric) trimmed to 4 digits
-        const ts = Date.now() % 10000;
-        next = ts === 0 ? 1 : ts;
-      }
-    }
+  //   // If exceeded 9999, find first available gap from 1..9999
+  //   if (next > 9999) {
+  //     next = 1;
+  //     while (next <= 9999 && existingSet.has(next)) next++;
+  //     if (next > 9999) {
+  //       // As a last resort, fallback to a timestamp-based suffix (still numeric) trimmed to 4 digits
+  //       const ts = Date.now() % 10000;
+  //       next = ts === 0 ? 1 : ts;
+  //     }
+  //   }
 
-    return `RIP-${String(next).padStart(4, '0')}`;
-  };
+  //   return `RIP-${String(next).padStart(4, '0')}`;
+  // };
 
   
 
@@ -777,12 +774,13 @@ const ProductionDashboard = () => {
 
   // Planning and machines are fetched from backend now
 
-  const qualityMetrics = [
-    { metric: "Defect Rate", value: "2.1%", target: "< 3%", status: "Good" },
-    { metric: "First Pass Yield", value: "94.5%", target: "> 90%", status: "Excellent" },
-    { metric: "Customer Satisfaction", value: "4.7/5", target: "> 4.5", status: "Excellent" },
-    { metric: "On-time Delivery", value: "96.2%", target: "> 95%", status: "Good" },
-  ];
+  // Commented out as it's not currently used
+  // const qualityMetrics = [
+  //   { metric: "Defect Rate", value: "2.1%", target: "< 3%", status: "Good" },
+  //   { metric: "First Pass Yield", value: "94.5%", target: "> 90%", status: "Excellent" },
+  //   { metric: "Customer Satisfaction", value: "4.7/5", target: "> 4.5", status: "Excellent" },
+  //   { metric: "On-time Delivery", value: "96.2%", target: "> 95%", status: "Good" },
+  // ];
 
   // Machine status loaded from backend
 
@@ -1007,21 +1005,7 @@ const ProductionDashboard = () => {
     setNewProduct({ ...newProduct, [name]: value });
   };
 
-  // Ensure price shows two decimals on blur (preserve cents typed)
-  const handlePriceBlur = () => {
-    const raw = String(newProduct.price || '').replace(/,/g, '');
-    const m = raw.match(/^(\d{1,4})(?:\.(\d{0,2}))?$/);
-    const intPart = m ? m[1] : '';
-    let fracPart = m ? (m[2] || '') : '';
-    if (!intPart) {
-      setNewProduct((prev) => ({ ...prev, price: '' }));
-      return;
-    }
-    fracPart = (fracPart + '00').slice(0, 2);
-    const num = Number(`${intPart}.${fracPart}`);
-    const formatted = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    setNewProduct((prev) => ({ ...prev, price: formatted }));
-  };
+  // handlePriceBlur function removed as it's not being used
 
   // Handle image upload
   const handleImageUpload = (e) => {
@@ -1567,8 +1551,24 @@ const ProductionDashboard = () => {
                             <td className="py-3 px-4 text-center"><span className={`px-2 py-1 rounded-full text-xs font-medium ${p.stock < 10 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{p.stock < 10 ? 'Out of Stock' : 'Available'}</span></td>
                             <td className="py-3 px-4 text-center">
                               <div className="flex items-center justify-center gap-2">
-                                <button className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700" onClick={() => handleEditProduct(p)}>Edit</button>
-                                <button className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700" onClick={() => handleDeleteProduct(p._id)}>Delete</button>
+                                <button 
+                                  className="px-3 py-1 rounded-md text-sm bg-green-600 text-white hover:bg-green-700" 
+                                  onClick={() => handleRestockProduct(p)}
+                                >
+                                  Restock
+                                </button>
+                                <button 
+                                  className="px-3 py-1 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700" 
+                                  onClick={() => handleEditProduct(p)}
+                                >
+                                  Edit
+                                </button>
+                                <button 
+                                  className="px-3 py-1 rounded-md text-sm bg-red-600 text-white hover:bg-red-700" 
+                                  onClick={() => handleDeleteProduct(p._id)}
+                                >
+                                  Delete
+                                </button>
                               </div>
                             </td>
                           </tr>

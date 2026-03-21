@@ -25,6 +25,8 @@ import InventoryDeliveryRecords from "./components/Inventory/InventoryDeliveryRe
 import ProductionDashboard from "./components/Production/ProductionDashboard";
 import ProductionAnalyticsPage from "./components/Production/ProductionAnalyticsPage";
 import ProductionReportPage from "./components/Production/ProductionReportPage";
+import PointsCheckout from "./components/checkout/PointsCheckout";
+import OrderConfirmation from "./pages/OrderConfirmation";
 import UnifiedFinanceDashboard from "./components/finance/UnifiedFinanceDashboard";
 import AdminDashboard from "./components/admin/AdminDashboard";
 import TransportDashboard from "./components/transport/TransportDashboard";
@@ -46,6 +48,16 @@ function App() {
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/cart" element={<CartPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
+          <Route path="/checkout/points" element={
+            <ProtectedRoute>
+              <PointsCheckout />
+            </ProtectedRoute>
+          } />
+          <Route path="/order-confirmation" element={
+            <ProtectedRoute>
+              <OrderConfirmation />
+            </ProtectedRoute>
+          } />
           <Route path="/about" element={<AboutUs />} />
           <Route path="/bins" element={<BinsPage />} />
           <Route path="/register" element={<Register />} />

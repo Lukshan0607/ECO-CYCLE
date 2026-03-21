@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import LogoutButton from "../common/LogoutButton";
-import { LayoutDashboard, FileText, Factory, Package, TrendingUp, Settings, BarChart3, PieChart as PieIcon } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, FileText, Factory, Package, TrendingUp, Settings, BarChart3, PieChart as PieIcon } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -25,65 +25,57 @@ const ProductionAnalyticsPage = () => {
   const [plans, setPlans] = useState([]);
   const [qualityRecords, setQualityRecords] = useState([]);
   const [machines, setMachines] = useState([]);
-  const [products, setProducts] = useState([]);
   const [approved, setApproved] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
   // Fetch data
   useEffect(() => {
     const fetchAll = async () => {
-      setLoading(true);
       try {
-        const [plansRes, qualRes, machRes, prodRes, apprRes] = await Promise.all([
+        const [plansRes, qualRes, machRes, apprRes] = await Promise.all([
           axios.get("http://localhost:5000/api/production-plans"),
           axios.get("http://localhost:5000/api/quality"),
           axios.get("http://localhost:5000/api/machines"),
-          axios.get("http://localhost:5000/api/products"),
-          axios.get("http://localhost:5000/api/production-requests/status/Approved"),
+          axios.get("http://localhost:5000/api/approved-requests"),
         ]);
-        setPlans(plansRes.data?.plans || (Array.isArray(plansRes.data) ? plansRes.data : []));
-        setQualityRecords(qualRes.data?.records || (Array.isArray(qualRes.data) ? qualRes.data : []));
-        setMachines(machRes.data?.machines || (Array.isArray(machRes.data) ? machRes.data : []));
-        setProducts(prodRes.data?.products || (Array.isArray(prodRes.data) ? prodRes.data : []));
-        setApproved(Array.isArray(apprRes.data) ? apprRes.data : []);
+        setPlans(plansRes.data.plans || []);
+        setQualityRecords(qualRes.data.records || []);
+        setMachines(machRes.data.machines || []);
+        setApproved(apprRes.data.requests || []);
       } catch (e) {
         console.error("Analytics fetch error", e);
-      } finally {
-        setLoading(false);
       }
     };
     fetchAll();
   }, []);
 
-  // Date filtering helpers
-  const isWithinRange = (dateStr) => {
-    if (!dateStr) return true;
-    const d = new Date(dateStr);
-    if (startDate) {
-      const s = new Date(startDate);
-      if (d < new Date(s.getFullYear(), s.getMonth(), s.getDate())) return false;
-    }
+  // Filter data by date range
+  const isWithinRange = useCallback((dateString) => {
+    if (!startDate && !endDate) return true;
+    const date = new Date(dateString);
+    if (startDate && new Date(startDate) > date) return false;
     if (endDate) {
-      const e = new Date(endDate);
-      if (d > new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59, 999)) return false;
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      return date <= end;
     }
     return true;
-  };
+  }, [startDate, endDate]);
 
   // Derived datasets
   const productionByMonth = useMemo(() => {
-    // Sum quantities by startDate month; fallback to current month if missing
     const map = new Map();
-    plans.filter((p) => !startDate && !endDate ? true : isWithinRange(p.startDate)).forEach((p) => {
+    plans.filter(p => !startDate && !endDate ? true : isWithinRange(p.startDate)).forEach((p) => {
       const d = p.startDate ? new Date(p.startDate) : new Date();
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       map.set(key, (map.get(key) || 0) + (parseFloat(p.quantity) || 0));
     });
-    const arr = Array.from(map.entries()).sort(([a], [b]) => (a > b ? 1 : -1)).map(([k, v]) => ({ month: k, produced: v }));
-    return arr;
-  }, [plans]);
+    return Array.from(map.entries()).sort(([a], [b]) => (a > b ? 1 : -1)).map(([k, v]) => ({
+      month: k,
+      produced: v
+    }));
+  }, [plans, startDate, endDate, isWithinRange]);
 
   const defectRateByMonth = useMemo(() => {
     const map = new Map();
@@ -101,7 +93,7 @@ const ProductionAnalyticsPage = () => {
       defectRate: v.inspected ? (v.defects / v.inspected) * 100 : 0,
     }));
     return arr;
-  }, [qualityRecords, startDate, endDate]);
+  }, [qualityRecords, startDate, endDate, isWithinRange]);
 
   const machinesByStatus = useMemo(() => {
     const map = new Map();
@@ -119,7 +111,7 @@ const ProductionAnalyticsPage = () => {
       map.set(name, (map.get(name) || 0) + (parseFloat(r?.requestedQty) || 0));
     });
     return Array.from(map.entries()).map(([name, qty]) => ({ name, qty }));
-  }, [approved, startDate, endDate]);
+  }, [approved, startDate, endDate, isWithinRange]);
 
   // KPI metrics (respecting date range)
   const totalProduced = useMemo(() => productionByMonth.reduce((s, d) => s + (parseFloat(d.produced) || 0), 0), [productionByMonth]);
@@ -164,7 +156,7 @@ const ProductionAnalyticsPage = () => {
 
   const menuItems = [
     { name: "Overview", key: "overview", icon: <LayoutDashboard size={20} /> },
-    { name: "Products", key: "products", icon: <Package size={20} /> },
+    { name: "Products", key: "products", icon: <ShoppingCart size={20} /> },
     { name: "Production Planning", key: "planning", icon: <Factory size={20} /> },
     { name: "Raw Materials", key: "materials", icon: <Package size={20} /> },
     { name: "Quality Control", key: "quality", icon: <Settings size={20} /> },

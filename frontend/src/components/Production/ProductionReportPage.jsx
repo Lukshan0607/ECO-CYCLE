@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 import LogoutButton from "../common/LogoutButton";
-import { LayoutDashboard, CheckCircle, FileText, Factory, Package, TrendingUp, AlertTriangle, Printer, Settings } from "lucide-react";
+import { LayoutDashboard, CheckCircle, FileText, Factory, Package, TrendingUp, AlertTriangle, Printer, Settings,ShoppingCart } from "lucide-react";
 
 const ProductionReportPage = () => {
   const refApproved = useRef(null);
@@ -129,7 +129,7 @@ const ProductionReportPage = () => {
 
   const menuItems = [
     { name: "Overview", key: "overview", icon: <LayoutDashboard size={20} /> },
-    { name: "Products", key: "products", icon: <Package size={20} /> },
+    { name: "Products", key: "products", icon: <ShoppingCart size={20} /> },
     { name: "Production Planning", key: "planning", icon: <Factory size={20} /> },
     { name: "Raw Materials", key: "materials", icon: <Package size={20} /> },
     { name: "Quality Control", key: "quality", icon: <Settings size={20} /> },
