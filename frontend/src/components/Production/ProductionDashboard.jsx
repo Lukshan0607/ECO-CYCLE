@@ -314,6 +314,7 @@ const ProductionDashboard = () => {
    const handleRestockProduct = (product) => {
     console.log("Restock product:", product);
   };
+  
 
   // Fetch production plans
   const fetchProductionPlans = async () => {
