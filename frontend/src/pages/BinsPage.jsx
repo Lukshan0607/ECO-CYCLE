@@ -1,14 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { 
   Search, 
-  Filter, 
   MapPin, 
   Clock, 
   RefreshCw,
   Route,
   User,
-  Map,
   AlertCircle
 } from 'lucide-react';
 import axios from 'axios';
@@ -69,10 +66,6 @@ function BinsPage() {
     );
   };
 
-  const formatDate = (dateString) => {
-    const options = { year: 'numeric', month: 'short', day: 'numeric' };
-    return new Date(dateString).toLocaleDateString(undefined, options);
-  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">

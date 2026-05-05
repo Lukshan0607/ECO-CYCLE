@@ -29,43 +29,83 @@ const getOrderById = async (req, res) => {
 
 // Create new sales order
 const createOrder = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
   try {
     const { customerId, customerName, products, shippingAddress, notes } = req.body || {};
 
     if (!customerId || !customerName) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: 'Missing customer information' });
     }
 
     if (!Array.isArray(products) || products.length === 0) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: 'No products provided for the order' });
     }
 
-    // Calculate total amount and sanitize products
+    // Validate products and check stock
+    for (const product of products) {
+      const productId = product.productId;
+      const quantity = Math.max(1, parseInt(product.quantity) || 1);
+      
+      if (!mongoose.isValidObjectId(productId)) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ message: `Invalid product ID: ${productId}` });
+      }
+
+      // Check product exists and has sufficient stock
+      const dbProduct = await Product.findById(productId).session(session);
+      if (!dbProduct) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ message: `Product not found: ${productId}` });
+      }
+
+      if (dbProduct.stock < quantity) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ 
+          message: `Insufficient stock for product: ${dbProduct.name}. Available: ${dbProduct.stock}, Requested: ${quantity}` 
+        });
+      }
+    }
+
+    // Calculate total amount and prepare order products
     let totalAmount = 0;
-    const orderProducts = products.map((product) => {
+    const orderProducts = [];
+    
+    for (const product of products) {
+      const productId = product.productId;
       const quantity = Math.max(1, parseInt(product.quantity) || 1);
       const unitPrice = parseFloat(product.unitPrice) || 0;
       const totalPrice = quantity * unitPrice;
       totalAmount += totalPrice;
 
-      // Cast productId to ObjectId only if it looks valid
-      let castProductId;
-      if (product.productId && typeof product.productId === 'string' && /^[a-fA-F0-9]{24}$/.test(product.productId)) {
-        castProductId = new mongoose.Types.ObjectId(product.productId);
-      }
-
-      return {
-        productId: castProductId,
+      orderProducts.push({
+        productId: new mongoose.Types.ObjectId(productId),
         productName: product.productName,
         quantity,
         unitPrice,
         totalPrice,
-      };
-    });
+      });
 
-    // Generate sequential order ID
-    const orderCount = await SalesOrder.countDocuments();
-    const orderId = `ORDC${String(orderCount + 1).padStart(6, '0')}`;
+      // Reduce product stock
+      await Product.findByIdAndUpdate(
+        productId,
+        { $inc: { stock: -quantity } },
+        { session }
+      );
+    }
+
+    // Generate unique order ID with timestamp and random string
+    const timestamp = Date.now().toString().slice(-6);
+    const random = Math.floor(1000 + Math.random() * 9000);
+    const orderId = `ORD${timestamp}${random}`;
 
     const newOrder = new SalesOrder({
       orderId,
@@ -74,28 +114,38 @@ const createOrder = async (req, res) => {
       products: orderProducts,
       totalAmount,
       shippingAddress,
-      notes
+      notes,
+      status: 'Processing' // Set initial status
     });
 
-    const savedOrder = await newOrder.save();
+    const savedOrder = await newOrder.save({ session });
 
-    // Try to update customer statistics, but do not fail the order if this errors
-    (async () => {
-      try {
-        if (mongoose.isValidObjectId(customerId)) {
-          await Customer.findByIdAndUpdate(customerId, {
-            $inc: { totalOrders: 1, totalSpent: totalAmount },
-            lastOrderDate: new Date(),
-          });
-        }
-      } catch (e) {
-        console.warn('Customer stats update failed:', e?.message || e);
-      }
-    })();
+    // Update customer statistics
+    if (mongoose.isValidObjectId(customerId)) {
+      await Customer.findByIdAndUpdate(
+        customerId,
+        {
+          $inc: { totalOrders: 1, totalSpent: totalAmount },
+          lastOrderDate: new Date(),
+        },
+        { session, new: true }
+      );
+    }
+
+    // Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
 
     res.status(201).json(savedOrder);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    // If any error occurs, abort the transaction
+    await session.abortTransaction();
+    session.endSession();
+    console.error('Order creation failed:', error);
+    res.status(400).json({ 
+      message: 'Failed to create order',
+      error: error.message 
+    });
   }
 };
 

@@ -103,77 +103,146 @@ async function payProduct(req, res) {
     if (!mongoose.isValidObjectId(productId)) return res.status(400).json({ success: false, message: 'Invalid productId' });
     if (!qty || qty <= 0) return res.status(400).json({ success: false, message: 'quantity must be > 0' });
 
-    const product = await Product.findById(productId);
-    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
-    if (Number(product.stock) < qty) {
-      return res.status(400).json({ success: false, message: 'Insufficient stock for this product' });
-    }
-
-    const subtotal = Number(product.price) * qty;
-    const rate = Number(process.env.POINTS_PER_RUPEE || 0.10); // default: 0.10 points per 1 LKR
-    const requiredPoints = Math.round(subtotal * rate);
-    if (requiredPoints <= 0) return res.status(400).json({ success: false, message: 'Calculated required points is invalid' });
-
-    let up = await UserPoints.findOne({ userId });
-    if (!up) {
-      up = await UserPoints.create({ userId, totalPoints: 0, availablePoints: 0, lifetimeEarned: 0, lifetimeRedeemed: 0 });
-    }
-    if (up.availablePoints < requiredPoints) {
-      return res.status(400).json({ success: false, message: `Insufficient points. Need ${requiredPoints}, have ${up.availablePoints}` });
-    }
-
-    // Atomically decrement stock to prevent overselling
-    const stockUpdate = await Product.updateOne({ _id: productId, stock: { $gte: qty } }, { $inc: { stock: -qty } });
-    if (!stockUpdate?.modifiedCount) {
-      return res.status(400).json({ success: false, message: 'Insufficient stock (race condition), please try again' });
-    }
-
-    const orderCount = await SalesOrder.countDocuments();
-    const orderIdStr = `ORDP${String(orderCount + 1).padStart(6, '0')}`;
-    const order = await SalesOrder.create({
-      orderId: orderIdStr,
-      customerId: String(userId),
-      customerName: 'Customer',
-      products: [{
-        productId: product._id,
-        productName: product.name || product.productName || 'Item',
-        quantity: qty,
-        unitPrice: Number(product.price),
-        totalPrice: 0,
-      }],
-      totalAmount: subtotal,
-      status: 'Completed',
-      paymentStatus: 'Paid',
-      notes: `Paid with points: ${requiredPoints} pts @ rate ${rate}`,
-    });
-
-    // Deduct points immediately and log transaction
-    up.availablePoints -= requiredPoints;
-    up.lifetimeRedeemed += requiredPoints;
-    await up.save();
-    await PointsTransaction.create({
-      userId,
-      type: 'redeemed',
-      points: requiredPoints,
-      source: 'reward_redemption',
-      description: `Redeemed for order ${order.orderId} (subtotal LKR ${subtotal.toFixed(2)} @ rate ${rate})`,
-    });
-
-    // Optional: create an approved PointsPayment record for audit trail
+    // Start a session for transaction
+    const session = await mongoose.startSession();
+    
     try {
-      await PointsPayment.create({
-        userId,
-        orderId: order._id,
-        requiredPoints,
-        subtotalSnapshot: subtotal,
-        rateSnapshot: rate,
-        status: 'approved',
-      });
-    } catch (e) {
-      // non-fatal
-    }
+      const result = await session.withTransaction(async () => {
+        const product = await Product.findById(productId).session(session);
+        if (!product) {
+          throw new Error('Product not found');
+        }
+        
+        if (Number(product.stock) < qty) {
+          throw new Error('Insufficient stock for this product');
+        }
 
-    return res.status(200).json({ success: true, message: 'Purchased with points successfully', orderId: order.orderId, requiredPoints, balance: up.availablePoints });
+        // Use the points value directly from the product
+        const requiredPoints = Number(product.points || 0) * qty;
+        if (requiredPoints <= 0) {
+          throw new Error('Product points value is invalid');
+        }
+
+        // Get user details for the order
+        const user = await User.findById(userId).session(session);
+        if (!user) {
+          throw new Error('User not found');
+        }
+
+        let up = await UserPoints.findOne({ userId }).session(session);
+        if (!up) {
+          const [newUp] = await UserPoints.create([{
+            userId, 
+            totalPoints: 0, 
+            availablePoints: 0, 
+            lifetimeEarned: 0, 
+            lifetimeRedeemed: 0
+          }], { session });
+          up = newUp;
+        }
+        
+        if (up.availablePoints < requiredPoints) {
+          throw new Error(`Insufficient points. Need ${requiredPoints}, have ${up.availablePoints}`);
+        }
+
+        // Atomically decrement stock to prevent overselling
+        const stockUpdate = await Product.updateOne(
+          { _id: productId, stock: { $gte: qty } }, 
+          { $inc: { stock: -qty } },
+          { session }
+        );
+        
+        if (!stockUpdate?.modifiedCount) {
+          throw new Error('Insufficient stock (race condition), please try again');
+        }
+
+        // Get the next order number in a thread-safe way
+        const lastOrder = await SalesOrder.findOne({}, {}, { sort: { 'createdAt' : -1 } }).session(session);
+        const orderCount = lastOrder ? parseInt(lastOrder.orderId.replace('ORD', '')) : 0;
+        const orderIdStr = `ORD${String(orderCount + 1).padStart(6, '0')}`;
+        
+        // Calculate product total price
+        const productTotal = Number((product.price * qty).toFixed(2));
+        
+        // Create the order
+        const [order] = await SalesOrder.create([{
+          orderId: orderIdStr,
+          customerId: String(userId),
+          customerName: user.name || 'Customer',
+          products: [{
+            productId: product._id,
+            productName: product.name || product.productName || 'Item',
+            quantity: qty,
+            unitPrice: Number(product.price),
+            totalPrice: productTotal,
+          }],
+          totalAmount: Number(product.price) * qty,
+          status: 'Completed',
+          paymentStatus: 'Paid',
+          paymentMethod: 'points',
+          paymentDate: new Date(),
+          shippingAddress: req.body.shippingDetails?.address ? {
+            street: req.body.shippingDetails.address,
+            city: req.body.shippingDetails.city || '',
+            state: req.body.shippingDetails.state || '',
+            zipCode: req.body.shippingDetails.postalCode || '',
+            country: req.body.shippingDetails.country || 'Sri Lanka'
+          } : undefined,
+          notes: `Paid with points: ${requiredPoints} pts (${qty} x ${product.points} pts each)`,
+        }], { session });
+        
+        // Deduct points from user's balance
+        up.availablePoints -= requiredPoints;
+        up.lifetimeRedeemed += requiredPoints;
+        await up.save({ session });
+        
+        // Log the points transaction
+        await PointsTransaction.create([{
+          userId,
+          type: 'redeemed',
+          points: requiredPoints,
+          source: 'reward_redemption',
+          description: `Redeemed for order ${orderIdStr} (${product.name} x ${qty})`,
+        }], { session });
+        
+        // Create payment record
+        await PointsPayment.create([{
+          userId,
+          orderId: order._id,
+          requiredPoints,
+          subtotalSnapshot: Number(product.price) * qty,
+          rateSnapshot: 1, // Using 1 as the rate since we're using direct points
+          status: 'approved',
+        }], { session });
+
+        // Return the order ID and updated points balance
+        // Note: up.availablePoints already has the deducted amount
+        return {
+          orderId: orderIdStr,
+          balance: up.availablePoints
+        };
+      });
+
+      // If we get here, the transaction was successful
+      if (result) {
+        return res.status(200).json({ 
+          success: true, 
+          message: 'Order placed successfully',
+          orderId: result.orderId,
+          balance: result.balance
+        });
+      } else {
+        throw new Error('Transaction was not committed');
+      }
+    } catch (error) {
+      console.error('Order processing error:', error);
+      return res.status(400).json({ 
+        success: false, 
+        message: error.message || 'Failed to process order' 
+      });
+    } finally {
+      await session.endSession();
+    }
   } catch (err) {
     console.error('payProduct error:', err);
     return res.status(500).json({ success: false, message: 'Server error' });
