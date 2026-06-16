@@ -83,7 +83,7 @@ export default function Contact() {
       icon: <PhoneIcon className="w-6 h-6" />,
       title: "Phone Support",
       description: "Speak directly with our support team",
-      contact: "+1 (555) 123-4567",
+      contact: "+94 773 456 789",
       availability: "Mon-Fri 9AM-6PM EST"
     },
     {

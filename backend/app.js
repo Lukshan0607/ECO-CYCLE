@@ -1,11 +1,14 @@
 // pass = ZL7IayqbTspqb2rd
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
 const app = express();
 
+
 // Import routes
+
 const userRoutes = require("./Routes/UserRoutes");
 const inventoryRoutes = require("./Routes/InventoryRoutes");
 const productionRequestRoutes = require("./Routes/ProductionRequestRoutes");
@@ -26,13 +29,20 @@ const machineRoutes = require("./Routes/MachineRoutes");
 const qualityRoutes = require("./Routes/QualityRoutes");
 const stockProductionRequestRoutes = require("./Routes/StockProductionRequestRoutes");
 const expenseRoutes = require("./Routes/ExpenseRoutes");
+const chatbotRoutes = require("./Routes/ChatbotRoutes");
+
 
 // CORS Configuration
+
 const corsOptions = {
+
     origin: ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'],
+
     credentials: true,
+
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+
 };
 
 // Middleware
@@ -41,8 +51,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static files
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 
 // API Routes
 app.use("/api/users", userRoutes);
@@ -57,10 +69,12 @@ app.use("/api/payroll", payrollRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/transport", transportRoutes);
 app.use("/api/vehicles", vehicleRoutes);
-
 app.use("/api/transport", vehicleRoutes);
 app.use("/api/transport", binRouteRoutes);
+
+
 // Collectors pages required endpoints
+
 app.use("/api/collections", collectionRoutes);
 app.use("/api/points", pointsRoutes);
 app.use("/api/transport-requests", transportRequestRoutes);
@@ -69,16 +83,18 @@ app.use("/api/production-plans", productionPlanRoutes);
 app.use("/api/machines", machineRoutes);
 app.use("/api/quality", qualityRoutes);
 app.use("/api/stock-requests", stockProductionRequestRoutes);
+app.use("/api/chatbot", chatbotRoutes);
 
 // Health check endpoint
+
 app.get('/api/health', (req, res) => {
+
     res.status(200).json({ 
         success: true, 
         message: 'EcoCycle API is running',
         timestamp: new Date().toISOString()
     });
 });
-
 // Registration form endpoint
 app.get('/register', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'register.html'));
@@ -100,13 +116,12 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error('Error:', err.stack);
-    res.status(500).json({ 
+    res.status(500).json({
         success: false,
         message: 'Something went wrong!',
         error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
     });
 });
-
 // 404 handler
 app.use('*', (req, res) => {
     res.status(404).json({ 
@@ -114,19 +129,22 @@ app.use('*', (req, res) => {
         message: 'Endpoint not found'
     });
 }); 
-
-
-
 // Connect to MongoDB
 mongoose.connect("mongodb+srv://admin:ZL7IayqbTspqb2rd@cluster0.hk1j2kb.mongodb.net/myDatabase?retryWrites=true&w=majority&appName=Cluster0")
+
 .then(() => console.log("Connected to MongoDB"))
 .then(() => {
     // Start the server
+
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
+
     });
+
 })
+
 .catch(err => console.error("Failed to connect to MongoDB", err));
+
 
 //test comment

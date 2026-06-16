@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import "./App.css";
@@ -37,10 +37,16 @@ import InventoryStockManagement from "./components/Inventory/InventoryStockManag
 import FAQ from "./components/business/FAQ";
 import Contact from "./components/business/Contact";
 import HelpCenter from "./components/business/HelpCenter";
+import Chatbot from "./components/chatbot/Chatbot";
+
+
 
 function App() {
+  const location = useLocation();
+  const showChatbot = ["/", "/products", "/contact"].includes(location.pathname);
+
   return (
-    <AuthProvider>
+     <AuthProvider>
       <div className="App">
         <Routes>
           {/* Public Routes */}
@@ -52,12 +58,15 @@ function App() {
             <ProtectedRoute>
               <PointsCheckout />
             </ProtectedRoute>
+
           } />
+
           <Route path="/order-confirmation" element={
             <ProtectedRoute>
               <OrderConfirmation />
             </ProtectedRoute>
           } />
+
           <Route path="/about" element={<AboutUs />} />
           <Route path="/bins" element={<BinsPage />} />
           <Route path="/register" element={<Register />} />
@@ -66,7 +75,10 @@ function App() {
           <Route path="/contact" element={<Contact />} />
           <Route path="/help" element={<HelpCenter />} />
 
+
+
           {/* Protected Routes - General User */}
+
           <Route
             path="/dashboard"
             element={
@@ -75,6 +87,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/collectors"
             element={
@@ -84,7 +97,10 @@ function App() {
             }
           />
 
+
+
           {/* Protected Routes - Admin Only */}
+
           <Route
             path="/admin"
             element={
@@ -93,6 +109,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/admin-dashboard"
             element={
@@ -102,7 +119,10 @@ function App() {
             }
           />
 
+
+
           {/* Protected Routes - Manager/Admin */}
+
           <Route
             path="/inventory"
             element={
@@ -111,6 +131,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/requests"
             element={
@@ -119,6 +140,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/deliveries"
             element={
@@ -127,6 +149,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/profile"
             element={
@@ -135,6 +158,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/forms"
             element={
@@ -143,6 +167,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/stock"
             element={
@@ -151,14 +176,17 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/analytics"
             element={
+
               <ProtectedRoute>
                 <InventoryAnalytics />
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/sorting"
             element={
@@ -167,6 +195,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/reports"
             element={
@@ -175,6 +204,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/inventory/materials"
             element={
@@ -184,6 +214,8 @@ function App() {
             }
           />
 
+
+
           <Route
             path="/production"
             element={
@@ -192,22 +224,27 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/production/analytics"
             element={
               <ProtectedRoute requiredRole="production">
                 <ProductionAnalyticsPage />
               </ProtectedRoute>
+
             }
           />
+
           <Route
             path="/production/reports"
+
             element={
               <ProtectedRoute requiredRole="production">
                 <ProductionReportPage />
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/finance"
             element={
@@ -216,6 +253,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/transport"
             element={
@@ -224,6 +262,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/transport/reports"
             element={
@@ -233,6 +272,8 @@ function App() {
             }
           />
 
+
+
           {/* Legacy Routes - Redirect to new dashboard */}
           <Route
             path="/user-dashboard"
@@ -241,7 +282,9 @@ function App() {
                 <UserDashboard />
               </ProtectedRoute>
             }
+
           />
+
           <Route
             path="/manager-dashboard"
             element={
@@ -252,19 +295,29 @@ function App() {
           />
         </Routes>
       </div>
+
+      {showChatbot && <Chatbot />}
       <ToastContainer
         position="top-right"
         autoClose={5000}
         hideProgressBar={false}
         newestOnTop={false}
         closeOnClick
+
         rtl={false}
         pauseOnFocusLoss
         draggable
         pauseOnHover
+
       />
+
     </AuthProvider>
+
   );
+
 }
+
 //change branch
+
 export default App;
+
